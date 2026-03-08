@@ -42,18 +42,30 @@ def get_supabase():
     """Lazy load Supabase client"""
     global supabase
     if supabase is None:
-        from supabase import create_client
-        supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-    return supabase
+        try:
+            from supabase import create_client
+            if SUPABASE_URL and SUPABASE_ANON_KEY:
+                supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+                logger.info("Supabase client initialized")
+        except Exception as e:
+            logger.warning(f"Could not initialize Supabase: {str(e)}")
+            supabase = False
+    return supabase if supabase else None
 
 def get_openai():
     """Lazy load OpenAI"""
     global openai
     if openai is None:
-        import openai as openai_module
-        openai_module.api_key = OPENAI_API_KEY
-        openai = openai_module
-    return openai
+        try:
+            import openai as openai_module
+            if OPENAI_API_KEY:
+                openai_module.api_key = OPENAI_API_KEY
+                openai = openai_module
+                logger.info("OpenAI initialized")
+        except Exception as e:
+            logger.warning(f"Could not initialize OpenAI: {str(e)}")
+            openai = False
+    return openai if openai else None
 
 # Create FastAPI app
 app = FastAPI(title="OnBrain AI Mini App", version="1.0.0")
@@ -341,6 +353,7 @@ if __name__ == "__main__":
         reload=False,
         log_level="info"
     )
+
 
 
 
