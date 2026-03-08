@@ -52,102 +52,118 @@ async def api_health():
 
 # ==================== MINI APP ENDPOINT ====================
 
+def get_fallback_html():
+    """Fallback HTML if static file not found"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>OnBrain AI Mini App</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            body {
+                background: #0D0D1A;
+                color: #FFFFFF;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                padding: 20px;
+            }
+            .container {
+                text-align: center;
+                background: rgba(123, 47, 255, 0.1);
+                padding: 40px;
+                border-radius: 12px;
+                border: 1px solid #7B2FFF;
+                max-width: 400px;
+            }
+            h1 {
+                color: #7B2FFF;
+                margin-bottom: 20px;
+                font-size: 28px;
+            }
+            p {
+                font-size: 16px;
+                line-height: 1.6;
+                margin-bottom: 15px;
+            }
+            .message {
+                background: rgba(123, 47, 255, 0.2);
+                padding: 15px;
+                border-radius: 8px;
+                margin-top: 20px;
+                font-size: 14px;
+                color: #AAA;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 OnBrain AI</h1>
+            <p>Mini App yuklanmoqda...</p>
+            <div class="message">
+                <p>🔧 Fallback Mode: Static HTML file not found</p>
+                <p style="margin-top: 10px;">Iltimos, static/index.html faylni GitHub'ga yuklang</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
 @app.get("/miniapp")
 async def get_miniapp():
     """Serve the Mini App HTML"""
     try:
-        # Look for static/index.html
-        static_paths = [
-            os.path.join(os.path.dirname(__file__), "..", "static", "index.html"),
-            os.path.join(os.getcwd(), "static", "index.html"),
-            os.path.join("/", "app", "static", "index.html"),
+        # For Vercel serverless, static files are at the root level
+        # Try multiple path variations
+        possible_paths = [
+            # Vercel root-level static
+            "/var/task/static/index.html",
+            "/app/static/index.html",
             "static/index.html",
+            "./static/index.html",
+            # Fallback: current directory
+            os.path.join(os.getcwd(), "static", "index.html"),
+            os.path.join(os.path.dirname(__file__), "..", "static", "index.html"),
         ]
         
-        for path in static_paths:
+        html_content = None
+        for path in possible_paths:
             if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    return HTMLResponse(content=f.read())
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    logger.info(f"✅ Loaded HTML from: {path}")
+                    return HTMLResponse(content=html_content)
+                except Exception as e:
+                    logger.debug(f"Could not read from {path}: {e}")
+                    continue
         
-        # Fallback HTML if file not found
-        return HTMLResponse(content="""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>OnBrain AI Mini App</title>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-                * {
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                body {
-                    background: #0D0D1A;
-                    color: #FFFFFF;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    min-height: 100vh;
-                    padding: 20px;
-                }
-                .container {
-                    text-align: center;
-                    background: rgba(123, 47, 255, 0.1);
-                    padding: 40px;
-                    border-radius: 12px;
-                    border: 1px solid #7B2FFF;
-                }
-                h1 {
-                    color: #7B2FFF;
-                    margin-bottom: 20px;
-                    font-size: 32px;
-                }
-                p {
-                    font-size: 16px;
-                    line-height: 1.6;
-                    margin-bottom: 15px;
-                }
-                .loading {
-                    display: inline-block;
-                    margin-top: 20px;
-                }
-                .spinner {
-                    width: 40px;
-                    height: 40px;
-                    border: 4px solid rgba(123, 47, 255, 0.3);
-                    border-top: 4px solid #7B2FFF;
-                    border-radius: 50%;
-                    animation: spin 1s linear infinite;
-                }
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🚀 OnBrain AI</h1>
-                <p>Mini App yuklanmoqda...</p>
-                <p style="font-size: 14px; color: #AAA;">Mini App faylidagi HTML faylini topa olmadi</p>
-                <div class="loading">
-                    <div class="spinner"></div>
-                </div>
-            </div>
-        </body>
-        </html>
-        """)
+        # If no file found, return fallback HTML
+        logger.warning("Static index.html not found, using fallback")
+        return HTMLResponse(content=get_fallback_html())
+        
     except Exception as e:
-        logger.error(f"Error loading miniapp: {str(e)}")
+        logger.error(f"Error in /miniapp: {str(e)}")
         return HTMLResponse(
             content=f"""
             <html>
             <body style="background: #0D0D1A; color: red; font-family: Arial; padding: 50px; text-align: center;">
-                <h1>❌ Xato</h1>
-                <p>{str(e)}</p>
+                <h1>❌ Error Loading Mini App</h1>
+                <p>Error: {str(e)}</p>
+                <p style="color: #AAA; margin-top: 20px; font-size: 12px;">
+                    If you see this, the static/index.html file is not deployed.<br>
+                    Please ensure static/index.html is in your GitHub repository.
+                </p>
             </body>
             </html>
             """,
