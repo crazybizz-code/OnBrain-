@@ -7,7 +7,13 @@ import os
 import json
 from datetime import datetime
 from typing import Optional
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import logging
 
 from fastapi import FastAPI, HTTPException, Request
@@ -335,5 +341,6 @@ if __name__ == "__main__":
         reload=False,
         log_level="info"
     )
+
 
 
