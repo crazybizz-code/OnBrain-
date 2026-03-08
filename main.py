@@ -73,6 +73,14 @@ SYSTEM_PROMPT = """Siz OnBrain AI yordamchisiz. Foydalanuvchi savollariga o'zbek
 
 # ==================== ROUTES ====================
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "ok",
+        "service": "OnBrain AI Mini App",
+        "timestamp": datetime.now().isoformat()
+    }
 @app.get("/")
 async def root():
     """Root endpoint - redirect to mini app"""
@@ -265,19 +273,31 @@ async def get_chat_history(telegram_id: int, limit: int = 20):
 async def get_miniapp():
     """Serve the Mini App HTML"""
     import os
-    html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     
-    # If file doesn't exist at expected path, try alternative
-    if not os.path.exists(html_path):
-        html_path = "static/index.html"
+    # Try multiple paths for Vercel compatibility
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), "static", "index.html"),
+        os.path.join(os.getcwd(), "static", "index.html"),
+        "static/index.html",
+        "./static/index.html",
+    ]
     
-    # Return HTML content directly for Vercel compatibility
-    try:
-        with open(html_path, 'r', encoding='utf-8') as f:
-            html_content = f.read()
+    html_content = None
+    for html_path in possible_paths:
+        try:
+            if os.path.exists(html_path):
+                with open(html_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                    logger.info(f"Loaded HTML from: {html_path}")
+                    break
+        except Exception as e:
+            logger.debug(f"Failed to load from {html_path}: {str(e)}")
+            continue
+    
+    if html_content:
         return HTMLResponse(content=html_content)
-    except Exception as e:
-        logger.error(f"Error loading HTML: {str(e)}")
+    else:
+        logger.error("Could not find index.html in any path")
         raise HTTPException(status_code=500, detail="Mini App HTML not found")
 
 
@@ -315,4 +335,5 @@ if __name__ == "__main__":
         reload=False,
         log_level="info"
     )
+
 
