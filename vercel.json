@@ -1,6 +1,14 @@
 {
   "buildCommand": "pip install -r requirements.txt",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index.py" }
+  "functions": {
+    "api/index.py": {
+      "runtime": "python3.11"
+    }
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.py"
+    }
   ]
 }
