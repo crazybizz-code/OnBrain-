@@ -717,12 +717,24 @@ def table_to_text(rows: list[list[Any]]) -> str:
 def credentials_from_json(credentials_json: str) -> Credentials:
     data = json.loads(credentials_json)
     creds = Credentials.from_authorized_user_info(data, scopes=SCOPES)
+    
+    # Check if stored credentials have old scopes (only .readonly)
+    stored_scopes = data.get("scopes", [])
+    has_old_scopes = any("readonly" in scope for scope in stored_scopes)
+    
+    # If old scopes detected, raise error to trigger re-authentication
+    if has_old_scopes:
+        logger.warning(f"⚠️ Old credential scopes detected (read-only). User needs to re-authenticate.")
+        raise ValueError("Credentials have old scopes. Please re-authenticate to grant full access.")
+    
+    # Refresh if expired
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(GoogleAuthRequest())
             logger.info("✅ Credentials refreshed successfully")
         except Exception as e:
             logger.warning(f"⚠️ Could not refresh credentials: {e}")
+    
     return creds
 
 
@@ -1535,6 +1547,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             # Use the existing credential helper function that handles refresh
                             creds = credentials_from_json(session.google_credentials_json)
                             logger.info(f"✅ Credentials loaded and refreshed if needed")
+                        except ValueError as scope_error:
+                            logger.info(f"Old scopes detected for user {telegram_id}: {scope_error}")
+                            await message.answer(
+                                "🔄 <b>Yangi ruxsatlar kerak</b>\n\n"
+                                "Google Sheets/Drive ning naqsh o'zgarib ketgan. Iltimos, qayta avtentifikatsiya qiling.\n\n"
+                                "Asosiy menyudan \"📊 Google Sheets ulash\" tugmasini bosing.",
+                                parse_mode="HTML",
+                                reply_markup=build_main_menu()
+                            )
+                            session.google_credentials_json = None  # Clear old credentials
+                            session.step = "ready"
+                            return
                         except Exception as cred_error:
                             logger.error(f"❌ Credential loading error: {cred_error}")
                             raise ValueError(f"Credentials loading failed: {cred_error}") from cred_error
@@ -1714,7 +1738,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     await message.answer("⏳ Google Drive papka o'qilmoqda... Iltimos kuting. Bu biroz vaqt olishi mumkin...")
                     
                     # Get credentials
-                    creds = credentials_from_json(session.google_credentials_json)
+                    try:
+                        creds = credentials_from_json(session.google_credentials_json)
+                    except ValueError as e:
+                        logger.info(f"Old scopes detected for user {telegram_id}: {e}")
+                        await message.answer(
+                            "🔄 <b>Yangi ruxsatlar kerak</b>\n\n"
+                            "Google Sheets/Drive ning naqsh o'zgarib ketgan. Iltimos, qayta avtentifikatsiya qiling.\n\n"
+                            "Asosiy menyudan \"📊 Google Sheets ulash\" tugmasini bosing.",
+                            parse_mode="HTML",
+                            reply_markup=build_main_menu()
+                        )
+                        session.google_credentials_json = None  # Clear old credentials
+                        session.step = "ready"
+                        return
                     
                     # Import the Google Drive service
                     from google_drive_service import get_all_spreadsheets_from_folder
@@ -2331,7 +2368,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             )
             
             # Get credentials
-            creds = credentials_from_json(session.google_credentials_json)
+            try:
+                creds = credentials_from_json(session.google_credentials_json)
+            except ValueError as scope_error:
+                logger.info(f"Old scopes detected for user {telegram_id}: {scope_error}")
+                await callback.message.edit_text(
+                    "🔄 <b>Yangi ruxsatlar kerak</b>\n\n"
+                    "Google Sheets/Drive ning naqsh o'zgarib ketgan. Iltimos, qayta avtentifikatsiya qiling.\n\n"
+                    "Asosiy menyudan \"📁 Google Drive Folder\" tugmasini bosing.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 Asosiy menyuya qaytish", callback_data="main_menu")]])
+                )
+                session.google_credentials_json = None
+                return
             
             # Import the Google Drive service
             from google_drive_service import GoogleDriveService
