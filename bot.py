@@ -1105,6 +1105,102 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             logger.exception(f"❌ Chat command error: {exc}")
             await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
+    @dp.message(Command("sheets"))
+    async def sheets_command_handler(message: Message) -> None:
+        """Handle /sheets command to connect Google Sheets"""
+        telegram_id = message.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        
+        logger.info(f"📊 /sheets command - User {telegram_id}")
+        
+        # Check if user is registered
+        if session.step in {"waiting_first_name", "waiting_last_name", "waiting_contact", "waiting_email"}:
+            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            return
+        
+        try:
+            # Trigger sheets button handler
+            session.auth_mode = "sheets"
+            await message.answer(
+                "📊 <b>Google Sheets ulash</b>\n\n"
+                "Google Sheets fayli ulash uchun:\n\n"
+                "1️⃣ Google hisobiga kiring\n"
+                "2️⃣ Spreadsheet linkini yuboring:\n"
+                "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit",
+                parse_mode="HTML"
+            )
+            if not session.google_credentials_json:
+                session.step = "waiting_auth"
+                await message.answer(
+                    "🔐 Iltimos, Google hisobiga kiring:",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔐 Google'da kirish", callback_data="auth_google")]
+                    ])
+                )
+        except Exception as exc:
+            logger.exception(f"❌ Sheets command error: {exc}")
+            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+
+    @dp.message(Command("folder"))
+    async def folder_command_handler(message: Message) -> None:
+        """Handle /folder command to access Google Drive folder"""
+        telegram_id = message.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        
+        logger.info(f"📁 /folder command - User {telegram_id}")
+        
+        # Check if user is registered
+        if session.step in {"waiting_first_name", "waiting_last_name", "waiting_contact", "waiting_email"}:
+            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            return
+        
+        try:
+            session.auth_mode = "folder"
+            await message.answer(
+                "📁 <b>Google Drive Papka ulash</b>\n\n"
+                "Google Drive papka uchun:\n\n"
+                "1️⃣ Google hisobiga kiring\n"
+                "2️⃣ Papka linkini yuboring:\n"
+                "https://drive.google.com/drive/folders/1ABC123xyz",
+                parse_mode="HTML"
+            )
+            if not session.google_credentials_json:
+                session.step = "waiting_auth"
+                await message.answer(
+                    "🔐 Iltimos, Google hisobiga kiring:",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔐 Google'da kirish", callback_data="auth_google")]
+                    ])
+                )
+        except Exception as exc:
+            logger.exception(f"❌ Folder command error: {exc}")
+            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+
+    @dp.message(Command("excel"))
+    async def excel_command_handler(message: Message) -> None:
+        """Handle /excel command to upload Excel file"""
+        telegram_id = message.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        
+        logger.info(f"📁 /excel command - User {telegram_id}")
+        
+        # Check if user is registered
+        if session.step in {"waiting_first_name", "waiting_last_name", "waiting_contact", "waiting_email"}:
+            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            return
+        
+        try:
+            session.step = "waiting_excel_file"
+            await message.answer(
+                "📁 <b>Excel fayl yuklash</b>\n\n"
+                "Excel fayl (.xlsx, .xls) yuboring:\n\n"
+                "Botni fayl bilan javob bering.",
+                parse_mode="HTML"
+            )
+        except Exception as exc:
+            logger.exception(f"❌ Excel command error: {exc}")
+            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+
     @dp.message(Command("help"))
     async def help_command_handler(message: Message) -> None:
         """Handle /help command to show help information"""
@@ -1117,11 +1213,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 "<b>Mavjud buyruqlar:</b>\n"
                 "🏠 <b>/start</b> - Asosiy menyu\n"
                 "💬 <b>/chat</b> - Assistant bilan suhbat\n"
+                "📊 <b>/sheets</b> - Google Sheets ulash\n"
+                "📁 <b>/folder</b> - Google Drive Papka ulash\n"
+                "📄 <b>/excel</b> - Excel fayl yuklash\n"
                 "❓ <b>/help</b> - Bu yordam matnini ko'rsatish\n\n"
                 "<b>Asosiy funksiyalar:</b>\n"
                 "📊 <b>Google Sheets</b> - Google Sheets fayllari bilan ishlash\n"
-                "📁 <b>Excel</b> - Excel fayllari yuklab jo'natish\n"
-                "🤖 <b>Assistant</b> - AI yordamchi bilan suhbat\n\n"
+                "📁 <b>Google Drive</b> - Google Drive papkasidagi fayllari o'qish\n"
+                "📄 <b>Excel</b> - Excel fayllari yuklab jo'natish\n"
+                "💬 <b>Chat</b> - AI yordamchi bilan suhbat\n\n"
                 "<b>Qanday ishlatish:</b>\n"
                 "1. /start buyrug'ini yuboring\n"
                 "2. Asosiy menyu dan kerakli bo'limni tanlang\n"
@@ -1157,8 +1257,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 "• Python nima?\n"
                 "• Machine Learning qanday ishlaydi?\n"
                 "• Uzbekistonda qaysi university eng yaxshi?\n\n"
-                "Suhbatni tugatish uchun /start buyrug'ini yuboring.",
-                parse_mode="HTML"
+                "💡 <b>Maslahat:</b> Quyidagi tugmani bosing yoki /start buyrug'ini yuboring chat rejimini tark etish uchun.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🚪 Chat'ni tark etish", callback_data="exit_chat")]
+                ])
             )
             await callback_query.answer("✅ Chat rejimi faollashtirildi")
         except Exception as exc:
