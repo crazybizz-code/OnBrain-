@@ -282,9 +282,9 @@ class Config:
     supabase_anon_key: str
     # Server configuration - can be overridden via env vars
     server_host: str = "0.0.0.0"  # Listen on all interfaces for production
-    server_port: int = 8080  # Fly.io uses 8080 by default
-    google_redirect_uri: str = "http://localhost:8080/"  # For Google OAuth
-    github_redirect_uri: str = "http://localhost:8080/github/callback"  # For GitHub OAuth
+    server_port: int = 8080  # Render uses 8080 by default
+    google_redirect_uri: str = "https://onbrain.onrender.com/"  # For Google OAuth
+    github_redirect_uri: str = "https://onbrain.onrender.com/github/callback"  # For GitHub OAuth
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -312,7 +312,7 @@ class Config:
         # Google OAuth redirect URI
         google_redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
         if not google_redirect_uri:
-            domain = os.getenv("APP_DOMAIN", "localhost").strip()
+            domain = os.getenv("APP_DOMAIN", "onbrain.onrender.com").strip()
             if domain == "localhost":
                 google_redirect_uri = f"http://localhost:{server_port}/"
             else:
@@ -321,7 +321,7 @@ class Config:
         # GitHub OAuth redirect URI
         github_redirect_uri = os.getenv("GITHUB_REDIRECT_URI", "").strip()
         if not github_redirect_uri:
-            domain = os.getenv("APP_DOMAIN", "localhost").strip()
+            domain = os.getenv("APP_DOMAIN", "onbrain.onrender.com").strip()
             if domain == "localhost":
                 github_redirect_uri = f"http://localhost:{server_port}/github/callback"
             else:
@@ -602,7 +602,7 @@ class SupabaseService:
 
 
 class GoogleOAuthService:
-    def __init__(self, client_id: str, client_secret: str, redirect_uri: str = "http://localhost:8080/") -> None:
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str = "https://onbrain.onrender.com/") -> None:
         self.client_config = {
             "web": {
                 "client_id": client_id,
@@ -1160,8 +1160,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         session = ctx.sessions.get(telegram_id)
         
         logger.info(f"🚪 Exit chat clicked - User {telegram_id}")
-        oka
-
+    
         try:
             session.step = "ready"
             await callback_query.answer("✅ Chat rejimi yopildi")
