@@ -256,8 +256,8 @@ input_validator = InputValidator()
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",  # Full read/write access to Sheets
+    "https://www.googleapis.com/auth/drive",         # Full read/write access to Drive (folders, files, etc)
 ]
 # REDIRECT_URI is now set from config - see Config class
 MAIN_MENU_SHEETS = "📊 Google Sheets ulash"
