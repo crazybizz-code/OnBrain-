@@ -33,7 +33,6 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
-# OpenAI lazy import - faqat kerak bo'lganda load qilish
 import httpx
 
 import gspread
@@ -271,7 +270,7 @@ MAX_CHARS_CONTEXT = 12000
 @dataclass
 class Config:
     bot_token: str
-    openai_api_key: str
+    tavily_api_key: str
     # Google OAuth (for Google Sheets access)
     google_client_id: str
     google_client_secret: str
@@ -292,7 +291,7 @@ class Config:
         load_dotenv()
         required = {
             "BOT_TOKEN": os.getenv("BOT_TOKEN", "").strip(),
-            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "").strip(),
+            "TAVILY_API_KEY": os.getenv("TAVILY_API_KEY", "").strip(),
             "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", "").strip(),
             "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
             "GITHUB_CLIENT_ID": os.getenv("GITHUB_CLIENT_ID", "").strip(),
@@ -330,7 +329,7 @@ class Config:
         
         return cls(
             bot_token=required["BOT_TOKEN"],
-            openai_api_key=required["OPENAI_API_KEY"],
+            tavily_api_key=required["TAVILY_API_KEY"],
             google_client_id=required["GOOGLE_CLIENT_ID"],
             google_client_secret=required["GOOGLE_CLIENT_SECRET"],
             github_client_id=required["GITHUB_CLIENT_ID"],
@@ -800,20 +799,8 @@ class AppContext:
             client_secret=config.github_client_secret,
             redirect_uri=config.github_redirect_uri,
         )
-        self.openai_api_key = config.openai_api_key  # Store key for lazy initialization
-        self.openai_client = None
+        self.tavily_api_key = config.tavily_api_key  # Store key for Tavily API
         self.bot: Bot | None = None
-    
-    def get_openai_client(self):
-        """Lazy initialization of OpenAI client"""
-        if self.openai_client is None:
-            try:
-                from openai import AsyncOpenAI
-                self.openai_client = AsyncOpenAI(api_key=self.openai_api_key)
-            except Exception as exc:
-                logger.error(f"OpenAI client initialization error: {exc}")
-                return None
-        return self.openai_client
     
     def _save_credentials_sync(self, telegram_id: int, credentials_json: str) -> None:
         """Synchronously save Google credentials to database"""
@@ -1173,7 +1160,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         session = ctx.sessions.get(telegram_id)
         
         logger.info(f"🚪 Exit chat clicked - User {telegram_id}")
-        
+        oka
+
         try:
             session.step = "ready"
             await callback_query.answer("✅ Chat rejimi yopildi")
@@ -1913,43 +1901,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         else:
                             full_context = context_text
                         
-                        # Use OpenAI to generate response based on local + web context
+                        # Format response with available context (spreadsheet + web search)
                         try:
-                            logger.info(f"🤖 Using OpenAI to analyze with context")
+                            logger.info(f"🤖 Responding with available context data")
                             
-                            if ctx.openai_client is None:
-                                from openai import OpenAI
-                                ctx.openai_client = OpenAI(api_key=ctx.openai_api_key)
-                            
-                            response = ctx.openai_client.chat.completions.create(
-                                model="gpt-4o-mini",
-                                messages=[
-                                    {
-                                        "role": "system",
-                                        "content": f"""Siz OnBrain AI yordamchi botisiz. 
-Berilgan spreadsheet ma'lumotlari va web manbalar asosida foydalanuvchining savoliga javob bering.
-Javobni Oʻzbek tilida bering. Majmu javobni birinchi, keyin tafsil qiling.
-Ma'lumotlar asosida aniq va foydali javob bering.
-Agar ma'lumotlarda javob topilmasa, buni aniq bildiring.
-
-KONTEKST:
-{full_context[:2500]}"""
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": user_message
-                                    }
-                                ],
-                                temperature=0.7,
-                                max_tokens=1000,
-                                timeout=15
-                            )
-                            
-                            assistant_response = response.choices[0].message.content
-                            logger.info(f"✅ OpenAI response: {assistant_response[:50]}...")
-                            
-                            # Format response
-                            response_text = f"🤖 *AI Javob*\n\n{assistant_response}"
+                            response_text = f"🤖 *AI Javob*\n\n"
+                            response_text += f"Siz so'ragan savoliga javob:\n\n"
+                            response_text += f"*Oʻzbek tilida Javob:*\n{full_context[:2000]}"
                             
                             logger.info(f"✅ Response sent to {telegram_id}")
                             
@@ -1965,8 +1923,8 @@ KONTEKST:
                                 await message.answer(response_text, parse_mode="Markdown", reply_markup=build_chat_response_keyboard())
                         
                         except Exception as ai_error:
-                            logger.error(f"❌ OpenAI error: {ai_error}")
-                            await message.answer(f"❌ AI javob berishda xatolik: {str(ai_error)[:100]}")
+                            logger.error(f"❌ Response error: {ai_error}")
+                            await message.answer(f"❌ Javob berishda xatolik: {str(ai_error)[:100]}")
                         
                         return
                     
@@ -2580,32 +2538,26 @@ KONTEKST:
 
         await message.answer("Savolingiz qabul qilindi, javob tayyorlanmoqda...")
         context_text = table_to_text(context_rows)
-        prompt = (
-            "Siz OnBrain AI yordamchisisiz. Foydalanuvchiga faqat o'zbek tilida, aniq va foydali javob bering.\n"
-            "Javob faqat berilgan jadval ma'lumotlariga tayansin.\n\n"
-            f"Jadval ma'lumoti:\n{context_text}\n\n"
-            f"Foydalanuvchi savoli:\n{text}"
-        )
+        
         try:
-            response = await ctx.openai_client.responses.create(
-                model="gpt-4o",
-                input=[
-                    {"role": "system", "content": "Siz professional data yordamchisiz."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
+            # Generate response based on available context data
+            answer = (
+                f"📊 *Sizning savolingizga javob:*\n\n"
+                f"Savolingiz: {text}\n\n"
+                f"📋 *Jadval ma'lumoti:*\n{context_text[:1500]}\n\n"
+                f"Bu javob berilgan jadval ma'lumotlariga tayanadi."
             )
-            answer = (response.output_text or "").strip()
+            
             if not answer:
                 answer = "Kechirasiz, hozircha aniq javob hosil bo'lmadi. Iltimos, savolni boshqacha yuboring."
-            await message.answer(answer)
+            await message.answer(answer, parse_mode="Markdown")
             await ctx.supabase_service.save_message(
                 telegram_id=telegram_id,
                 question=text,
                 answer=answer,
             )
         except Exception as exc:
-            # Handle any OpenAI or other errors
+            # Handle any errors
             error_msg = str(exc).lower()
             if "rate" in error_msg or "too many" in error_msg:
                 await message.answer(
@@ -2617,9 +2569,9 @@ KONTEKST:
                 )
             else:
                 await message.answer(
-                    "AI xizmatida vaqtinchalik xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring."
+                    "Xizmatda vaqtinchalik xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring."
                 )
-                logger.exception("AI javobida xato: %s", exc)
+                logger.exception("Javobida xato: %s", exc)
 
 
 async def main() -> None:
