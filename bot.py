@@ -1320,16 +1320,10 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             session.step = "ready"
             await callback_query.answer("✅ Asosiy menyu")
             
-            # Show main menu
-            main_menu = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text=MAIN_MENU_SHEETS, callback_data="sheets")],
-                    [InlineKeyboardButton(text=MAIN_MENU_EXCEL, callback_data="excel")],
-                ]
-            )
+            # Show main menu with all options
             await callback_query.message.answer(
                 "👋 <b>Asosiy menyu</b>\n\n<i>Nimani qilmoqchisiz?</i>",
-                reply_markup=main_menu,
+                reply_markup=build_main_menu(),
                 parse_mode="HTML"
             )
         except Exception as exc:
