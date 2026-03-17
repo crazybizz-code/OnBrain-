@@ -40,6 +40,9 @@ import gspread
 # Import GitHub OAuth Service
 from github_oauth import GitHubOAuthService
 
+# Import Data Indexing Service
+from data_indexing_service import DataIndexingService
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -365,6 +368,9 @@ class UserSession:
     github_username: str | None = None
     github_email: str | None = None
     github_access_token: str | None = None
+    # Data Indexing
+    indexing_service: Any = None  # DataIndexingService instance
+    folder_id: str | None = None  # Current folder ID being indexed
 
 
 class SessionStore:
@@ -1877,6 +1883,70 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         session.step = "ready"
                         return
                     
+                    # ===== NEW: Start indexing process =====
+                    logger.info(f"🚀 Starting indexing for user {telegram_id}...")
+                    await message.answer("⏳ Ma'lumotlarni indexlashni boshlamoqda... Bu biroz vaqt olishi mumkin (2-5 minut).")
+                    
+                    # Extract folder ID from URL
+                    folder_id = None
+                    patterns = [
+                        r'drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9-_]+)',
+                        r'drive\.google\.com/(?:drive)?/(?:u/\d+/)?folders/([a-zA-Z0-9-_]+)',
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, user_input)
+                        if match:
+                            folder_id = match.group(1)
+                            break
+                    
+                    if not folder_id:
+                        await message.answer(
+                            "❌ Papka ID-ni ajratib ola olmadim. Iltimos, to'g'ri link yuboring.",
+                            reply_markup=build_retry_keyboard()
+                        )
+                        session.step = "ready"
+                        return
+                    
+                    # Initialize DataIndexingService
+                    try:
+                        indexing_service = DataIndexingService(creds, ctx.config.tavily_api_key)
+                        
+                        # Index folder files
+                        success, message_text, indexed_count = await indexing_service.index_folder_files(folder_id)
+                        
+                        if success:
+                            session.indexing_service = indexing_service
+                            session.folder_id = folder_id
+                            
+                            await message.answer(
+                                f"✅ <b>Ma'lumotlar muvaffaqiyatli indexlandi!</b>\n\n"
+                                f"📊 {indexed_count} ta fayl indexlandi.\n\n"
+                                f"Endi istalgan savolingizni yuboring va bot javob beradi.",
+                                parse_mode="HTML",
+                                reply_markup=build_main_menu()
+                            )
+                            session.step = "ready"
+                        else:
+                            await message.answer(
+                                f"❌ Indexlashda xato:\n\n{message_text}",
+                                parse_mode="HTML",
+                                reply_markup=build_retry_keyboard()
+                            )
+                            session.step = "ready"
+                    
+                    except Exception as idx_error:
+                        logger.error(f"❌ Indexing error: {idx_error}", exc_info=True)
+                        await message.answer(
+                            f"❌ Indexlashda xato:\n\n{str(idx_error)[:200]}\n\n"
+                            "Iltimos, havolani qayta yuboring.",
+                            parse_mode="HTML",
+                            reply_markup=build_retry_keyboard()
+                        )
+                        session.step = "ready"
+                    
+                    return
+                    # ===== END: Indexing process =====
+                    
                     # Store the folder spreadsheets
                     session.folder_spreadsheets = spreadsheets
                     session.selected_spreadsheets = []
@@ -1971,6 +2041,35 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     await ctx.bot.send_chat_action(message.chat.id, "typing")
                 
                 logger.info(f"💬 Chat message from {telegram_id}: {user_message[:50]}")
+                
+                # ===== NEW: Check if indexing_service is available =====
+                if session.indexing_service:
+                    logger.info(f"🚀 Using DataIndexingService for user {telegram_id}")
+                    
+                    # Query from indexed data
+                    success, answer = await session.indexing_service.query_index(user_message)
+                    
+                    if success:
+                        response_text = f"🤖 <b>AI Javob (Indexed Data-dan)</b>\n\n{answer}"
+                        
+                        # Split response if too long
+                        if len(response_text) > 4000:
+                            parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
+                            for i, part in enumerate(parts):
+                                if i == len(parts) - 1:
+                                    await message.answer(part, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
+                                else:
+                                    await message.answer(part, parse_mode="HTML")
+                        else:
+                            await message.answer(response_text, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
+                        
+                        return
+                    else:
+                        # Fallback to regular response if indexing fails
+                        logger.warning(f"⚠️ Indexing query failed: {answer}")
+                        await message.answer(f"⚠️ Index-dan javob olishda xato: {answer}")
+                        return
+                # ===== END: DataIndexingService =====
                 
                 # Check if we have local spreadsheet data (from folder or single sheet)
                 local_context = None
