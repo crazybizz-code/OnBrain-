@@ -1857,8 +1857,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     spreadsheets, error = await get_all_spreadsheets_from_folder(creds, user_input)
                     
                     if error:
+                        # Add helpful tips if it's a permission error
+                        if "permission" in error.lower() or "forbidden" in error.lower():
+                            error += "\n\n💡 <b>Yechim:</b>\n1. Google hisobiga qayta kiring (📊 Google Sheets)\n2. Papka umumiy (public) ekanligini tekshiring\n3. Havolani qayta yuboring"
+                        
                         await message.answer(
                             error,
+                            parse_mode="HTML",
                             reply_markup=build_retry_keyboard()
                         )
                         session.step = "ready"
@@ -1921,15 +1926,28 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     
                 except Exception as e:
                     logger.error(f"❌ Error reading folder: {e}", exc_info=True)
-                    await message.answer(
-                        f"❌ Google Drive papka o'qilmadi.\n\n"
-                        f"Sabablari:\n"
-                        f"• Papka umumiy (public) emas\n"
-                        f"• Link notog'ri\n"
-                        f"• Papkaga kirish huquqi yo'q\n\n"
-                        f"✅ Papka havolasini to'g'ri qilib, qayta urinib ko'ring!",
-                        reply_markup=build_retry_keyboard()
-                    )
+                    
+                    # Check if it's a permission/authentication error
+                    error_msg = str(e).lower()
+                    if "permission" in error_msg or "forbidden" in error_msg or "unauthenticated" in error_msg:
+                        await message.answer(
+                            "🔐 <b>Ruxsatlar muammosi</b>\n\n"
+                            "Google hisobiga qayta kiring va yangi ruxsatlarni bering.\n\n"
+                            "Asosiy menyudan \"📊 Google Sheets ulash\" tugmasini bosing.",
+                            parse_mode="HTML",
+                            reply_markup=build_main_menu()
+                        )
+                    else:
+                        await message.answer(
+                            f"❌ Google Drive papka o'qilmadi.\n\n"
+                            f"<b>Sabablari:</b>\n"
+                            f"• Papka umumiy (public) emas\n"
+                            f"• Link notog'ri\n"
+                            f"• Papkaga kirish huquqi yo'q\n\n"
+                            f"✅ <b>Yechim:</b> Havolani to'g'ri qilib, qayta urinib ko'ring!",
+                            parse_mode="HTML",
+                            reply_markup=build_retry_keyboard()
+                        )
                     session.step = "ready"
             else:
                 await message.answer(
