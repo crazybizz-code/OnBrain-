@@ -701,11 +701,16 @@ def build_chat_response_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def build_retry_keyboard() -> InlineKeyboardMarkup:
-    """Build keyboard with Retry, Assistant and Main menu buttons"""
+def build_retry_keyboard(context: str = "sheets") -> InlineKeyboardMarkup:
+    """Build keyboard with Retry, Assistant and Main menu buttons
+    
+    Args:
+        context: The context for the retry button ("sheets" or "folder")
+    """
+    retry_callback = f"retry_{context}"  # "retry_sheets" or "retry_folder"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Qayta yuborish", callback_data="sheets")],
+            [InlineKeyboardButton(text="🔄 Qayta yuborish", callback_data=retry_callback)],
             [InlineKeyboardButton(text="🤖 Assistant ga murojaat", callback_data="chat_start")],
             [InlineKeyboardButton(text="🏠 Asosiy menyu ga qaytish", callback_data="main_menu")],
         ]
@@ -1503,6 +1508,56 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             logger.exception(f"❌ Folder button error: {exc}")
             await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
 
+    @dp.callback_query(F.data == "retry_sheets")
+    async def retry_sheets_handler(callback_query: CallbackQuery) -> None:
+        """Handle retry for sheets - ask for sheets link again"""
+        telegram_id = callback_query.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        
+        logger.info(f"🔄 Retry sheets - User {telegram_id}")
+        
+        try:
+            session.step = "waiting_sheet_link"
+            await callback_query.message.answer(
+                "📊 <b>Google Sheets ulash</b>\n\n"
+                "Iltimos, Google Sheets havolasini yuboring:\n\n"
+                "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                "📋 <b>Misol:</b>\n"
+                "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit",
+                parse_mode="HTML"
+            )
+            await callback_query.answer()
+        except Exception as exc:
+            logger.exception(f"❌ Retry sheets error: {exc}")
+            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
+    @dp.callback_query(F.data == "retry_folder")
+    async def retry_folder_handler(callback_query: CallbackQuery) -> None:
+        """Handle retry for folder - ask for folder link again"""
+        telegram_id = callback_query.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        
+        logger.info(f"🔄 Retry folder - User {telegram_id}")
+        
+        try:
+            session.step = "waiting_folder_link"
+            await callback_query.message.answer(
+                "📁 <b>Google Drive Papka ulash</b>\n\n"
+                "Iltimos, Google Drive papka havolasini yuboring:\n\n"
+                "1️⃣ Google Drive da papkani oching\n"
+                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                "📋 <b>Misol:</b>\n"
+                "https://drive.google.com/drive/folders/1Abc123xyz?usp=sharing",
+                parse_mode="HTML"
+            )
+            await callback_query.answer()
+        except Exception as exc:
+            logger.exception(f"❌ Retry folder error: {exc}")
+            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
     @dp.callback_query(F.data == "github_login")
     async def github_login_handler(callback_query: CallbackQuery) -> None:
         """Handle GitHub login button click"""
@@ -1767,7 +1822,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 "2. \"Ulashish\" (Share) tugmasini bosing\n"
                                 "3. \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
                                 "4. Havolani nusxa olib, bot ga yuboring",
-                                reply_markup=build_retry_keyboard()
+                                reply_markup=build_retry_keyboard("sheets")
                             )
                             session.step = "ready"
                     
@@ -1785,7 +1840,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         
                         await message.answer(
                             error_text,
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("sheets")
                         )
                         session.step = "ready"
                 
@@ -1894,7 +1949,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         await message.answer(
                             error,
                             parse_mode="HTML",
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("folder")
                         )
                         session.step = "ready"
                         return
@@ -1902,7 +1957,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     if not spreadsheets:
                         await message.answer(
                             "❌ Papkada spreadsheet topilmadi.",
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("folder")
                         )
                         session.step = "ready"
                         return
@@ -1926,7 +1981,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     if not folder_id:
                         await message.answer(
                             "❌ Papka ID-ni ajratib ola olmadim. Iltimos, to'g'ri link yuboring.",
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("folder")
                         )
                         session.step = "ready"
                         return
@@ -1954,7 +2009,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             await message.answer(
                                 f"❌ Indexlashda xato:\n\n{message_text}",
                                 parse_mode="HTML",
-                                reply_markup=build_retry_keyboard()
+                                reply_markup=build_retry_keyboard("folder")
                             )
                             session.step = "ready"
                     
@@ -1964,7 +2019,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             f"❌ Indexlashda xato:\n\n{str(idx_error)[:200]}\n\n"
                             "Iltimos, havolani qayta yuboring.",
                             parse_mode="HTML",
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("folder")
                         )
                         session.step = "ready"
                     
@@ -2040,7 +2095,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             f"• Papkaga kirish huquqi yo'q\n\n"
                             f"✅ <b>Yechim:</b> Havolani to'g'ri qilib, qayta urinib ko'ring!",
                             parse_mode="HTML",
-                            reply_markup=build_retry_keyboard()
+                            reply_markup=build_retry_keyboard("folder")
                         )
                     session.step = "ready"
             else:
@@ -2048,7 +2103,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     "❌ Bu Google Drive folder linki emas.\n\n"
                     "📁 To'g'ri formatdagi link yuboring:\n"
                     "https://drive.google.com/drive/folders/1ABC123xyz",
-                    reply_markup=build_retry_keyboard()
+                    reply_markup=build_retry_keyboard("folder")
                 )
         
         # ====== IN CHAT MODE ======
@@ -2655,7 +2710,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 await callback.message.edit_text(
                     "❌ Hech qanday spreadsheet o'qilmadi.\n\n"
                     "💡 Papka havolasini to'g'ri qilib, qayta urinib ko'ring.",
-                    reply_markup=build_retry_keyboard()
+                    reply_markup=build_retry_keyboard("folder")
                 )
                 session.step = "ready"
                 return
@@ -2700,7 +2755,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             await callback.message.edit_text(
                 "❌ Spreadsheetlari yuklashda xatolik yuz berdi.\n\n"
                 "💡 Qayta urinib ko'ring.",
-                reply_markup=build_retry_keyboard()
+                reply_markup=build_retry_keyboard("folder")
             )
             session.step = "ready"
 
@@ -2870,6 +2925,10 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     context.bot = bot
+    
+    # Ensure any previous bot sessions are closed
+    logger.info("🔄 Cleaning up any previous bot sessions...")
+    await asyncio.sleep(2)  # Give Telegram time to register session termination
     
     # Test the bot token first
     try:
