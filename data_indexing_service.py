@@ -1,7 +1,8 @@
 """
-OnBrain AI - Data Indexing Service
+OnBrain AI - Data Indexing Service v2.1.0
 LlamaIndex + VectorStore Pipeline uchun Service
 Google Drive papkasidaq fayllarni indexlaydigan va Q&A qilishdagi qo'mak ko'rsatadigan modul
+Fixed import issues for LlamaIndex 0.10.0+ compatibility (March 18, 2026)
 """
 
 import logging
@@ -13,18 +14,9 @@ from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime
 
 # LlamaIndex imports
-from llama_index.core import (
-    VectorStoreIndex, 
-    Document, 
-    SimpleDirectoryReader,
-    StorageContext,
-    load_index_from_storage
-)
-from llama_index.core.node_parser import SimpleNodeParser
+from llama_index.core import VectorStoreIndex, Document
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.vector_stores import SimpleVectorStore
-from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.core.query_engines import RetrieverQueryEngine
 
 # Google API
 from google.oauth2.credentials import Credentials
