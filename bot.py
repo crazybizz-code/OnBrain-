@@ -51,6 +51,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("onbrain-ai-bot")
 
+# ==================== VERSION & FEATURES ====================
+BOT_VERSION = "2.1.0"
+FEATURES = {
+    "ai_qa": True,           # AI Q&A from indexed data
+    "data_indexing": True,   # LlamaIndex VectorStore indexing
+    "google_sheets": True,   # Google Sheets integration
+    "google_drive": True,    # Google Drive folder reading
+    "tavily_search": True,   # Web search via Tavily
+}
+logger.info(f"🚀 OnBrain AI Bot v{BOT_VERSION} - Features: {FEATURES}")
+
 # ==================== SECURITY UTILITIES ====================
 
 class RateLimiter:
