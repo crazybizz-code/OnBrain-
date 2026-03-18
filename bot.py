@@ -929,6 +929,7 @@ class OAuthServer:
         app.add_routes([
             web.get("/", self._google_callback),  # Google OAuth callback
             web.get("/github/callback", self._github_callback),  # GitHub OAuth callback
+            web.get("/health", self._health_check),  # Health check endpoint
         ])
         self.runner = web.AppRunner(app)
         await self.runner.setup()
@@ -942,6 +943,17 @@ class OAuthServer:
     async def stop(self) -> None:
         if self.runner:
             await self.runner.cleanup()
+
+    async def _health_check(self, request: web.Request) -> web.Response:
+        """Health check endpoint - returns bot version and status"""
+        return web.json_response({
+            "status": "🟢 OK",
+            "version": BOT_VERSION,
+            "features": FEATURES,
+            "timestamp": datetime.now().isoformat(),
+            "ai_qa_enabled": FEATURES.get("ai_qa", False),
+            "data_indexing_enabled": FEATURES.get("data_indexing", False),
+        })
 
     async def _google_callback(self, request: web.Request) -> web.Response:
         """Handle Google OAuth callback"""
