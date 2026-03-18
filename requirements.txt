@@ -1,4 +1,5 @@
-﻿aiogram>=3.13.1,<4.0.0
+﻿# OnBrain AI Requirements v2.1.0 - Added LlamaIndex AI Q&A Pipeline (March 18, 2026)
+aiogram>=3.13.1,<4.0.0
 aiohttp>=3.10.0,<4.0.0
 python-dotenv>=1.0.1,<2.0.0
 supabase>=2.7.4,<3.0.0
