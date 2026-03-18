@@ -1164,6 +1164,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit",
                 parse_mode="HTML"
             )
+            
+            # Force reload credentials from database in case they were saved after session started
+            if not session.google_credentials_json:
+                try:
+                    from supabase import create_client
+                    supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+                    user_response = supabase.table("users").select("google_credentials").eq("telegram_id", telegram_id).execute()
+                    if user_response.data and user_response.data[0].get("google_credentials"):
+                        session.google_credentials_json = user_response.data[0]["google_credentials"]
+                        logger.info(f"✅ Force-reloaded Google credentials for user {telegram_id}")
+                except Exception as e:
+                    logger.debug(f"⚠️ Could not force-reload credentials: {e}")
+            
+            # Now check again after reload attempt
             if not session.google_credentials_json:
                 session.step = "waiting_auth"
                 await message.answer(
@@ -1199,6 +1213,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 "https://drive.google.com/drive/folders/1ABC123xyz",
                 parse_mode="HTML"
             )
+            
+            # Force reload credentials from database in case they were saved after session started
+            if not session.google_credentials_json:
+                try:
+                    from supabase import create_client
+                    supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+                    user_response = supabase.table("users").select("google_credentials").eq("telegram_id", telegram_id).execute()
+                    if user_response.data and user_response.data[0].get("google_credentials"):
+                        session.google_credentials_json = user_response.data[0]["google_credentials"]
+                        logger.info(f"✅ Force-reloaded Google credentials for user {telegram_id}")
+                except Exception as e:
+                    logger.debug(f"⚠️ Could not force-reload credentials: {e}")
+            
+            # Now check again after reload attempt
             if not session.google_credentials_json:
                 session.step = "waiting_auth"
                 await message.answer(
