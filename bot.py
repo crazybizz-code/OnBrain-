@@ -1,4 +1,4 @@
-# OnBrain AI Bot v2.1.1 - OAuth & Credentials Fixes (March 19, 2026)
+﻿# OnBrain AI Bot v2.1.1 - OAuth & Credentials Fixes (March 19, 2026)
 import asyncio
 import io
 import json
@@ -680,7 +680,7 @@ def build_main_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=MAIN_MENU_SHEETS, callback_data="sheets")],
             [InlineKeyboardButton(text="📁 Google Drive Folder", callback_data="folder")],
             [InlineKeyboardButton(text=MAIN_MENU_EXCEL, callback_data="excel")],
-            [InlineKeyboardButton(text="🔐 GitHub로 로그인", callback_data="github_login")],
+            [InlineKeyboardButton(text="🔐 GitHub'da kirish", callback_data="github_login")],
         ]
     )
 
