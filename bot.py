@@ -651,13 +651,17 @@ class GoogleOAuthService:
 
     def cleanup_stale_flows(self) -> None:
         now = time.time()
-        stale = [state for state, item in self.pending_flows.items() if now - item["created_at"] > 900]
+        # Increase timeout to 1 hour (3600 seconds) instead of 15 minutes
+        # This prevents "OAuth state expired" errors if user takes time to authorize
+        stale = [state for state, item in self.pending_flows.items() if now - item["created_at"] > 3600]
         for state in stale:
             self.pending_flows.pop(state, None)
+            logger.debug(f"Cleaned up stale OAuth state (older than 1 hour)")
 
     def exchange_code(self, state: str, code: str) -> tuple[int, Credentials]:
         if state not in self.pending_flows:
-            raise ValueError("OAuth holati topilmadi yoki muddati tugagan.")
+            logger.warning(f"❌ OAuth state not found. Available states: {len(self.pending_flows)}")
+            raise ValueError("OAuth holati topilmadi yoki muddati tugagan. Iltimos, qayta urinib ko'ring. (State not in pending flows)")
         flow_item = self.pending_flows.pop(state)
         flow: Flow = flow_item["flow"]
         flow.fetch_token(code=code)
@@ -974,10 +978,23 @@ class OAuthServer:
         try:
             msg = await self.context.handle_oauth_callback(state, code)
             return web.Response(text=msg)
+        except ValueError as ve:
+            error_str = str(ve)
+            logger.warning(f"⚠️ OAuth state error: {error_str}")
+            # Provide helpful message for state errors
+            if "state not in" in error_str.lower() or "holati topilmadi" in error_str.lower():
+                return web.Response(
+                    text="❌ OAuth sessiyasi muddati tugagan.\n\n"
+                         "Iltimos, Telegram botga qaytib /start buyrug'ini yuboring va qayta urinib ko'ring.\n\n"
+                         "Agar muammo davom etsa, bir necha daqiqaga qayta urinib ko'ring."
+                )
+            else:
+                return web.Response(text=f"❌ OAuth xatosi: {error_str[:80]}")
         except Exception as exc:
             logger.exception("OAuth callback xatosi: %s", exc)
             return web.Response(
-                text=f"Xato: {str(exc)[:100]}. Qayta urinib ko'ring."
+                text=f"❌ Xato: {str(exc)[:100]}.\n\n"
+                     "Iltimos, /start'ga qaytib qayta urinib ko'ring."
             )
 
     async def _github_callback(self, request: web.Request) -> web.Response:
