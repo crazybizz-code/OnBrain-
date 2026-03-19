@@ -1040,7 +1040,7 @@ class OAuthServer:
             if self.context.bot:
                 message_text = f"✅ <b>GitHub hisobiga muvaffaqiyatli ulandi!</b>\n\n" \
                               f"👤 <b>Foydalanuvchi:</b> @{html_escape(github_username)}\n" \
-                              f"📧 <b>Email:</b> {html_escape(github_email or 'Noma\\'lum')}\n\n" \
+                              f"📧 <b>Email:</b> {html_escape(github_email or 'Nomalum')}\n\n" \
                               f"Endi siz barcha xususiyatlardan foydalanishingiz mumkin."
                 try:
                     await self.context.bot.send_message(
