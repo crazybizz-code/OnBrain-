@@ -1,4 +1,4 @@
-﻿# OnBrain AI Bot v2.1.0 - LlamaIndex AI Q&A Pipeline (March 18, 2026)
+# OnBrain AI Bot v2.1.1 - OAuth & Credentials Fixes (March 19, 2026)
 import asyncio
 import io
 import json
