@@ -1,10 +1,11 @@
-﻿# OnBrain AI Bot v2.1.1 - OAuth & Credentials Fixes (March 19, 2026)
+﻿# OnBrain AI Bot v2.1.2 - HTML Escape Fix (March 19, 2026)
 import asyncio
 import io
 import json
 import logging
 import os
 import re
+from html import escape as html_escape
 import secrets
 import time
 import uuid
@@ -1038,8 +1039,8 @@ class OAuthServer:
             # Send success message to user
             if self.context.bot:
                 message_text = f"✅ <b>GitHub hisobiga muvaffaqiyatli ulandi!</b>\n\n" \
-                              f"👤 <b>Foydalanuvchi:</b> @{github_username}\n" \
-                              f"📧 <b>Email:</b> {github_email or 'Noma\'lum'}\n\n" \
+                              f"👤 <b>Foydalanuvchi:</b> @{html_escape(github_username)}\n" \
+                              f"📧 <b>Email:</b> {html_escape(github_email or 'Noma\\'lum')}\n\n" \
                               f"Endi siz barcha xususiyatlardan foydalanishingiz mumkin."
                 try:
                     await self.context.bot.send_message(
@@ -1835,7 +1836,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             for sheet_name_iter, rows in all_sheets_data.items():
                                 row_count = len(rows)
                                 col_count = len(rows[0]) if rows else 0
-                                sheet_summary += f"📋 {sheet_name_iter}: {row_count} qator, {col_count} ustun\n"
+                                sheet_summary += f"📋 {html_escape(sheet_name_iter)}: {row_count} qator, {col_count} ustun\n"
                             
                             session.sheet_id = sheet_id
                             session.sheet_name = sheet_name
@@ -1850,10 +1851,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             for sheet_name_iter, rows in all_sheets_data.items():
                                 row_count = len(rows)
                                 col_count = len(rows[0]) if rows else 0
-                                sheet_summary += f"📋 {sheet_name_iter}: {row_count} qator, {col_count} ustun\n"
+                                sheet_summary += f"📋 {html_escape(sheet_name_iter)}: {row_count} qator, {col_count} ustun\n"
                             
                             sheet_summary += "\n💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
-                            await message.answer(sheet_summary, parse_mode="HTML", reply_markup=build_assistant_keyboard())
+                            try:
+                                await message.answer(sheet_summary, parse_mode="HTML", reply_markup=build_assistant_keyboard())
+                            except Exception:
+                                # Fallback: send without HTML if parsing fails
+                                plain_summary = sheet_summary.replace("<b>", "").replace("</b>", "")
+                                await message.answer(plain_summary, reply_markup=build_assistant_keyboard())
                             
                             logger.info(f"✅ Successfully loaded Google Sheets: {list(all_sheets_data.keys())}")
                         else:
@@ -2174,24 +2180,29 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     success, answer = await session.indexing_service.query_index(user_message)
                     
                     if success:
-                        response_text = f"🤖 <b>AI Javob (Indexed Data-dan)</b>\n\n{answer}"
+                        response_text = f"🤖 <b>AI Javob (Indexed Data-dan)</b>\n\n{html_escape(answer)}"
                         
                         # Split response if too long
-                        if len(response_text) > 4000:
-                            parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
-                            for i, part in enumerate(parts):
-                                if i == len(parts) - 1:
-                                    await message.answer(part, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
-                                else:
-                                    await message.answer(part, parse_mode="HTML")
-                        else:
-                            await message.answer(response_text, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
+                        try:
+                            if len(response_text) > 4000:
+                                parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
+                                for i, part in enumerate(parts):
+                                    if i == len(parts) - 1:
+                                        await message.answer(part, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
+                                    else:
+                                        await message.answer(part, parse_mode="HTML")
+                            else:
+                                await message.answer(response_text, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
+                        except Exception:
+                            # Fallback: send without HTML if parsing fails
+                            plain_text = response_text.replace("<b>", "").replace("</b>", "")
+                            await message.answer(plain_text, reply_markup=build_chat_response_keyboard())
                         
                         return
                     else:
                         # Fallback to regular response if indexing fails
                         logger.warning(f"⚠️ Indexing query failed: {answer}")
-                        await message.answer(f"⚠️ Index-dan javob olishda xato: {answer}")
+                        await message.answer(f"⚠️ Index-dan javob olishda xato: {html_escape(str(answer))}")
                         return
                 # ===== END: DataIndexingService =====
                 
@@ -2241,7 +2252,6 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         
                         # Create a prompt that uses both web search and local data
                         import requests
-                        import html
                         
                         tavily_api_key = os.getenv("TAVILY_API_KEY")
                         
@@ -2645,9 +2655,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             for sheet_name, rows in all_sheets_data.items():
                 row_count = len(rows)
                 col_count = len(rows[0]) if rows else 0
-                sheet_summary += f"📋 {sheet_name}: {row_count} qator, {col_count} ustun\n"
+                sheet_summary += f"📋 {html_escape(sheet_name)}: {row_count} qator, {col_count} ustun\n"
             
-            sheet_summary += f"\n✅ Ulandi: {selected_sheet_name}\n"
+            sheet_summary += f"\n✅ Ulandi: {html_escape(selected_sheet_name)}\n"
             sheet_summary += "Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
             
             await callback.message.edit_text(sheet_summary)
@@ -2773,25 +2783,33 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     (s['name'] for s in session.folder_spreadsheets if s['id'] == sheet_id),
                     "Unknown"
                 )
-                summary += f"📁 <b>{sheet_name}</b>\n"
+                summary += f"📁 <b>{html_escape(sheet_name)}</b>\n"
                 for sheet_title, rows in sheets.items():
                     row_count = len(rows)
                     col_count = len(rows[0]) if rows else 0
-                    summary += f"   └─ 📋 {sheet_title}: {row_count} qator, {col_count} ustun\n"
+                    summary += f"   └─ 📋 {html_escape(sheet_title)}: {row_count} qator, {col_count} ustun\n"
                 summary += "\n"
             
             if failed_sheets:
                 summary += f"\n⚠️ <b>O'qilmagan spreadsheetlar:</b>\n"
                 for name in failed_sheets:
-                    summary += f"   ❌ {name}\n"
+                    summary += f"   ❌ {html_escape(name)}\n"
             
             summary += "\n💬 Endi savolingizni yozing, barcha spreadsheet ma'lumotlari asosida javob beraman."
             
-            await callback.message.edit_text(
-                summary,
-                parse_mode="HTML",
-                reply_markup=build_assistant_keyboard()
-            )
+            try:
+                await callback.message.edit_text(
+                    summary,
+                    parse_mode="HTML",
+                    reply_markup=build_assistant_keyboard()
+                )
+            except Exception:
+                # Fallback: send without HTML if parsing fails
+                plain_summary = summary.replace("<b>", "").replace("</b>", "")
+                await callback.message.edit_text(
+                    plain_summary,
+                    reply_markup=build_assistant_keyboard()
+                )
             
             logger.info(f"✅ Successfully loaded {len(all_folder_sheets_data)} spreadsheets for user {telegram_id}")
             
