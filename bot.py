@@ -280,9 +280,9 @@ SCOPES = [
 # REDIRECT_URI is now set from config - see Config class
 MAIN_MENU_SHEETS = "📊 Google Sheets ulash"
 MAIN_MENU_EXCEL = "📁 Excel fayl yuklash"
-MAX_ROWS_FOR_CONTEXT = 80
-MAX_COLS_FOR_CONTEXT = 15
-MAX_CHARS_CONTEXT = 12000
+MAX_ROWS_FOR_CONTEXT = 200
+MAX_COLS_FOR_CONTEXT = 30
+MAX_CHARS_CONTEXT = 30000
 
 
 @dataclass
@@ -2037,11 +2037,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         for sheet in spreadsheet.get('sheets', []):
                             sheet_title = sheet['properties']['title']
                             try:
-                                # Read the values from this sheet
+                                # Read the values from this sheet (entire sheet, no column limit)
                                 logger.info(f"📊 Reading sheet '{sheet_title}'...")
                                 result = sheets_service.spreadsheets().values().get(
                                     spreadsheetId=sheet_id,
-                                    range=f"{sheet_title}!A:Z"
+                                    range=sheet_title
                                 ).execute()
                                 values = result.get('values', [])
                                 all_sheets_data[sheet_title] = values
@@ -2518,13 +2518,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 elif session.all_sheets_data:
                     local_context = {session.sheet_id or "sheet": session.all_sheets_data}
                     logger.info(f"📊 Using single sheet data: {list(session.all_sheets_data.keys())}")
+                # Priority 3: Excel file data
+                elif session.excel_data:
+                    local_context = {"excel": {"Sheet1": session.excel_data}}
+                    logger.info(f"📄 Using Excel file data: {len(session.excel_data)} rows")
                 else:
-                    logger.info(f"⚠️ No spreadsheet data in session. sheet_id={session.sheet_id}, all_sheets_data={bool(session.all_sheets_data)}, all_folder_sheets_data={bool(session.all_folder_sheets_data)}")
+                    logger.info(f"⚠️ No spreadsheet data in session. sheet_id={session.sheet_id}, all_sheets_data={bool(session.all_sheets_data)}, all_folder_sheets_data={bool(session.all_folder_sheets_data)}, excel_data={bool(session.excel_data)}")
                 
                 # If we have local data, use it for context
                 if local_context:
                     try:
-                        # Build context from local spreadsheets
+                        # Build context from local spreadsheets — read EVERYTHING
                         context_text = ""
                         
                         for sheet_id, sheets in local_context.items():
@@ -2534,17 +2538,29 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 sheet_id
                             ) if session.folder_spreadsheets else (session.sheet_name or "Spreadsheet")
                             
-                            context_text += f"Spreadsheet: {sheet_name}\n"
+                            context_text += f"=== Spreadsheet: {sheet_name} ===\n"
                             
                             for sheet_title, rows in sheets.items():
-                                context_text += f"  Sheet: {sheet_title}\n"
+                                context_text += f"\n--- Sheet: {sheet_title} ---\n"
+                                if not rows:
+                                    context_text += "(bo'sh)\n"
+                                    continue
+                                
+                                # Read ALL rows up to limit, with FULL cell values
                                 for i, row in enumerate(rows[:MAX_ROWS_FOR_CONTEXT]):
-                                    if i == 0:
-                                        context_text += f"    Headers: {' | '.join(str(x)[:30] for x in row)}\n"
-                                    else:
-                                        context_text += f"    Row {i}: {' | '.join(str(x)[:30] for x in row)}\n"
-                                if len(rows) > MAX_ROWS_FOR_CONTEXT:
-                                    context_text += f"    ... and {len(rows)-MAX_ROWS_FOR_CONTEXT} more rows\n"
+                                    # Filter out completely empty cells at the end
+                                    while row and str(row[-1]).strip() == "":
+                                        row = row[:-1]
+                                    if not row:
+                                        continue  # skip completely empty rows
+                                    
+                                    # Use full cell values (up to 100 chars each)
+                                    cells = [str(x).strip()[:100] for x in row[:MAX_COLS_FOR_CONTEXT]]
+                                    context_text += f"Row {i+1}: {' | '.join(cells)}\n"
+                                
+                                total_rows = len(rows)
+                                if total_rows > MAX_ROWS_FOR_CONTEXT:
+                                    context_text += f"... va yana {total_rows - MAX_ROWS_FOR_CONTEXT} ta qator bor\n"
                                 context_text += "\n"
                         
                         # Limit context size for API calls
@@ -2572,13 +2588,21 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                     "5. Agar ma'lumot spreadsheetda TOPILMASA, aniq ayt: 'Bu ma'lumot spreadsheetda mavjud emas.'\n"
                                     "6. Internetdan yoki boshqa manbalardan hech qanday ma'lumot QO'SHMA.\n"
                                     "7. Javobni o'zbek tilida ber.\n"
-                                    "8. Qisqa, aniq va to'g'ridan-to'g'ri javob ber."
+                                    "8. Qisqa, aniq va to'g'ridan-to'g'ri javob ber.\n"
+                                    "9. ISMLARNI AQLLI QIDIRISH: Agar foydalanuvchi 'Yodgorbek' deb so'rasa, lekin spreadsheetda 'Yodgor' bo'lsa — "
+                                    "bu BIR XILL ODAM. O'zbek ismlarida -bek, -boy, -jon, -ali, -xon qo'shimchalari tushirilishi yoki qo'shilishi mumkin. "
+                                    "Masalan: Yodgorbek=Yodgor, Jasurbek=Jasur, Sardorbek=Sardor, Nilufar=Nilu, Mahkam=Mahkamboy. "
+                                    "Shuningdek, kichik/katta harf farqi bo'lmasin, transliteratsiya (lotin/kirill) ham hisobga olinsin. "
+                                    "Har doim ENG YAQIN moslikni topishga harakat qil.\n"
+                                    "10. JADVAL TUZILISHI: Spreadsheetda ma'lumotlar turli joylarda bo'lishi mumkin — gorizontal, vertikal, jadval ichida jadval. "
+                                    "Barcha qatorlar va ustunlarni tekshir. Ma'lumot birinchi qatorda ham, oxirgi qatorda ham bo'lishi mumkin."
                                 )
                                 
                                 user_prompt = (
                                     f"Quyidagi spreadsheet ma'lumotlari berilgan:\n\n{context_text}\n\n"
                                     f"Savol: {user_message}\n\n"
-                                    f"Yuqoridagi spreadsheet ma'lumotlariga asoslanib aniq javob ber."
+                                    f"Yuqoridagi spreadsheet ma'lumotlariga asoslanib aniq javob ber. "
+                                    f"Ismlar to'liq mos kelmasa ham, eng yaqin moslikni top."
                                 )
                                 
                                 # Try grok-3-mini-fast first, fallback to other models
@@ -2995,7 +3019,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             session.all_sheets_data = all_sheets_data  # Store ALL sheets
             session.sheet_data = []  # Legacy support
             session.excel_data = []
-            session.step = "ready"
+            session.step = "in_chat"
             
             await ctx.supabase_service.save_integration(
                 telegram_id, selected_sheet_id, selected_sheet_name
@@ -3009,9 +3033,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 sheet_summary += f"📋 {html_escape(sheet_name)}: {row_count} qator, {col_count} ustun\n"
             
             sheet_summary += f"\n✅ Ulandi: {html_escape(selected_sheet_name)}\n"
-            sheet_summary += "Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+            sheet_summary += "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
             
-            await callback.message.edit_text(sheet_summary)
+            await callback.message.edit_text(sheet_summary, reply_markup=build_chat_response_keyboard())
             await callback.answer("Google Sheet muvaffaqiyatli ulandi.")
         except Exception as exc:
             logger.exception("Sheet tanlashda xato: %s", exc)
@@ -3240,7 +3264,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             session.sheet_data = []
             session.sheet_id = None
             session.sheet_name = file_name
-            session.step = "ready"
+            session.step = "in_chat"
             
             logger.info(f"✅ Excel file loaded for user {telegram_id}: {len(excel_rows)} rows")
             
@@ -3248,8 +3272,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 f"✅ <b>Excel fayl muvaffaqiyatli yuklandi!</b>\n\n"
                 f"📊 Qatorlar: {len(excel_rows)}\n"
                 f"📄 Fayl: {file_name}\n\n"
-                f"💬 Endi savolingizni yozing.",
-                parse_mode="HTML"
+                f"💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman.",
+                parse_mode="HTML",
+                reply_markup=build_chat_response_keyboard()
             )
         except Exception as exc:
             logger.exception(f"❌ Excel file processing error for user {telegram_id}: {exc}")
