@@ -327,7 +327,8 @@ class Config:
         
         # Optional server configuration
         server_host = os.getenv("SERVER_HOST", "0.0.0.0").strip()
-        server_port = int(os.getenv("SERVER_PORT", "8080"))
+        # Render uses PORT env var, fallback to SERVER_PORT, then 8080
+        server_port = int(os.getenv("PORT", os.getenv("SERVER_PORT", "8080")))
         
         # Google OAuth redirect URI
         google_redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
@@ -655,6 +656,7 @@ class GoogleOAuthService:
             "telegram_id": telegram_id,
             "created_at": time.time(),
         }
+        logger.info(f"🔑 Created OAuth state for user {telegram_id}. Total pending: {len(self.pending_flows)}. State prefix: {state[:12]}...")
         self.cleanup_stale_flows()
         return auth_url
 
@@ -668,8 +670,12 @@ class GoogleOAuthService:
             logger.debug(f"Cleaned up stale OAuth state (older than 1 hour)")
 
     def exchange_code(self, state: str, code: str) -> tuple[int, Credentials]:
+        logger.info(f"🔑 Exchange code called. State prefix: {state[:12]}... Total pending: {len(self.pending_flows)}")
         if state not in self.pending_flows:
-            logger.warning(f"❌ OAuth state not found. Available states: {len(self.pending_flows)}")
+            logger.warning(f"❌ OAuth state not found. State prefix: {state[:12]}... Available states: {len(self.pending_flows)}")
+            # Log available state prefixes for debugging
+            for s in self.pending_flows:
+                logger.warning(f"   Available state prefix: {s[:12]}...")
             raise ValueError("OAuth holati topilmadi yoki muddati tugagan. Iltimos, qayta urinib ko'ring. (State not in pending flows)")
         flow_item = self.pending_flows.pop(state)
         flow: Flow = flow_item["flow"]
@@ -1057,6 +1063,9 @@ class AppContext:
                         logger.error("Plain-text fallback also failed in OAuth callback: %s", inner)
             return "✅ Ruxsat olindi! Endi havolani yuboring."
         
+        except ValueError:
+            # Re-raise ValueError so _google_callback can handle state errors
+            raise
         except Exception as e:
             logger.error(f"❌ OAuth callback error: {e}", exc_info=True)
             return f"❌ OAuth xatoligi: {str(e)[:100]}"
