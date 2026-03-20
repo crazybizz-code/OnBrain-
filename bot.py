@@ -3133,7 +3133,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             
             # Store the data
             session.all_folder_sheets_data = all_folder_sheets_data
-            session.step = "ready"
+            session.step = "in_chat"
             
             # Create summary
             summary = "✅ <b>Google Drive spreadsheetlari muvaffaqiyatli ulandi!</b>\n\n"
@@ -3162,14 +3162,14 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 await callback.message.edit_text(
                     summary,
                     parse_mode="HTML",
-                    reply_markup=build_assistant_keyboard()
+                    reply_markup=build_chat_response_keyboard()
                 )
             except Exception:
                 # Fallback: send without HTML if parsing fails
                 plain_summary = summary.replace("<b>", "").replace("</b>", "")
                 await callback.message.edit_text(
                     plain_summary,
-                    reply_markup=build_assistant_keyboard()
+                    reply_markup=build_chat_response_keyboard()
                 )
             
             logger.info(f"✅ Successfully loaded {len(all_folder_sheets_data)} spreadsheets for user {telegram_id}")
