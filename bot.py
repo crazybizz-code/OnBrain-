@@ -1,4 +1,4 @@
-﻿# OnBrain AI Bot v2.1.3 - Safe HTML Send Fix (March 20, 2026)
+# OnBrain AI Bot v2.1.3 - Safe HTML Send Fix (March 20, 2026)
 import asyncio
 import io
 import json
