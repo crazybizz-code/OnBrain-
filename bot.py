@@ -691,6 +691,67 @@ def _escape_url_for_html(url: str) -> str:
     return url.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _extract_sheet_id(text: str) -> str | None:
+    """Extract a Google Sheets spreadsheet ID from *any* common link format.
+
+    Supported patterns:
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/edit#gid=0
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/edit?usp=sharing
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/
+      • https://docs.google.com/spreadsheets/d/SHEET_ID
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/export?format=csv
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/gviz/tq
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/pub
+      • https://docs.google.com/spreadsheets/d/SHEET_ID/htmlview
+      • https://docs.google.com/spreadsheets/d/e/LONG_PUB_ID/pubhtml (published)
+      • https://sheets.googleapis.com/v4/spreadsheets/SHEET_ID
+      • Plain sheet ID pasted by the user (44-char alphanumeric string)
+
+    Returns the sheet ID string or ``None`` if nothing matched.
+    """
+    if not text:
+        return None
+
+    text = text.strip()
+
+    # 1. Standard docs.google.com/spreadsheets/d/<ID> URLs
+    m = re.search(r'docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]{10,})', text)
+    if m:
+        return m.group(1)
+
+    # 2. Published "d/e/<pubid>" links — strip the "e/" prefix, use the long ID
+    m = re.search(r'docs\.google\.com/spreadsheets/d/e/([a-zA-Z0-9_-]{10,})', text)
+    if m:
+        return m.group(1)
+
+    # 3. Sheets API URL  sheets.googleapis.com/v4/spreadsheets/<ID>
+    m = re.search(r'sheets\.googleapis\.com/v4/spreadsheets/([a-zA-Z0-9_-]{10,})', text)
+    if m:
+        return m.group(1)
+
+    # 4. User pasted a raw sheet ID (no URL around it)
+    m = re.match(r'^([a-zA-Z0-9_-]{20,})$', text)
+    if m:
+        return m.group(1)
+
+    return None
+
+
+def _looks_like_sheets_url(text: str) -> bool:
+    """Return True if *text* looks like it could be a Google Sheets link,
+    even if we can't extract a sheet ID from it.  Used to give the user a
+    more helpful error instead of 'Bu Google Sheets linki emas'.
+    """
+    lower = text.lower()
+    return any(kw in lower for kw in (
+        "docs.google.com/spreadsheets",
+        "sheets.googleapis.com",
+        "spreadsheets/d/",
+        "sheets.google.com",
+        "google.com/spreadsheets",
+    ))
+
+
 async def safe_send(target, text: str, *, parse_mode: str = "HTML", **kwargs):
     """Send *text* via ``target.answer`` (Message) or ``target.edit_text``
     (CallbackQuery.message).  If the Telegram API rejects the HTML, retry
@@ -1905,29 +1966,21 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 session.step = "ready"
                 return
             
-            # Check if it's a Google Sheets link
-            if "docs.google.com/spreadsheets" in user_input:
+            # ---------- Extract sheet ID from any supported link format ----------
+            sheet_id = _extract_sheet_id(user_input)
+
+            if sheet_id:
                 try:
-                    # Extract sheet ID from link
-                    import re
-                    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', user_input)
-                    
-                    if not match:
-                        await message.answer("❌ Google Sheets linkini to'g'ri qilib yuboring.\nMisol: https://docs.google.com/spreadsheets/d/1Abc123/edit")
-                        return
-                    
-                    sheet_id = match.group(1)
-                    
                     # ========== SECURITY: Validate Sheet ID ==========
                     if not input_validator.validate_sheet_id(sheet_id):
                         logger.warning(f"🚨 Invalid sheet ID format from user {telegram_id}: {sheet_id}")
                         await message.answer("❌ Google Sheets ID noto'g'ri formatda.")
                         return
                     sheet_name = "User Shared Sheet"
-                    
+
                     logger.info(f"📊 User {telegram_id} provided Google Sheets link: {sheet_id}")
                     await message.answer("⏳ Google Sheets o'qilmoqda... Iltimos kuting...")
-                    
+
                     try:
                         # Try using Google Sheets API directly (works better with shared/public sheets)
                         logger.info(f"📊 Loading credentials for user {telegram_id}")
@@ -1989,16 +2042,6 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             session.all_sheets_data = all_sheets_data
                             session.sheet_data = []
                             session.excel_data = []
-                            session.step = "ready"
-                            
-                            # Show summary
-                            sheet_summary = "✅ <b>Google Sheets muvaffaqiyatli ulandi!</b>\n\n"
-                            sheet_summary += "📊 <b>Barcha jadvallar:</b>\n"
-                            for sheet_name_iter, rows in all_sheets_data.items():
-                                row_count = len(rows)
-                                col_count = len(rows[0]) if rows else 0
-                                sheet_summary += f"📋 {html_escape(sheet_name_iter)}: {row_count} qator, {col_count} ustun\n"
-                            
                             session.sheet_id = sheet_id
                             session.sheet_name = sheet_name
                             session.all_sheets_data = all_sheets_data
@@ -2042,9 +2085,59 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         logger.error(f"❌ Error reading sheets: {e}", exc_info=True)
                         error_msg = str(e).lower()
                         
-                        # Provide specific error guidance
-                        if "permission" in error_msg or "forbidden" in error_msg:
-                            error_text = "❌ Faylga kirish huquqi yo'q.\n\nSheet havolasini \"Anyone with link\" bilan bagriklovlanganligiga ishonch hosil qiling."
+                        # ---- PUBLIC FALLBACK: If 403/permission, try public CSV export ----
+                        if "permission" in error_msg or "forbidden" in error_msg or "403" in error_msg:
+                            logger.info(f"🔄 Trying public CSV fallback for sheet {sheet_id}")
+                            try:
+                                import csv
+                                import io as _io
+                                from aiohttp import ClientSession as _ClientSession
+
+                                pub_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+                                async with _ClientSession() as _http:
+                                    async with _http.get(pub_url, timeout=15) as resp:
+                                        if resp.status == 200:
+                                            csv_bytes = await resp.read()
+                                            csv_text = csv_bytes.decode("utf-8", errors="replace")
+                                            reader = csv.reader(_io.StringIO(csv_text))
+                                            rows = [row for row in reader]
+
+                                            if rows:
+                                                all_sheets_data = {"Sheet1": rows}
+                                                session.sheet_id = sheet_id
+                                                session.sheet_name = sheet_name
+                                                session.all_sheets_data = all_sheets_data
+                                                session.sheet_data = []
+                                                session.excel_data = []
+                                                session.step = "ready"
+
+                                                row_count = len(rows)
+                                                col_count = len(rows[0]) if rows else 0
+                                                summary = (
+                                                    "✅ Google Sheets muvaffaqiyatli ulandi! (public rejimda)\n\n"
+                                                    f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
+                                                    "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+                                                )
+                                                await message.answer(summary, reply_markup=build_assistant_keyboard())
+                                                logger.info(f"✅ Public CSV fallback worked for sheet {sheet_id}")
+                                                return  # success — skip error message below
+                                            else:
+                                                logger.warning("Public CSV returned empty for sheet %s", sheet_id)
+                                        else:
+                                            logger.warning("Public CSV export returned status %s for sheet %s", resp.status, sheet_id)
+                            except Exception as pub_err:
+                                logger.warning("Public CSV fallback failed: %s", pub_err)
+
+                            # If we get here, both API and public fallback failed
+                            error_text = (
+                                "❌ Faylga kirish huquqi yo'q.\n\n"
+                                "Iltimos, quyidagilardan birini bajaring:\n\n"
+                                "1️⃣ Google Sheets-da \"Ulashish\" (Share) tugmasini bosing\n"
+                                "2️⃣ \"Havolani bilgan har kim\" (Anyone with the link) tanlang\n"
+                                "3️⃣ \"Ko'ruvchi\" (Viewer) ruxsatini bering\n"
+                                "4️⃣ Havolani qayta yuboring\n\n"
+                                "💡 Yoki Sheet egasidan ruxsat so'rang."
+                            )
                         elif "not found" in error_msg:
                             error_text = "❌ Sheet topilmadi.\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
                         else:
@@ -2071,15 +2164,56 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     error_str = str(exc).lower()
                     logger.error(f"🔍 Error details: {error_str}")
                     
-                    if "permission" in error_str or "forbidden" in error_str or "401" in error_str:
-                        error_msg = (
-                            "❌ <b>Ruxsat xatosi</b>\n\n"
-                            "Google Sheet ga kirish huquqi yo'q.\n\n"
-                            "<b>Hal qilish:</b>\n"
-                            "1. Sheet egasidan ruxsat so'rang\n"
-                            "2. Yoki sheet havolasini \"Anyone with link\" bilan ulashing\n"
-                            "3. Qayta urinib ko'ring"
-                        )
+                    _fallback_ok = False  # flag — set to True if public CSV works
+
+                    if "permission" in error_str or "forbidden" in error_str or "401" in error_str or "403" in error_str:
+                        # ---- PUBLIC FALLBACK (outer handler) ----
+                        logger.info(f"🔄 Trying public CSV fallback (outer) for sheet {sheet_id}")
+                        try:
+                            import csv
+                            import io as _io
+                            from aiohttp import ClientSession as _ClientSession
+
+                            pub_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+                            async with _ClientSession() as _http:
+                                async with _http.get(pub_url, timeout=15) as resp:
+                                    if resp.status == 200:
+                                        csv_bytes = await resp.read()
+                                        csv_text = csv_bytes.decode("utf-8", errors="replace")
+                                        reader = csv.reader(_io.StringIO(csv_text))
+                                        rows = [row for row in reader]
+
+                                        if rows:
+                                            all_sheets_data = {"Sheet1": rows}
+                                            session.sheet_id = sheet_id
+                                            session.sheet_name = sheet_name
+                                            session.all_sheets_data = all_sheets_data
+                                            session.sheet_data = []
+                                            session.excel_data = []
+                                            session.step = "ready"
+
+                                            row_count = len(rows)
+                                            col_count = len(rows[0]) if rows else 0
+                                            summary = (
+                                                "✅ Google Sheets muvaffaqiyatli ulandi! (public rejimda)\n\n"
+                                                f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
+                                                "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+                                            )
+                                            await message.answer(summary, reply_markup=build_assistant_keyboard())
+                                            logger.info(f"✅ Public CSV fallback (outer) worked for sheet {sheet_id}")
+                                            _fallback_ok = True
+                        except Exception as pub_err:
+                            logger.warning("Public CSV fallback (outer) failed: %s", pub_err)
+
+                        if not _fallback_ok:
+                            error_msg = (
+                                "❌ Google Sheet ga kirish huquqi yo'q.\n\n"
+                                "Iltimos, quyidagilardan birini bajaring:\n\n"
+                                "1️⃣ Google Sheets-da \"Ulashish\" (Share) tugmasini bosing\n"
+                                "2️⃣ \"Havolani bilgan har kim\" (Anyone with the link) tanlang\n"
+                                "3️⃣ \"Ko'ruvchi\" (Viewer) ruxsatini bering\n"
+                                "4️⃣ Havolani qayta yuboring"
+                            )
                     elif "not found" in error_str or "404" in error_str:
                         error_msg = (
                             "❌ <b>Sheet topilmadi</b>\n\n"
@@ -2104,26 +2238,40 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             "Iltimos, qayta urinib ko'ring yoki bot egasiga xabar bering."
                         )
                     
-                    try:
-                        await message.answer(
-                            error_msg,
-                            reply_markup=build_retry_keyboard(),
-                            parse_mode="HTML"
-                        )
-                    except (TelegramBadRequest, TelegramAPIError) as send_err:
-                        logger.warning("Error-msg HTML send failed, sending plain: %s", send_err)
-                        await message.answer(
-                            _strip_html_tags(error_msg),
-                            reply_markup=build_retry_keyboard()
-                        )
+                    if not _fallback_ok:
+                        try:
+                            await message.answer(
+                                error_msg,
+                                reply_markup=build_retry_keyboard(),
+                                parse_mode="HTML"
+                            )
+                        except (TelegramBadRequest, TelegramAPIError) as send_err:
+                            logger.warning("Error-msg HTML send failed, sending plain: %s", send_err)
+                            await message.answer(
+                                _strip_html_tags(error_msg),
+                                reply_markup=build_retry_keyboard()
+                            )
                     session.step = "ready"
-                else:
-                    await message.answer(
-                        "❌ Bu Google Sheets linki emas.\n\n"
-                        "📋 To'g'ri formatdagi link yuboring:\n"
-                        "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit",
-                        reply_markup=build_retry_keyboard()
-                    )
+            elif _looks_like_sheets_url(user_input):
+                # It looks like a sheets URL but we couldn't extract an ID
+                await message.answer(
+                    "❌ Linkdan sheet ID ni ajratib ololmadim.\n\n"
+                    "Iltimos, link to'g'ri ekanligini tekshiring.\n"
+                    "Quyidagi formatlardan birini yuboring:\n\n"
+                    "• https://docs.google.com/spreadsheets/d/SHEET_ID/edit\n"
+                    "• https://docs.google.com/spreadsheets/d/SHEET_ID/edit?usp=sharing\n"
+                    "• Yoki faqat Sheet ID ni yuboring",
+                    reply_markup=build_retry_keyboard()
+                )
+            else:
+                await message.answer(
+                    "❌ Google Sheets linki topilmadi.\n\n"
+                    "📋 Quyidagi formatlardan birini yuboring:\n\n"
+                    "• Google Sheets havolasi\n"
+                    "• Yoki faqat Sheet ID (masalan: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)\n\n"
+                    "💡 Sheet ID — link ichida /d/ dan keyingi uzun belgilar.",
+                    reply_markup=build_retry_keyboard()
+                )
         
         # ====== WAITING FOR GOOGLE DRIVE FOLDER LINK ======
         elif session.step == "waiting_folder_link":
