@@ -2378,46 +2378,6 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         session.step = "ready"
                         return
                     
-                    # Initialize DataIndexingService
-                    try:
-                        indexing_service = DataIndexingService(creds, ctx.config.tavily_api_key)
-                        
-                        # Index folder files
-                        success, message_text, indexed_count = await indexing_service.index_folder_files(folder_id)
-                        
-                        if success:
-                            session.indexing_service = indexing_service
-                            session.folder_id = folder_id
-                            
-                            await message.answer(
-                                f"✅ <b>Ma'lumotlar muvaffaqiyatli indexlandi!</b>\n\n"
-                                f"📊 {indexed_count} ta fayl indexlandi.\n\n"
-                                f"Endi istalgan savolingizni yuboring va bot javob beradi.",
-                                parse_mode="HTML",
-                                reply_markup=build_main_menu()
-                            )
-                            session.step = "ready"
-                        else:
-                            await message.answer(
-                                f"❌ Indexlashda xato:\n\n{message_text}",
-                                parse_mode="HTML",
-                                reply_markup=build_retry_keyboard("folder")
-                            )
-                            session.step = "ready"
-                    
-                    except Exception as idx_error:
-                        logger.error(f"❌ Indexing error: {idx_error}", exc_info=True)
-                        await message.answer(
-                            f"❌ Indexlashda xato:\n\n{str(idx_error)[:200]}\n\n"
-                            "Iltimos, havolani qayta yuboring.",
-                            parse_mode="HTML",
-                            reply_markup=build_retry_keyboard("folder")
-                        )
-                        session.step = "ready"
-                    
-                    return
-                    # ===== END: Indexing process =====
-                    
                     # Store the folder spreadsheets
                     session.folder_spreadsheets = spreadsheets
                     session.selected_spreadsheets = []
@@ -2602,17 +2562,23 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 logger.info(f"🤖 Sending to Grok AI for spreadsheet Q&A")
                                 
                                 system_prompt = (
-                                    "Sen Google Sheets ma'lumotlarini tahlil qiluvchi AI yordamchisan. "
-                                    "Foydalanuvchi senga spreadsheet ma'lumotlarini beradi va savol beradi. "
-                                    "Sen FAQAT shu spreadsheet ma'lumotlari asosida javob berishing kerak. "
-                                    "Internetdan yoki boshqa manbalardan ma'lumot qo'shma. "
-                                    "Javobni o'zbek tilida ber. Qisqa va aniq javob ber. "
-                                    "Agar ma'lumot spreadsheetda bo'lmasa, shuni ayt."
+                                    "Sen spreadsheet ma'lumotlarini tahlil qiluvchi AI assistantsan. "
+                                    "Senga spreadsheet ma'lumotlari beriladi. Foydalanuvchi savol beradi. "
+                                    "QOIDALAR:\n"
+                                    "1. FAQAT berilgan spreadsheet ma'lumotlari asosida javob ber.\n"
+                                    "2. Javobni ISHONCHLI va ANIQ ber. 'Ehtimol', 'balki', 'bo'lishi mumkin' so'zlarini ISHLATMA.\n"
+                                    "3. Har doim spreadsheet nomini va sheet nomini aytib o'tib javob ber. Masalan: 'Spreadsheet: [nom], Sheet: [nom] ma'lumotlariga ko'ra, ...'\n"
+                                    "4. Raqamlarni to'g'ri formatlash: 2500000 -> 2,500,000\n"
+                                    "5. Agar ma'lumot spreadsheetda TOPILMASA, aniq ayt: 'Bu ma'lumot spreadsheetda mavjud emas.'\n"
+                                    "6. Internetdan yoki boshqa manbalardan hech qanday ma'lumot QO'SHMA.\n"
+                                    "7. Javobni o'zbek tilida ber.\n"
+                                    "8. Qisqa, aniq va to'g'ridan-to'g'ri javob ber."
                                 )
                                 
                                 user_prompt = (
-                                    f"Spreadsheet ma'lumotlari:\n{context_text}\n\n"
-                                    f"Foydalanuvchi savoli: {user_message}"
+                                    f"Quyidagi spreadsheet ma'lumotlari berilgan:\n\n{context_text}\n\n"
+                                    f"Savol: {user_message}\n\n"
+                                    f"Yuqoridagi spreadsheet ma'lumotlariga asoslanib aniq javob ber."
                                 )
                                 
                                 # Try grok-3-mini-fast first, fallback to other models
@@ -3399,24 +3365,17 @@ async def main() -> None:
     except Exception as e:
         logger.warning(f"⚠️  Could not register bot commands: {e}")
     
-    # Delete any existing webhook to enable polling mode
+    # Force-close any existing polling session by deleting webhook + dropping updates
+    # This kills any old bot instance that's still polling
     try:
-        logger.info("🔄 Cleaning up webhook for polling mode...")
-        webhook_info = await bot.get_webhook_info()
-        if webhook_info.url:
-            logger.info(f"   Found webhook: {webhook_info.url}")
-            await bot.delete_webhook(drop_pending_updates=True)
-            logger.info("   ✅ Webhook deleted successfully")
-            # Wait a bit for Telegram to process the deletion
-            import time
-            time.sleep(2)
-        else:
-            logger.info("   ℹ️  No webhook found (already in polling mode)")
+        logger.info("🔄 Forcefully stopping any existing bot sessions...")
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("   ✅ Webhook deleted, pending updates dropped")
+        # Wait for Telegram to fully release the old polling session
+        await asyncio.sleep(5)
     except Exception as e:
         logger.warning(f"⚠️  Could not clean webhook: {e}")
-        # Don't let webhook errors stop the bot
-        import time
-        time.sleep(2)
+        await asyncio.sleep(3)
     
     dp = Dispatcher()
     register_handlers(dp, context)
@@ -3467,9 +3426,13 @@ if __name__ == "__main__":
             break
         except asyncio.CancelledError:
             logger.warning("Bot was cancelled, restarting...")
-            time.sleep(5)
+            time.sleep(10)
         except Exception as e:
             error_name = type(e).__name__
             logger.error(f"Bot error ({error_name}): {e}")
-            logger.info("Restarting bot in 5 seconds...")
-            time.sleep(5)
+            if "conflict" in str(e).lower() or "terminated by other" in str(e).lower():
+                logger.info("⚠️ Another bot instance detected. Waiting 15s for it to stop...")
+                time.sleep(15)
+            else:
+                logger.info("Restarting bot in 5 seconds...")
+                time.sleep(5)
