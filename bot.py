@@ -2048,12 +2048,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         elif "not found" in error_msg:
                             error_text = "❌ Sheet topilmadi.\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
                         else:
-                            error_text = f"❌ Xatolik: {str(e)[:100]}\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
+                            safe_err = html_escape(str(e)[:100])
+                            error_text = f"❌ Xatolik: {safe_err}\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
                         
-                        await message.answer(
-                            error_text,
-                            reply_markup=build_retry_keyboard("sheets")
-                        )
+                        try:
+                            await message.answer(
+                                error_text,
+                                reply_markup=build_retry_keyboard("sheets")
+                            )
+                        except Exception as send_err:
+                            logger.warning("Inner error send failed: %s", send_err)
+                            await message.answer(
+                                "❌ Xatolik yuz berdi. Qayta urinib ko'ring.",
+                                reply_markup=build_retry_keyboard("sheets")
+                            )
                         session.step = "ready"
                 
                 except Exception as exc:
@@ -2077,7 +2085,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             "❌ <b>Sheet topilmadi</b>\n\n"
                             "Havolani tekshiring, to'g'ri emasdir.\n\n"
                             "<b>To'g'ri format:</b>\n"
-                            "https://docs.google.com/spreadsheets/d/ABC123/edit"
+                            "<code>https://docs.google.com/spreadsheets/d/ABC123/edit</code>"
                         )
                     elif "invalid_grant" in error_str or "credential" in error_str or "expired" in error_str:
                         error_msg = (
@@ -2088,8 +2096,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     else:
                         # Log the full error for debugging
                         logger.error(f"📋 Full error trace: {str(exc)}")
-                        # Escape HTML special characters in error message
-                        error_details = str(exc)[:80].replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
+                        # Escape HTML special characters in error message (& must be first!)
+                        error_details = html_escape(str(exc)[:80])
                         error_msg = (
                             "❌ <b>Xatolik yuz berdi</b>\n\n"
                             f"Xatolik: {error_details}\n\n"
@@ -2457,26 +2465,27 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         try:
                             logger.info(f"🤖 Responding with available context data")
                             
-                            response_text = f"🤖 *AI Javob*\n\n"
+                            response_text = f"🤖 AI Javob\n\n"
                             response_text += f"Siz so'ragan savoliga javob:\n\n"
-                            response_text += f"*Oʻzbek tilida Javob:*\n{full_context[:2000]}"
+                            response_text += f"Oʻzbek tilida Javob:\n{full_context[:2000]}"
                             
                             logger.info(f"✅ Response sent to {telegram_id}")
                             
-                            # Split response if too long
+                            # Split response if too long — send as plain text to
+                            # avoid Markdown/HTML parse errors from spreadsheet data
                             if len(response_text) > 4000:
                                 parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
                                 for i, part in enumerate(parts):
                                     if i == len(parts) - 1:
-                                        await message.answer(part, parse_mode="Markdown", reply_markup=build_chat_response_keyboard())
+                                        await message.answer(part, reply_markup=build_chat_response_keyboard())
                                     else:
-                                        await message.answer(part, parse_mode="Markdown")
+                                        await message.answer(part)
                             else:
-                                await message.answer(response_text, parse_mode="Markdown", reply_markup=build_chat_response_keyboard())
+                                await message.answer(response_text, reply_markup=build_chat_response_keyboard())
                         
                         except Exception as ai_error:
                             logger.error(f"❌ Response error: {ai_error}")
-                            await message.answer(f"❌ Javob berishda xatolik: {str(ai_error)[:100]}")
+                            await message.answer("❌ Javob berishda xatolik. Qayta urinib ko'ring.")
                         
                         return
                     
@@ -2559,11 +2568,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             uzbek_answer = html.unescape(uzbek_answer)
                             
                             # Format response with sources
-                            response_text = f"🤖 *AI Javob*\n\n{uzbek_answer}"
+                            response_text = f"🤖 AI Javob\n\n{uzbek_answer}"
                             
                             # Add sources if available
                             if search_results.get("results"):
-                                response_text += "\n\n📚 *Manbalar:*\n"
+                                response_text += "\n\n📚 Manbalar:\n"
                                 for i, result in enumerate(search_results["results"][:3], 1):
                                     if result.get("title"):
                                         title = html.unescape(result['title'])
@@ -2571,27 +2580,28 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             
                             logger.info(f"✅ Response sent to {telegram_id}: {uzbek_answer[:50]}...")
                             
+                            exit_keyboard = InlineKeyboardMarkup(
+                                inline_keyboard=[
+                                    [InlineKeyboardButton(text="🚪 Chat-ni tugatish", callback_data="exit_chat")]
+                                ]
+                            )
+                            
                             # Split response if too long (Telegram limit is 4096)
-                            if len(response_text) > 4000:
-                                parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
-                                for i, part in enumerate(parts):
-                                    if i == len(parts) - 1:  # Last part - add exit button
-                                        exit_keyboard = InlineKeyboardMarkup(
-                                            inline_keyboard=[
-                                                [InlineKeyboardButton(text="🚪 Chat-ni tugatish", callback_data="exit_chat")]
-                                            ]
-                                        )
-                                        await message.answer(part, parse_mode="Markdown", reply_markup=exit_keyboard)
-                                    else:
-                                        await message.answer(part, parse_mode="Markdown")
-                            else:
-                                # Add exit chat button
-                                exit_keyboard = InlineKeyboardMarkup(
-                                    inline_keyboard=[
-                                        [InlineKeyboardButton(text="🚪 Chat-ni tugatish", callback_data="exit_chat")]
-                                    ]
-                                )
-                                await message.answer(response_text, parse_mode="Markdown", reply_markup=exit_keyboard)
+                            # Send as plain text to avoid Markdown parse errors from
+                            # translated text / web content containing special chars
+                            try:
+                                if len(response_text) > 4000:
+                                    parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
+                                    for i, part in enumerate(parts):
+                                        if i == len(parts) - 1:
+                                            await message.answer(part, reply_markup=exit_keyboard)
+                                        else:
+                                            await message.answer(part)
+                                else:
+                                    await message.answer(response_text, reply_markup=exit_keyboard)
+                            except Exception as send_err:
+                                logger.warning("AI response send failed: %s", send_err)
+                                await message.answer("❌ Javob yuborishda xatolik. Qayta urinib ko'ring.")
                         else:
                             await message.answer("❌ Tavily javob bera olmadi. Keyinroq urinib ko'ring!")
                             logger.warning(f"⚠️  Tavily returned no answer for: {user_message[:30]}")
@@ -2603,7 +2613,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 except Exception as e:
                     error_msg = str(e)
                     logger.error(f"❌ Tavily error: {error_msg}")
-                    await message.answer(f"❌ AI javob berishda xatolik: {error_msg[:100]}")
+                    await message.answer("❌ AI javob berishda xatolik. Qayta urinib ko'ring.")
                 
                 return
             except Exception as exc:
