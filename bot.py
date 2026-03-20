@@ -61,6 +61,7 @@ FEATURES = {
     "google_sheets": True,   # Google Sheets integration
     "google_drive": True,    # Google Drive folder reading
     "tavily_search": True,   # Web search via Tavily
+    "grok_ai": True,         # Grok AI for spreadsheet Q&A
 }
 logger.info(f"🚀 OnBrain AI Bot v{BOT_VERSION} - Features: {FEATURES}")
 
@@ -297,6 +298,8 @@ class Config:
     # Database
     supabase_url: str
     supabase_anon_key: str
+    # Grok AI (xAI) - for intelligent spreadsheet Q&A
+    grok_api_key: str = ""
     # Server configuration - can be overridden via env vars
     server_host: str = "0.0.0.0"  # Listen on all interfaces for production
     server_port: int = 8080  # Render uses 8080 by default
@@ -344,6 +347,9 @@ class Config:
             else:
                 github_redirect_uri = f"https://{domain}/github/callback"
         
+        # Optional: Grok AI key for spreadsheet Q&A
+        grok_api_key = os.getenv("GROK_API_KEY", "").strip()
+        
         return cls(
             bot_token=required["BOT_TOKEN"],
             tavily_api_key=required["TAVILY_API_KEY"],
@@ -353,6 +359,7 @@ class Config:
             github_client_secret=required["GITHUB_CLIENT_SECRET"],
             supabase_url=required["SUPABASE_URL"],
             supabase_anon_key=required["SUPABASE_ANON_KEY"],
+            grok_api_key=grok_api_key,
             server_host=server_host,
             server_port=server_port,
             google_redirect_uri=google_redirect_uri,
@@ -957,6 +964,7 @@ class AppContext:
             redirect_uri=config.github_redirect_uri,
         )
         self.tavily_api_key = config.tavily_api_key  # Store key for Tavily API
+        self.grok_api_key = config.grok_api_key      # Store key for Grok AI (xAI)
         self.bot: Bot | None = None
     
     def _save_credentials_sync(self, telegram_id: int, credentials_json: str) -> None:
@@ -2546,7 +2554,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 if local_context:
                     try:
                         # Build context from local spreadsheets
-                        context_text = "🗂️ SPREADSHETLAR MA'LUMOTI:\n\n"
+                        context_text = ""
                         
                         for sheet_id, sheets in local_context.items():
                             # Get sheet name from folder_spreadsheets if available
@@ -2555,72 +2563,97 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 sheet_id
                             ) if session.folder_spreadsheets else (session.sheet_name or "Spreadsheet")
                             
-                            context_text += f"📁 {sheet_name}:\n"
+                            context_text += f"Spreadsheet: {sheet_name}\n"
                             
                             for sheet_title, rows in sheets.items():
-                                context_text += f"  📋 {sheet_title}:\n"
-                                # Add first 10 rows as context
-                                for i, row in enumerate(rows[:10]):
+                                context_text += f"  Sheet: {sheet_title}\n"
+                                for i, row in enumerate(rows[:MAX_ROWS_FOR_CONTEXT]):
                                     if i == 0:
-                                        context_text += f"    Headers: {' | '.join(str(x)[:20] for x in row)}\n"
+                                        context_text += f"    Headers: {' | '.join(str(x)[:30] for x in row)}\n"
                                     else:
-                                        context_text += f"    Row {i}: {' | '.join(str(x)[:20] for x in row)}\n"
-                                if len(rows) > 10:
-                                    context_text += f"    ... va {len(rows)-10} ta boshqa qator\n"
+                                        context_text += f"    Row {i}: {' | '.join(str(x)[:30] for x in row)}\n"
+                                if len(rows) > MAX_ROWS_FOR_CONTEXT:
+                                    context_text += f"    ... and {len(rows)-MAX_ROWS_FOR_CONTEXT} more rows\n"
                                 context_text += "\n"
                         
                         # Limit context size for API calls
-                        context_text = context_text[:3000]
+                        context_text = context_text[:MAX_CHARS_CONTEXT]
                         
                         logger.info(f"📝 Built local context: {len(context_text)} chars")
                         
-                        # Create a prompt that uses both web search and local data
+                        # ── Use Grok AI (xAI) to answer based on spreadsheet data ──
                         import requests
                         
-                        tavily_api_key = os.getenv("TAVILY_API_KEY")
+                        grok_api_key = os.getenv("GROK_API_KEY", "")
                         
-                        if tavily_api_key:
-                            # Try to get web search context too
+                        if grok_api_key:
                             try:
-                                tavily_response = requests.post(
-                                    "https://api.tavily.com/search",
-                                    json={
-                                        "api_key": tavily_api_key,
-                                        "query": user_message,
-                                        "include_answer": False,  # We'll create our own answer
-                                        "max_results": 3,
-                                        "include_images": False,
-                                    },
-                                    timeout=5
+                                logger.info(f"🤖 Sending to Grok AI for spreadsheet Q&A")
+                                
+                                system_prompt = (
+                                    "Sen Google Sheets ma'lumotlarini tahlil qiluvchi AI yordamchisan. "
+                                    "Foydalanuvchi senga spreadsheet ma'lumotlarini beradi va savol beradi. "
+                                    "Sen FAQAT shu spreadsheet ma'lumotlari asosida javob berishing kerak. "
+                                    "Internetdan yoki boshqa manbalardan ma'lumot qo'shma. "
+                                    "Javobni o'zbek tilida ber. Qisqa va aniq javob ber. "
+                                    "Agar ma'lumot spreadsheetda bo'lmasa, shuni ayt."
                                 )
                                 
-                                web_context = ""
-                                if tavily_response.status_code == 200:
-                                    search_results = tavily_response.json()
-                                    web_context = "🌐 WEB MANBALAR:\n"
-                                    for result in search_results.get("results", [])[:3]:
-                                        web_context += f"- {result.get('title', 'Manba')}: {result.get('content', '')[:200]}\n"
-                                    logger.info(f"✅ Got web context: {len(web_context)} chars")
+                                user_prompt = (
+                                    f"Spreadsheet ma'lumotlari:\n{context_text}\n\n"
+                                    f"Foydalanuvchi savoli: {user_message}"
+                                )
                                 
-                                full_context = context_text + "\n\n" + web_context
-                            except Exception as e:
-                                logger.warning(f"⚠️  Web search failed: {e}, using local data only")
-                                full_context = context_text
+                                grok_response = requests.post(
+                                    "https://api.x.ai/v1/chat/completions",
+                                    headers={
+                                        "Authorization": f"Bearer {grok_api_key}",
+                                        "Content-Type": "application/json",
+                                    },
+                                    json={
+                                        "model": "grok-3-mini",
+                                        "messages": [
+                                            {"role": "system", "content": system_prompt},
+                                            {"role": "user", "content": user_prompt},
+                                        ],
+                                        "temperature": 0.3,
+                                        "max_tokens": 1500,
+                                    },
+                                    timeout=30,
+                                )
+                                
+                                if grok_response.status_code == 200:
+                                    grok_data = grok_response.json()
+                                    ai_answer = grok_data["choices"][0]["message"]["content"]
+                                    logger.info(f"✅ Grok AI answer received: {ai_answer[:80]}...")
+                                    
+                                    response_text = f"🤖 AI Javob\n\n{ai_answer}"
+                                else:
+                                    logger.error(f"❌ Grok API error {grok_response.status_code}: {grok_response.text[:200]}")
+                                    # Fallback: show raw data summary
+                                    response_text = (
+                                        f"🤖 AI Javob\n\n"
+                                        f"⚠️ AI xizmatida vaqtinchalik xatolik.\n"
+                                        f"Ma'lumotlar:\n{context_text[:2000]}"
+                                    )
+                            except Exception as grok_err:
+                                logger.error(f"❌ Grok AI error: {grok_err}")
+                                # Fallback: show raw data summary
+                                response_text = (
+                                    f"🤖 AI Javob\n\n"
+                                    f"⚠️ AI xizmatida vaqtinchalik xatolik.\n"
+                                    f"Ma'lumotlar:\n{context_text[:2000]}"
+                                )
                         else:
-                            full_context = context_text
+                            # No Grok key — show raw data as before
+                            logger.warning("⚠️ GROK_API_KEY not set, showing raw spreadsheet data")
+                            response_text = (
+                                f"🤖 AI Javob\n\n"
+                                f"⚠️ AI kaliti sozlanmagan. Ma'lumotlar:\n{context_text[:2000]}"
+                            )
                         
-                        # Format response with available context (spreadsheet + web search)
+                        # Send response to user
                         try:
-                            logger.info(f"🤖 Responding with available context data")
-                            
-                            response_text = f"🤖 AI Javob\n\n"
-                            response_text += f"Siz so'ragan savoliga javob:\n\n"
-                            response_text += f"Oʻzbek tilida Javob:\n{full_context[:2000]}"
-                            
-                            logger.info(f"✅ Response sent to {telegram_id}")
-                            
-                            # Split response if too long — send as plain text to
-                            # avoid Markdown/HTML parse errors from spreadsheet data
                             if len(response_text) > 4000:
                                 parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
                                 for i, part in enumerate(parts):
