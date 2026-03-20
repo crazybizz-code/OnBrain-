@@ -280,9 +280,9 @@ SCOPES = [
 # REDIRECT_URI is now set from config - see Config class
 MAIN_MENU_SHEETS = "📊 Google Sheets ulash"
 MAIN_MENU_EXCEL = "📁 Excel fayl yuklash"
-MAX_ROWS_FOR_CONTEXT = 200
-MAX_COLS_FOR_CONTEXT = 30
-MAX_CHARS_CONTEXT = 30000
+MAX_ROWS_FOR_CONTEXT = 1000
+MAX_COLS_FOR_CONTEXT = 50
+MAX_CHARS_CONTEXT = 120000
 
 
 @dataclass
@@ -2039,9 +2039,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             try:
                                 # Read the values from this sheet (entire sheet, no column limit)
                                 logger.info(f"📊 Reading sheet '{sheet_title}'...")
+                                # Quote sheet name for Sheets API (handles spaces & special chars)
+                                safe_range = f"'{sheet_title}'" if " " in sheet_title or "'" in sheet_title else sheet_title
                                 result = sheets_service.spreadsheets().values().get(
                                     spreadsheetId=sheet_id,
-                                    range=sheet_title
+                                    range=safe_range
                                 ).execute()
                                 values = result.get('values', [])
                                 all_sheets_data[sheet_title] = values
@@ -2472,6 +2474,10 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     await ctx.bot.send_chat_action(message.chat.id, "typing")
                 
                 logger.info(f"💬 Chat message from {telegram_id}: {user_message[:50]}")
+                logger.info(f"📊 Session data check: sheet_id={session.sheet_id}, "
+                           f"all_sheets_data={len(session.all_sheets_data) if session.all_sheets_data else 0} sheets, "
+                           f"all_folder_sheets_data={len(session.all_folder_sheets_data) if session.all_folder_sheets_data else 0} spreadsheets, "
+                           f"excel_data={len(session.excel_data) if session.excel_data else 0} rows")
                 
                 # ===== NEW: Check if indexing_service is available =====
                 if session.indexing_service:
@@ -2554,8 +2560,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                     if not row:
                                         continue  # skip completely empty rows
                                     
-                                    # Use full cell values (up to 100 chars each)
-                                    cells = [str(x).strip()[:100] for x in row[:MAX_COLS_FOR_CONTEXT]]
+                                    # Full cell values — no per-cell truncation
+                                    cells = [str(x).strip() for x in row[:MAX_COLS_FOR_CONTEXT]]
                                     context_text += f"Row {i+1}: {' | '.join(cells)}\n"
                                 
                                 total_rows = len(rows)
@@ -2567,9 +2573,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         context_text = context_text[:MAX_CHARS_CONTEXT]
                         
                         logger.info(f"📝 Built local context: {len(context_text)} chars")
+                        # DEBUG: Log first 500 chars of context to verify data is actually there
+                        logger.info(f"📝 Context preview (first 500 chars):\n{context_text[:500]}")
+                        logger.info(f"📝 Context preview (last 300 chars):\n{context_text[-300:]}")
                         
                         # ── Use Grok AI (xAI) to answer based on spreadsheet data ──
-                        import requests
                         
                         grok_api_key = os.getenv("GROK_API_KEY", "")
                         
@@ -2605,42 +2613,51 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                     f"Ismlar to'liq mos kelmasa ham, eng yaqin moslikni top."
                                 )
                                 
+                                logger.info(f"📤 Grok request: system_prompt={len(system_prompt)} chars, user_prompt={len(user_prompt)} chars (context={len(context_text)} chars)")
+                                
                                 # Try grok-3-mini-fast first, fallback to other models
                                 grok_models = ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"]
                                 ai_answer = None
                                 last_error = ""
                                 
+                                import aiohttp as _aiohttp
+                                
                                 for model_name in grok_models:
                                     try:
                                         logger.info(f"🤖 Trying Grok model: {model_name}")
-                                        grok_response = requests.post(
-                                            "https://api.x.ai/v1/chat/completions",
-                                            headers={
-                                                "Authorization": f"Bearer {grok_api_key}",
-                                                "Content-Type": "application/json",
-                                            },
-                                            json={
-                                                "model": model_name,
-                                                "messages": [
-                                                    {"role": "system", "content": system_prompt},
-                                                    {"role": "user", "content": user_prompt},
-                                                ],
-                                                "temperature": 0.3,
-                                                "max_tokens": 1500,
-                                            },
-                                            timeout=30,
-                                        )
                                         
-                                        if grok_response.status_code == 200:
-                                            grok_data = grok_response.json()
-                                            ai_answer = grok_data["choices"][0]["message"]["content"]
-                                            logger.info(f"✅ Grok AI ({model_name}) answer: {ai_answer[:80]}...")
-                                            break
-                                        else:
-                                            last_error = f"{model_name}: {grok_response.status_code} - {grok_response.text[:150]}"
-                                            logger.warning(f"⚠️ Grok model {model_name} failed: {last_error}")
+                                        grok_payload = {
+                                            "model": model_name,
+                                            "messages": [
+                                                {"role": "system", "content": system_prompt},
+                                                {"role": "user", "content": user_prompt},
+                                            ],
+                                            "temperature": 0.3,
+                                            "max_tokens": 2000,
+                                        }
+                                        grok_headers = {
+                                            "Authorization": f"Bearer {grok_api_key}",
+                                            "Content-Type": "application/json",
+                                        }
+                                        
+                                        async with _aiohttp.ClientSession() as _grok_http:
+                                            async with _grok_http.post(
+                                                "https://api.x.ai/v1/chat/completions",
+                                                headers=grok_headers,
+                                                json=grok_payload,
+                                                timeout=_aiohttp.ClientTimeout(total=90),
+                                            ) as grok_resp:
+                                                if grok_resp.status == 200:
+                                                    grok_data = await grok_resp.json()
+                                                    ai_answer = grok_data["choices"][0]["message"]["content"]
+                                                    logger.info(f"✅ Grok AI ({model_name}) answer: {ai_answer[:100]}...")
+                                                    break
+                                                else:
+                                                    resp_text = await grok_resp.text()
+                                                    last_error = f"{model_name}: {grok_resp.status} - {resp_text[:200]}"
+                                                    logger.warning(f"⚠️ Grok model {model_name} failed: {last_error}")
                                     except Exception as model_err:
-                                        last_error = f"{model_name}: {str(model_err)[:150]}"
+                                        last_error = f"{model_name}: {str(model_err)[:200]}"
                                         logger.warning(f"⚠️ Grok model {model_name} error: {model_err}")
                                 
                                 if ai_answer:
