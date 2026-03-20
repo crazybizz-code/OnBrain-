@@ -2606,36 +2606,51 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                     f"Foydalanuvchi savoli: {user_message}"
                                 )
                                 
-                                grok_response = requests.post(
-                                    "https://api.x.ai/v1/chat/completions",
-                                    headers={
-                                        "Authorization": f"Bearer {grok_api_key}",
-                                        "Content-Type": "application/json",
-                                    },
-                                    json={
-                                        "model": "grok-3-mini",
-                                        "messages": [
-                                            {"role": "system", "content": system_prompt},
-                                            {"role": "user", "content": user_prompt},
-                                        ],
-                                        "temperature": 0.3,
-                                        "max_tokens": 1500,
-                                    },
-                                    timeout=30,
-                                )
+                                # Try grok-3-mini-fast first, fallback to other models
+                                grok_models = ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"]
+                                ai_answer = None
+                                last_error = ""
                                 
-                                if grok_response.status_code == 200:
-                                    grok_data = grok_response.json()
-                                    ai_answer = grok_data["choices"][0]["message"]["content"]
-                                    logger.info(f"✅ Grok AI answer received: {ai_answer[:80]}...")
-                                    
+                                for model_name in grok_models:
+                                    try:
+                                        logger.info(f"🤖 Trying Grok model: {model_name}")
+                                        grok_response = requests.post(
+                                            "https://api.x.ai/v1/chat/completions",
+                                            headers={
+                                                "Authorization": f"Bearer {grok_api_key}",
+                                                "Content-Type": "application/json",
+                                            },
+                                            json={
+                                                "model": model_name,
+                                                "messages": [
+                                                    {"role": "system", "content": system_prompt},
+                                                    {"role": "user", "content": user_prompt},
+                                                ],
+                                                "temperature": 0.3,
+                                                "max_tokens": 1500,
+                                            },
+                                            timeout=30,
+                                        )
+                                        
+                                        if grok_response.status_code == 200:
+                                            grok_data = grok_response.json()
+                                            ai_answer = grok_data["choices"][0]["message"]["content"]
+                                            logger.info(f"✅ Grok AI ({model_name}) answer: {ai_answer[:80]}...")
+                                            break
+                                        else:
+                                            last_error = f"{model_name}: {grok_response.status_code} - {grok_response.text[:150]}"
+                                            logger.warning(f"⚠️ Grok model {model_name} failed: {last_error}")
+                                    except Exception as model_err:
+                                        last_error = f"{model_name}: {str(model_err)[:150]}"
+                                        logger.warning(f"⚠️ Grok model {model_name} error: {model_err}")
+                                
+                                if ai_answer:
                                     response_text = f"🤖 AI Javob\n\n{ai_answer}"
                                 else:
-                                    logger.error(f"❌ Grok API error {grok_response.status_code}: {grok_response.text[:200]}")
-                                    # Fallback: show raw data summary
+                                    logger.error(f"❌ All Grok models failed. Last error: {last_error}")
                                     response_text = (
                                         f"🤖 AI Javob\n\n"
-                                        f"⚠️ AI xizmatida vaqtinchalik xatolik.\n"
+                                        f"⚠️ AI xizmatida vaqtinchalik xatolik ({last_error[:100]})\n"
                                         f"Ma'lumotlar:\n{context_text[:2000]}"
                                     )
                             except Exception as grok_err:
