@@ -2055,7 +2055,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             session.all_sheets_data = all_sheets_data
                             session.sheet_data = []
                             session.excel_data = []
-                            session.step = "ready"
+                            session.step = "in_chat"
                             
                             # Show summary
                             sheet_summary = "✅ <b>Google Sheets muvaffaqiyatli ulandi!</b>\n\n"
@@ -2067,11 +2067,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             
                             sheet_summary += "\n💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
                             try:
-                                await message.answer(sheet_summary, parse_mode="HTML", reply_markup=build_assistant_keyboard())
+                                await message.answer(sheet_summary, parse_mode="HTML", reply_markup=build_chat_response_keyboard())
                             except Exception:
                                 # Fallback: send without HTML if parsing fails
                                 plain_summary = sheet_summary.replace("<b>", "").replace("</b>", "")
-                                await message.answer(plain_summary, reply_markup=build_assistant_keyboard())
+                                await message.answer(plain_summary, reply_markup=build_chat_response_keyboard())
                             
                             logger.info(f"✅ Successfully loaded Google Sheets: {list(all_sheets_data.keys())}")
                         else:
@@ -2117,7 +2117,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                                 session.all_sheets_data = all_sheets_data
                                                 session.sheet_data = []
                                                 session.excel_data = []
-                                                session.step = "ready"
+                                                session.step = "in_chat"
 
                                                 row_count = len(rows)
                                                 col_count = len(rows[0]) if rows else 0
@@ -2126,7 +2126,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                                     f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
                                                     "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
                                                 )
-                                                await message.answer(summary, reply_markup=build_assistant_keyboard())
+                                                await message.answer(summary, reply_markup=build_chat_response_keyboard())
                                                 logger.info(f"✅ Public CSV fallback worked for sheet {sheet_id}")
                                                 return  # success — skip error message below
                                             else:
@@ -2198,7 +2198,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                             session.all_sheets_data = all_sheets_data
                                             session.sheet_data = []
                                             session.excel_data = []
-                                            session.step = "ready"
+                                            session.step = "in_chat"
 
                                             row_count = len(rows)
                                             col_count = len(rows[0]) if rows else 0
@@ -2207,7 +2207,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                                 f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
                                                 "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
                                             )
-                                            await message.answer(summary, reply_markup=build_assistant_keyboard())
+                                            await message.answer(summary, reply_markup=build_chat_response_keyboard())
                                             logger.info(f"✅ Public CSV fallback (outer) worked for sheet {sheet_id}")
                                             _fallback_ok = True
                         except Exception as pub_err:
@@ -2548,7 +2548,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 # Priority 2: Single sheet data
                 elif session.all_sheets_data:
                     local_context = {session.sheet_id or "sheet": session.all_sheets_data}
-                    logger.info(f"📊 Using single sheet data")
+                    logger.info(f"📊 Using single sheet data: {list(session.all_sheets_data.keys())}")
+                else:
+                    logger.info(f"⚠️ No spreadsheet data in session. sheet_id={session.sheet_id}, all_sheets_data={bool(session.all_sheets_data)}, all_folder_sheets_data={bool(session.all_folder_sheets_data)}")
                 
                 # If we have local data, use it for context
                 if local_context:
