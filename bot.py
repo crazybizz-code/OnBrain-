@@ -1,4 +1,4 @@
-﻿# OnBrain AI Bot v2.1.2 - HTML Escape Fix (March 19, 2026)
+﻿# OnBrain AI Bot v2.1.3 - Safe HTML Send Fix (March 20, 2026)
 import asyncio
 import io
 import json
@@ -19,6 +19,7 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest, TelegramAPIError
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     CallbackQuery,
@@ -670,6 +671,61 @@ class GoogleOAuthService:
         return telegram_id, flow.credentials
 
 
+# ---------------------------------------------------------------------------
+# Safe HTML message helpers – catch TelegramBadRequest and fall back to plain
+# text so the bot never crashes on an unparseable HTML string.
+# ---------------------------------------------------------------------------
+
+def _strip_html_tags(text: str) -> str:
+    """Remove common HTML tags used in bot messages."""
+    import re as _re
+    return _re.sub(r"</?(?:b|i|u|s|code|pre|a)[^>]*>", "", text)
+
+
+def _escape_url_for_html(url: str) -> str:
+    """Escape a URL so it is safe inside HTML parse_mode messages.
+
+    Telegram's HTML parser chokes on bare ``&`` (and ``<``, ``>``) inside
+    attribute values and message text.  This helper encodes them.
+    """
+    return url.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+async def safe_send(target, text: str, *, parse_mode: str = "HTML", **kwargs):
+    """Send *text* via ``target.answer`` (Message) or ``target.edit_text``
+    (CallbackQuery.message).  If the Telegram API rejects the HTML, retry
+    once with the tags stripped and ``parse_mode`` removed so the user still
+    gets a response instead of an error.
+
+    *target* – ``Message`` or the ``.message`` attribute of a ``CallbackQuery``
+    """
+    send_fn = getattr(target, "answer", None) or getattr(target, "edit_text", None)
+    if send_fn is None:
+        raise TypeError(f"Cannot send to {type(target)}")
+    try:
+        return await send_fn(text, parse_mode=parse_mode, **kwargs)
+    except (TelegramBadRequest, TelegramAPIError) as exc:
+        logger.warning("HTML parse failed, falling back to plain text: %s", exc)
+        plain = _strip_html_tags(text)
+        try:
+            return await send_fn(plain, **kwargs)
+        except Exception as inner:
+            logger.error("Plain-text fallback also failed: %s", inner)
+
+
+async def safe_edit(msg, text: str, *, parse_mode: str = "HTML", **kwargs):
+    """Like safe_send but specifically for ``callback.message.edit_text``."""
+    try:
+        return await msg.edit_text(text, parse_mode=parse_mode, **kwargs)
+    except (TelegramBadRequest, TelegramAPIError) as exc:
+        logger.warning("HTML parse failed on edit, falling back: %s", exc)
+        plain = _strip_html_tags(text)
+        try:
+            return await msg.edit_text(plain, **kwargs)
+        except Exception as inner:
+            logger.error("Plain-text edit fallback also failed: %s", inner)
+
+
 def build_main_menu() -> InlineKeyboardMarkup:
     """Build main menu with Chat, Sheets, Excel, Folder, and GitHub buttons"""
     return InlineKeyboardMarkup(
@@ -904,22 +960,32 @@ class AppContext:
                 message_text = "✅ <b>Google hisobiga muvaffaqiyatli ulandi!</b>\n\n" \
                               "Endi Google Drive papka havolasini jo'nating:\n\n" \
                               "📋 <b>Misol:</b>\n" \
-                              "https://drive.google.com/drive/folders/1ABC123xyz"
+                              "<code>https://drive.google.com/drive/folders/1ABC123xyz</code>"
             else:
                 # Default to sheets mode
                 session.step = "waiting_sheet_link"
                 message_text = "✅ <b>Google hisobiga muvaffaqiyatli ulandi!</b>\n\n" \
                               "Endi Google Sheets havolasini jo'nating:\n\n" \
                               "📋 <b>Misol:</b>\n" \
-                              "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
+                              "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>"
             
             # Send success message
             if self.bot:
-                await self.bot.send_message(
-                    telegram_id,
-                    message_text,
-                    parse_mode="HTML"
-                )
+                try:
+                    await self.bot.send_message(
+                        telegram_id,
+                        message_text,
+                        parse_mode="HTML"
+                    )
+                except (TelegramBadRequest, TelegramAPIError) as send_err:
+                    logger.warning("HTML send failed in OAuth callback, retrying plain: %s", send_err)
+                    try:
+                        await self.bot.send_message(
+                            telegram_id,
+                            _strip_html_tags(message_text),
+                        )
+                    except Exception as inner:
+                        logger.error("Plain-text fallback also failed in OAuth callback: %s", inner)
             return "✅ Ruxsat olindi! Endi havolani yuboring."
         
         except Exception as e:
@@ -1174,14 +1240,24 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         try:
             # Trigger sheets button handler
             session.auth_mode = "sheets"
-            await message.answer(
-                "📊 <b>Google Sheets ulash</b>\n\n"
-                "Google Sheets fayli ulash uchun:\n\n"
-                "1️⃣ Google hisobiga kiring\n"
-                "2️⃣ Spreadsheet linkini yuboring:\n"
-                "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit",
-                parse_mode="HTML"
-            )
+            try:
+                await message.answer(
+                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "Google Sheets fayli ulash uchun:\n\n"
+                    "1️⃣ Google hisobiga kiring\n"
+                    "2️⃣ Spreadsheet linkini yuboring:\n"
+                    "<code>https://docs.google.com/spreadsheets/d/1ABC123xyz/edit</code>",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("/sheets command HTML send failed, sending plain: %s", exc)
+                await message.answer(
+                    "📊 Google Sheets ulash\n\n"
+                    "Google Sheets fayli ulash uchun:\n\n"
+                    "1. Google hisobiga kiring\n"
+                    "2. Spreadsheet linkini yuboring:\n"
+                    "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit"
+                )
             
             # Force reload credentials from database in case they were saved after session started
             if not session.google_credentials_json:
@@ -1223,14 +1299,24 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         
         try:
             session.auth_mode = "folder"
-            await message.answer(
-                "📁 <b>Google Drive Papka ulash</b>\n\n"
-                "Google Drive papka uchun:\n\n"
-                "1️⃣ Google hisobiga kiring\n"
-                "2️⃣ Papka linkini yuboring:\n"
-                "https://drive.google.com/drive/folders/1ABC123xyz",
-                parse_mode="HTML"
-            )
+            try:
+                await message.answer(
+                    "📁 <b>Google Drive Papka ulash</b>\n\n"
+                    "Google Drive papka uchun:\n\n"
+                    "1️⃣ Google hisobiga kiring\n"
+                    "2️⃣ Papka linkini yuboring:\n"
+                    "<code>https://drive.google.com/drive/folders/1ABC123xyz</code>",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("/folder command HTML send failed, sending plain: %s", exc)
+                await message.answer(
+                    "📁 Google Drive Papka ulash\n\n"
+                    "Google Drive papka uchun:\n\n"
+                    "1. Google hisobiga kiring\n"
+                    "2. Papka linkini yuboring:\n"
+                    "https://drive.google.com/drive/folders/1ABC123xyz"
+                )
             
             # Force reload credentials from database in case they were saved after session started
             if not session.google_credentials_json:
@@ -1431,18 +1517,27 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             # Check if user already has Google credentials
             if session.google_credentials_json:
                 # User already authenticated, ask for sheet link
-                await callback_query.message.edit_text(
-                    "📊 <b>Google Sheets ulash</b>\n\n"
-                    "✅ Siz Google hisobiga ulangansiz!\n\n"
-                    "Endi Google Sheets havolasini jo'nating:\n\n"
-                    "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
-                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
-                    "3️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
-                    "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
-                    "📋 <b>Misol:</b>\n"
-                    "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit",
-                    parse_mode="HTML"
-                )
+                try:
+                    await callback_query.message.edit_text(
+                        "📊 <b>Google Sheets ulash</b>\n\n"
+                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "Endi Google Sheets havolasini jo'nating:\n\n"
+                        "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                        "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                        "3️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
+                        "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "📋 <b>Misol:</b>\n"
+                        "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
+                        parse_mode="HTML"
+                    )
+                except (TelegramBadRequest, TelegramAPIError) as exc:
+                    logger.warning("Sheets button edit_text failed, sending plain: %s", exc)
+                    await callback_query.message.answer(
+                        "📊 Google Sheets ulash\n\n"
+                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "Endi Google Sheets havolasini jo'nating:\n\n"
+                        "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
+                    )
                 session.step = "waiting_sheet_link"
                 await callback_query.message.answer("📌 Google Sheets havolasini yuboring...")
             else:
@@ -1455,11 +1550,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 )
                 
                 auth_url = ctx.oauth_service.create_auth_url(telegram_id)
-                await callback_query.message.answer(
-                    f"🔗 <a href='{auth_url}'>Google bilan kirish</a>\n\n"
-                    "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi.",
-                    parse_mode="HTML"
-                )
+                safe_url = _escape_url_for_html(auth_url)
+                try:
+                    await callback_query.message.answer(
+                        f"🔗 <a href='{safe_url}'>Google bilan kirish</a>\n\n"
+                        "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi.",
+                        parse_mode="HTML"
+                    )
+                except (TelegramBadRequest, TelegramAPIError) as exc:
+                    logger.warning("Auth URL HTML send failed, sending plain: %s", exc)
+                    await callback_query.message.answer(
+                        f"🔗 Google bilan kirish:\n{auth_url}\n\n"
+                        "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi."
+                    )
                 
                 session.step = "waiting_google_auth"
                 await callback_query.message.answer(
@@ -1513,19 +1616,28 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             # Check if user already has Google credentials
             if session.google_credentials_json:
                 # User already authenticated, ask for folder link
-                await callback_query.message.edit_text(
-                    "📁 <b>Google Drive Papka ulash</b>\n\n"
-                    "✅ Siz Google hisobiga ulangansiz!\n\n"
-                    "Endi Google Drive papka havolasini jo'nating:\n\n"
-                    "1️⃣ Google Drive ni oching (drive.google.com)\n"
-                    "2️⃣ Spreadsheet lar joylashgan papkani toping\n"
-                    "3️⃣ Papka ustiga o'ng click → \"Ulashish\" (Share) tugmasini bosing\n"
-                    "4️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
-                    "5️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
-                    "📋 <b>Misol:</b>\n"
-                    "https://drive.google.com/drive/folders/1ABC123xyz",
-                    parse_mode="HTML"
-                )
+                try:
+                    await callback_query.message.edit_text(
+                        "📁 <b>Google Drive Papka ulash</b>\n\n"
+                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "Endi Google Drive papka havolasini jo'nating:\n\n"
+                        "1️⃣ Google Drive ni oching (drive.google.com)\n"
+                        "2️⃣ Spreadsheet lar joylashgan papkani toping\n"
+                        "3️⃣ Papka ustiga o'ng click → \"Ulashish\" (Share) tugmasini bosing\n"
+                        "4️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
+                        "5️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "📋 <b>Misol:</b>\n"
+                        "<code>https://drive.google.com/drive/folders/1ABC123xyz</code>",
+                        parse_mode="HTML"
+                    )
+                except (TelegramBadRequest, TelegramAPIError) as exc:
+                    logger.warning("Folder button edit_text failed, sending plain: %s", exc)
+                    await callback_query.message.answer(
+                        "📁 Google Drive Papka ulash\n\n"
+                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "Endi Google Drive papka havolasini jo'nating:\n\n"
+                        "Misol:\nhttps://drive.google.com/drive/folders/1ABC123xyz"
+                    )
                 session.step = "waiting_folder_link"
                 await callback_query.message.answer("📌 Google Drive papka havolasini yuboring...")
             else:
@@ -1538,11 +1650,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 )
                 
                 auth_url = ctx.oauth_service.create_auth_url(telegram_id)
-                await callback_query.message.answer(
-                    f"🔗 <a href='{auth_url}'>Google bilan kirish</a>\n\n"
-                    "Ruxsat berganingizdan keyin, bot Google Drive papka ulashishni taklif qiladi.",
-                    parse_mode="HTML"
-                )
+                safe_url = _escape_url_for_html(auth_url)
+                try:
+                    await callback_query.message.answer(
+                        f"🔗 <a href='{safe_url}'>Google bilan kirish</a>\n\n"
+                        "Ruxsat berganingizdan keyin, bot Google Drive papka ulashishni taklif qiladi.",
+                        parse_mode="HTML"
+                    )
+                except (TelegramBadRequest, TelegramAPIError) as exc:
+                    logger.warning("Auth URL HTML send failed in folder handler: %s", exc)
+                    await callback_query.message.answer(
+                        f"🔗 Google bilan kirish:\n{auth_url}\n\n"
+                        "Ruxsat berganingizdan keyin, bot Google Drive papka ulashishni taklif qiladi."
+                    )
                 
                 session.step = "waiting_google_auth"
                 await callback_query.message.answer(
@@ -1564,16 +1684,24 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         
         try:
             session.step = "waiting_sheet_link"
-            await callback_query.message.answer(
-                "📊 <b>Google Sheets ulash</b>\n\n"
-                "Iltimos, Google Sheets havolasini yuboring:\n\n"
-                "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
-                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
-                "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
-                "📋 <b>Misol:</b>\n"
-                "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit",
-                parse_mode="HTML"
-            )
+            try:
+                await callback_query.message.answer(
+                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "Iltimos, Google Sheets havolasini yuboring:\n\n"
+                    "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "📋 <b>Misol:</b>\n"
+                    "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("Retry sheets HTML failed, sending plain: %s", exc)
+                await callback_query.message.answer(
+                    "📊 Google Sheets ulash\n\n"
+                    "Iltimos, Google Sheets havolasini yuboring:\n\n"
+                    "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
+                )
             await callback_query.answer()
         except Exception as exc:
             logger.exception(f"❌ Retry sheets error: {exc}")
@@ -1589,16 +1717,24 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         
         try:
             session.step = "waiting_folder_link"
-            await callback_query.message.answer(
-                "📁 <b>Google Drive Papka ulash</b>\n\n"
-                "Iltimos, Google Drive papka havolasini yuboring:\n\n"
-                "1️⃣ Google Drive da papkani oching\n"
-                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
-                "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
-                "📋 <b>Misol:</b>\n"
-                "https://drive.google.com/drive/folders/1Abc123xyz?usp=sharing",
-                parse_mode="HTML"
-            )
+            try:
+                await callback_query.message.answer(
+                    "📁 <b>Google Drive Papka ulash</b>\n\n"
+                    "Iltimos, Google Drive papka havolasini yuboring:\n\n"
+                    "1️⃣ Google Drive da papkani oching\n"
+                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "📋 <b>Misol:</b>\n"
+                    "<code>https://drive.google.com/drive/folders/1Abc123xyz?usp=sharing</code>",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("Retry folder HTML failed, sending plain: %s", exc)
+                await callback_query.message.answer(
+                    "📁 Google Drive Papka ulash\n\n"
+                    "Iltimos, Google Drive papka havolasini yuboring:\n\n"
+                    "Misol:\nhttps://drive.google.com/drive/folders/1Abc123xyz?usp=sharing"
+                )
             await callback_query.answer()
         except Exception as exc:
             logger.exception(f"❌ Retry folder error: {exc}")
@@ -1633,11 +1769,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 parse_mode="HTML"
             )
             
-            await callback_query.message.answer(
-                f"🔗 <a href='{auth_url}'>GitHub bilan kirish</a>\n\n"
-                "Ruxsat berganingizdan keyin, bot sizni GitHub foydalanuvchisi sifatida taniydi.",
-                parse_mode="HTML"
-            )
+            safe_url = _escape_url_for_html(auth_url)
+            try:
+                await callback_query.message.answer(
+                    f"🔗 <a href='{safe_url}'>GitHub bilan kirish</a>\n\n"
+                    "Ruxsat berganingizdan keyin, bot sizni GitHub foydalanuvchisi sifatida taniydi.",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("GitHub auth URL HTML send failed: %s", exc)
+                await callback_query.message.answer(
+                    f"🔗 GitHub bilan kirish:\n{auth_url}\n\n"
+                    "Ruxsat berganingizdan keyin, bot sizni GitHub foydalanuvchisi sifatida taniydi."
+                )
             
             session.step = "waiting_github_auth"
             
@@ -1656,18 +1800,27 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         # Check if user already has Google credentials
         if session.google_credentials_json:
             # User already authenticated, ask for sheet link
-            await message.answer(
-                "📊 <b>Google Sheets ulash</b>\n\n"
-                "✅ Siz Google hisobiga ulangansiz!\n\n"
-                "Endi Google Sheets havolasini jo'nating:\n\n"
-                "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
-                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
-                "3️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
-                "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
-                "📋 <b>Misol:</b>\n"
-                "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit",
-                parse_mode="HTML"
-            )
+            try:
+                await message.answer(
+                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "✅ Siz Google hisobiga ulangansiz!\n\n"
+                    "Endi Google Sheets havolasini jo'nating:\n\n"
+                    "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "3️⃣ \"Qoʻl kiritish\" (Anyone with link) tanlang\n"
+                    "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "📋 <b>Misol:</b>\n"
+                    "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("Sheets menu HTML send failed, sending plain: %s", exc)
+                await message.answer(
+                    "📊 Google Sheets ulash\n\n"
+                    "✅ Siz Google hisobiga ulangansiz!\n\n"
+                    "Endi Google Sheets havolasini jo'nating:\n\n"
+                    "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
+                )
             session.step = "waiting_sheet_link"
             await message.answer("📌 Google Sheets havolasini yuboring...")
         else:
@@ -1680,11 +1833,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             )
             
             auth_url = ctx.oauth_service.create_auth_url(telegram_id)
-            await message.answer(
-                f"🔗 <a href='{auth_url}'>Google bilan kirish</a>\n\n"
-                "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi.",
-                parse_mode="HTML"
-            )
+            safe_url = _escape_url_for_html(auth_url)
+            try:
+                await message.answer(
+                    f"🔗 <a href='{safe_url}'>Google bilan kirish</a>\n\n"
+                    "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi.",
+                    parse_mode="HTML"
+                )
+            except (TelegramBadRequest, TelegramAPIError) as exc:
+                logger.warning("Auth URL HTML send failed in sheets menu: %s", exc)
+                await message.answer(
+                    f"🔗 Google bilan kirish:\n{auth_url}\n\n"
+                    "Ruxsat berganingizdan keyin, bot Google Sheets ulashishni taklif qiladi."
+                )
             
             session.step = "waiting_google_auth"
             await message.answer(
@@ -1935,11 +2096,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             "Iltimos, qayta urinib ko'ring yoki bot egasiga xabar bering."
                         )
                     
-                    await message.answer(
-                        error_msg,
-                        reply_markup=build_retry_keyboard(),
-                        parse_mode="HTML"
-                    )
+                    try:
+                        await message.answer(
+                            error_msg,
+                            reply_markup=build_retry_keyboard(),
+                            parse_mode="HTML"
+                        )
+                    except (TelegramBadRequest, TelegramAPIError) as send_err:
+                        logger.warning("Error-msg HTML send failed, sending plain: %s", send_err)
+                        await message.answer(
+                            _strip_html_tags(error_msg),
+                            reply_markup=build_retry_keyboard()
+                        )
                     session.step = "ready"
                 else:
                     await message.answer(
