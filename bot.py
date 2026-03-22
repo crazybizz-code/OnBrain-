@@ -288,7 +288,10 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 class SQLiteTokenStore:
     """Persist Google OAuth tokens in a local SQLite database."""
 
-    DB_PATH = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+    # Use SQLITE_TOKEN_DB env var; if the directory doesn't exist, fall back to /tmp
+    _raw_path = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+    _db_dir = os.path.dirname(_raw_path) if os.path.dirname(_raw_path) else "."
+    DB_PATH = _raw_path if (os.path.exists(_db_dir) or _db_dir == ".") else os.path.join("/tmp", os.path.basename(_raw_path))
 
     def __init__(self) -> None:
         self._init_db()
@@ -369,7 +372,10 @@ _token_store = SQLiteTokenStore()
 class WorkspaceStore:
     """Persist folder/sheet connections and cached data across restarts."""
 
-    DB_PATH = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")  # same file
+    # Use same fallback logic as SQLiteTokenStore
+    _raw_path = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+    _db_dir = os.path.dirname(_raw_path) if os.path.dirname(_raw_path) else "."
+    DB_PATH = _raw_path if (os.path.exists(_db_dir) or _db_dir == ".") else os.path.join("/tmp", os.path.basename(_raw_path))
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
@@ -912,7 +918,7 @@ class UserSession:
 
 
 class SessionStore:
-    def __init__(self, timeout_seconds: int = 3600) -> None:
+    def __init__(self, timeout_seconds: int = 86400) -> None:  # 24 hours
         self._store: dict[int, UserSession] = {}
         self._timestamps: dict[int, float] = {}
         self.timeout_seconds = timeout_seconds
@@ -931,13 +937,6 @@ class SessionStore:
         
         # ---------------------------------------------------------------
         # Load Google credentials if not already in memory.
-        # Uses load_and_refresh_google_token which:
-        #   1. Tries SQLite first (fast, local)
-        #   2. Falls back to Supabase
-        #   3. Auto-refreshes if token is expired
-        #   4. Saves the refreshed token back to SQLite + Supabase
-        # This means after a bot restart, users are automatically
-        # re-authenticated without any manual login required.
         # ---------------------------------------------------------------
         if not self._store[telegram_id].google_credentials_json:
             refreshed = load_and_refresh_google_token(telegram_id)
@@ -960,14 +959,16 @@ class SessionStore:
 
             # ---------------------------------------------------------------
             # Restore workspace (folder / sheet connection) from DB.
-            # This means after a bot restart the user's sheets are still
-            # loaded and they can immediately ask questions.
             # ---------------------------------------------------------------
             self._restore_workspace(telegram_id)
 
         else:
-            # Update timestamp on access if session already existed
+            # Update timestamp on access
             self._timestamps[telegram_id] = time.time()
+            # Also restore workspace if data is missing (e.g. after partial session)
+            sess = self._store[telegram_id]
+            if not sess.all_folder_sheets_data and not sess.all_sheets_data:
+                self._restore_workspace(telegram_id)
         
         return self._store[telegram_id]
 
@@ -2650,38 +2651,32 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         except Exception as cred_error:
                             logger.error(f"❌ Credential loading error: {cred_error}")
                             raise ValueError(f"Credentials loading failed: {cred_error}") from cred_error
-                        
-                        # Use Sheets API
-                        sheets_service = build('sheets', 'v4', credentials=creds)
-                        
-                        # Get spreadsheet metadata
-                        logger.info(f"📊 Fetching spreadsheet metadata for sheet ID: {sheet_id}")
-                        spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=sheet_id).execute()
-                        sheet_name = spreadsheet.get('properties', {}).get('title', 'Sheet')
-                        logger.info(f"✅ Spreadsheet found: {sheet_name}")
-                        
-                        # Read all sheets
-                        all_sheets_data = {}
-                        successfully_read = 0
-                        for sheet in spreadsheet.get('sheets', []):
-                            sheet_title = sheet['properties']['title']
-                            try:
-                                # Read the values from this sheet (entire sheet, no column limit)
-                                logger.info(f"📊 Reading sheet '{sheet_title}'...")
-                                # Quote sheet name for Sheets API (handles spaces & special chars)
-                                safe_range = f"'{sheet_title}'" if " " in sheet_title or "'" in sheet_title else sheet_title
-                                result = sheets_service.spreadsheets().values().get(
-                                    spreadsheetId=sheet_id,
-                                    range=safe_range
-                                ).execute()
-                                values = result.get('values', [])
-                                all_sheets_data[sheet_title] = values
-                                if values:
-                                    successfully_read += 1
-                                logger.info(f"📊 Read sheet '{sheet_title}' with {len(values)} rows")
-                            except Exception as e:
-                                logger.warning(f"⚠️ Could not read sheet '{sheet_title}': {e}")
-                                all_sheets_data[sheet_title] = []
+
+                        # ── Run all blocking Google API calls in a thread ──────────
+                        def _read_sheets_sync():
+                            svc = build('sheets', 'v4', credentials=creds)
+                            sp = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
+                            sp_name = sp.get('properties', {}).get('title', 'Sheet')
+                            result_data = {}
+                            ok = 0
+                            for sh in sp.get('sheets', []):
+                                title = sh['properties']['title']
+                                try:
+                                    safe_range = f"'{title}'" if (" " in title or "'" in title) else title
+                                    r = svc.spreadsheets().values().get(
+                                        spreadsheetId=sheet_id, range=safe_range
+                                    ).execute()
+                                    vals = r.get('values', [])
+                                    result_data[title] = vals
+                                    if vals:
+                                        ok += 1
+                                except Exception as _e:
+                                    logger.warning(f"⚠️ Could not read sheet '{title}': {_e}")
+                                    result_data[title] = []
+                            return sp_name, result_data, ok
+
+                        logger.info(f"📊 Reading spreadsheet {sheet_id} in background thread...")
+                        sheet_name, all_sheets_data, successfully_read = await asyncio.to_thread(_read_sheets_sync)
                         
                         # Check if we successfully read at least one sheet
                         if successfully_read > 0:
