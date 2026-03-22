@@ -4072,11 +4072,12 @@ async def main() -> None:
         logger.info("🔄 Forcefully stopping any existing bot sessions...")
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("   ✅ Webhook deleted, pending updates dropped")
-        # Wait for Telegram to fully release the old polling session
-        await asyncio.sleep(5)
+        # Wait longer for Telegram to fully release the old polling session
+        # (needed when migrating from another server like Render)
+        await asyncio.sleep(10)
     except Exception as e:
         logger.warning(f"⚠️  Could not clean webhook: {e}")
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)
     
     dp = Dispatcher()
     register_handlers(dp, context)
