@@ -428,10 +428,14 @@ class WorkspaceStore:
         folder_spreadsheets: list | None = None,
         selected_spreadsheets: list | None = None,
     ) -> int:
-        """Upsert a company row for this admin and return company_id."""
+        """Upsert a company row for this admin and return company_id.
+        Saves to SQLite first (fast), then mirrors to Supabase (persistent)."""
         now = datetime.now(timezone.utc).isoformat()
         fs_json  = json.dumps(folder_spreadsheets or [])
         sel_json = json.dumps(selected_spreadsheets or [])
+        company_id = -1
+
+        # 1. SQLite
         try:
             with self._connect() as conn:
                 conn.execute("""
@@ -455,7 +459,6 @@ class WorkspaceStore:
                     (telegram_id,)
                 ).fetchone()
                 company_id = row["company_id"]
-                # Also register this user in company_users
                 conn.execute("""
                     INSERT INTO company_users (user_id, company_id, joined_at)
                     VALUES (?, ?, ?)
@@ -464,14 +467,41 @@ class WorkspaceStore:
                         joined_at  = excluded.joined_at
                 """, (telegram_id, company_id, now))
                 conn.commit()
-            logger.info(f"💾 WorkspaceStore: saved workspace for user {telegram_id} (company {company_id})")
-            return company_id
+            logger.info(f"💾 SQLite workspace saved for user {telegram_id} (company {company_id})")
         except Exception as exc:
-            logger.warning(f"⚠️ WorkspaceStore save_workspace error: {exc}")
-            return -1
+            logger.warning(f"⚠️ SQLite save_workspace error: {exc}")
+
+        # 2. Supabase mirror (belt-and-suspenders, survives container wipes)
+        try:
+            from supabase import create_client as _sc
+            _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+            payload = {
+                "admin_user_id": telegram_id,
+                "folder_id": folder_id,
+                "folder_url": folder_url,
+                "sheet_id": sheet_id,
+                "sheet_name": sheet_name,
+                "mode": mode,
+                "folder_spreadsheets": fs_json,
+                "selected_spreadsheets": sel_json,
+                "connected_at": now,
+            }
+            resp = _sb.table("workspaces").upsert(payload, on_conflict="admin_user_id").execute()
+            if resp.data:
+                sb_cid = resp.data[0].get("company_id") or resp.data[0].get("id")
+                logger.info(f"💾 Supabase workspace saved for user {telegram_id}")
+                # If SQLite didn't assign a company_id, use Supabase's
+                if company_id < 0 and sb_cid:
+                    company_id = int(sb_cid)
+        except Exception as exc:
+            logger.warning(f"⚠️ Supabase save_workspace error (SQLite backup ok): {exc}")
+
+        return company_id
 
     def load_workspace(self, telegram_id: int) -> dict | None:
-        """Return the saved workspace dict for this user, or None."""
+        """Return the saved workspace dict for this user, or None.
+        Tries SQLite first, falls back to Supabase, backfills SQLite."""
+        # 1. SQLite
         try:
             with self._connect() as conn:
                 row = conn.execute("""
@@ -483,7 +513,6 @@ class WorkspaceStore:
                     LIMIT 1
                 """, (telegram_id,)).fetchone()
             if not row:
-                # Try as admin directly
                 with self._connect() as conn:
                     row = conn.execute(
                         "SELECT * FROM companies WHERE admin_user_id = ? ORDER BY connected_at DESC LIMIT 1",
@@ -492,11 +521,56 @@ class WorkspaceStore:
             if row:
                 return dict(row)
         except Exception as exc:
-            logger.warning(f"⚠️ WorkspaceStore load_workspace error: {exc}")
+            logger.warning(f"⚠️ SQLite load_workspace error: {exc}")
+
+        # 2. Supabase fallback
+        try:
+            from supabase import create_client as _sc
+            _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+            resp = _sb.table("workspaces").select("*").eq("admin_user_id", telegram_id).order("connected_at", desc=True).limit(1).execute()
+            if resp.data:
+                ws = resp.data[0]
+                logger.info(f"✅ Supabase→SQLite workspace backfill for user {telegram_id}")
+                # Backfill SQLite
+                try:
+                    now = datetime.now(timezone.utc).isoformat()
+                    with self._connect() as conn:
+                        conn.execute("""
+                            INSERT INTO companies
+                                (admin_user_id, folder_id, folder_url, sheet_id, sheet_name,
+                                 mode, folder_spreadsheets, selected_spreadsheets, connected_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(admin_user_id) DO UPDATE SET
+                                folder_id=excluded.folder_id, folder_url=excluded.folder_url,
+                                sheet_id=excluded.sheet_id, sheet_name=excluded.sheet_name,
+                                mode=excluded.mode, folder_spreadsheets=excluded.folder_spreadsheets,
+                                selected_spreadsheets=excluded.selected_spreadsheets,
+                                connected_at=excluded.connected_at
+                        """, (telegram_id, ws.get("folder_id"), ws.get("folder_url"),
+                              ws.get("sheet_id"), ws.get("sheet_name"), ws.get("mode", "sheets"),
+                              ws.get("folder_spreadsheets", "[]"), ws.get("selected_spreadsheets", "[]"),
+                              ws.get("connected_at", now)))
+                        sqlite_row = conn.execute(
+                            "SELECT company_id FROM companies WHERE admin_user_id = ?", (telegram_id,)
+                        ).fetchone()
+                        if sqlite_row:
+                            conn.execute("""
+                                INSERT INTO company_users (user_id, company_id, joined_at)
+                                VALUES (?, ?, ?)
+                                ON CONFLICT(user_id) DO UPDATE SET company_id=excluded.company_id
+                            """, (telegram_id, sqlite_row["company_id"], now))
+                        conn.commit()
+                except Exception as bf_exc:
+                    logger.debug(f"SQLite backfill error: {bf_exc}")
+                return ws
+        except Exception as exc:
+            logger.warning(f"⚠️ Supabase load_workspace error: {exc}")
+
         return None
 
     def delete_workspace(self, telegram_id: int) -> None:
         """Remove workspace + cache for this user (used by /disconnect)."""
+        # 1. SQLite
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -509,22 +583,36 @@ class WorkspaceStore:
                     conn.execute("DELETE FROM company_users WHERE company_id = ?", (company_id,))
                     conn.execute("DELETE FROM companies WHERE company_id = ?", (company_id,))
                 else:
-                    # Remove from company_users if they're not the admin
                     conn.execute("DELETE FROM company_users WHERE user_id = ?", (telegram_id,))
                 conn.commit()
-            logger.info(f"🗑️ WorkspaceStore: deleted workspace for user {telegram_id}")
+            logger.info(f"🗑️ SQLite workspace deleted for user {telegram_id}")
         except Exception as exc:
-            logger.warning(f"⚠️ WorkspaceStore delete_workspace error: {exc}")
+            logger.warning(f"⚠️ SQLite delete_workspace error: {exc}")
+
+        # 2. Supabase
+        try:
+            from supabase import create_client as _sc
+            _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+            _sb.table("workspaces").delete().eq("admin_user_id", telegram_id).execute()
+            _sb.table("sheets_cache_sb").delete().eq("admin_user_id", telegram_id).execute()
+            logger.info(f"🗑️ Supabase workspace deleted for user {telegram_id}")
+        except Exception as exc:
+            logger.warning(f"⚠️ Supabase delete_workspace error: {exc}")
 
     # ------------------------------------------------------------------
     # Sheet data cache
     # ------------------------------------------------------------------
 
-    def save_cache(self, company_id: int, cache_key: str, sheet_name: str, data: Any) -> None:
-        """Save spreadsheet data as JSON. data can be list[list] or dict."""
+    def save_cache(self, company_id: int, cache_key: str, sheet_name: str, data: Any, telegram_id: int = 0) -> None:
+        """Save spreadsheet data as JSON to SQLite + Supabase."""
         now = datetime.now(timezone.utc).isoformat()
         try:
             data_json = json.dumps(data, ensure_ascii=False)
+        except Exception:
+            data_json = "[]"
+
+        # 1. SQLite
+        try:
             with self._connect() as conn:
                 conn.execute("""
                     INSERT INTO sheets_cache (cache_key, company_id, sheet_name, data, last_updated)
@@ -535,13 +623,31 @@ class WorkspaceStore:
                         last_updated = excluded.last_updated
                 """, (cache_key, company_id, sheet_name, data_json, now))
                 conn.commit()
-            logger.debug(f"💾 Cache saved: {cache_key}")
+            logger.debug(f"💾 SQLite cache saved: {cache_key}")
         except Exception as exc:
-            logger.warning(f"⚠️ WorkspaceStore save_cache error: {exc}")
+            logger.warning(f"⚠️ SQLite save_cache error: {exc}")
 
-    def load_all_cache(self, company_id: int) -> dict[str, Any]:
-        """Load all cached sheet data for a company. Returns {cache_key: data}."""
+        # 2. Supabase (only save if we have a telegram_id to use as owner key)
+        if telegram_id:
+            try:
+                from supabase import create_client as _sc
+                _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+                _sb.table("sheets_cache_sb").upsert({
+                    "cache_key": cache_key,
+                    "admin_user_id": telegram_id,
+                    "sheet_name": sheet_name,
+                    "data": data_json,
+                    "last_updated": now,
+                }, on_conflict="cache_key").execute()
+                logger.debug(f"💾 Supabase cache saved: {cache_key}")
+            except Exception as exc:
+                logger.debug(f"⚠️ Supabase save_cache error (SQLite ok): {exc}")
+
+    def load_all_cache(self, company_id: int, telegram_id: int = 0) -> dict[str, Any]:
+        """Load all cached sheet data. Tries SQLite first, falls back to Supabase."""
         result: dict[str, Any] = {}
+
+        # 1. SQLite
         try:
             with self._connect() as conn:
                 rows = conn.execute(
@@ -549,9 +655,48 @@ class WorkspaceStore:
                     (company_id,)
                 ).fetchall()
             for row in rows:
-                result[row["cache_key"]] = json.loads(row["data"])
+                try:
+                    result[row["cache_key"]] = json.loads(row["data"])
+                except Exception:
+                    pass
         except Exception as exc:
-            logger.warning(f"⚠️ WorkspaceStore load_all_cache error: {exc}")
+            logger.warning(f"⚠️ SQLite load_all_cache error: {exc}")
+
+        if result:
+            return result
+
+        # 2. Supabase fallback
+        if telegram_id:
+            try:
+                from supabase import create_client as _sc
+                _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+                resp = _sb.table("sheets_cache_sb").select("cache_key, data, sheet_name").eq("admin_user_id", telegram_id).execute()
+                if resp.data:
+                    logger.info(f"✅ Supabase→SQLite cache backfill for user {telegram_id}: {len(resp.data)} entries")
+                    for entry in resp.data:
+                        key = entry["cache_key"]
+                        try:
+                            parsed = json.loads(entry["data"])
+                            result[key] = parsed
+                            # Backfill SQLite
+                            try:
+                                with self._connect() as conn:
+                                    conn.execute("""
+                                        INSERT INTO sheets_cache (cache_key, company_id, sheet_name, data, last_updated)
+                                        VALUES (?, ?, ?, ?, ?)
+                                        ON CONFLICT(cache_key) DO UPDATE SET
+                                            data=excluded.data, sheet_name=excluded.sheet_name,
+                                            last_updated=excluded.last_updated
+                                    """, (key, company_id, entry.get("sheet_name", ""), entry["data"],
+                                          datetime.now(timezone.utc).isoformat()))
+                                    conn.commit()
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.warning(f"⚠️ Supabase load_all_cache error: {exc}")
+
         return result
 
 
@@ -850,7 +995,7 @@ class SessionStore:
                 except Exception:
                     pass
             # Restore cached sheet data
-            cached = _workspace_store.load_all_cache(company_id)
+            cached = _workspace_store.load_all_cache(company_id, telegram_id=telegram_id)
             if mode == "folder" and cached:
                 # Rebuild all_folder_sheets_data: {sheet_id: {sheet_title: rows}}
                 folder_data: dict[str, dict[str, list]] = {}
@@ -3534,8 +3679,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             if company_id > 0:
                 for sheet_title, rows in all_sheets_data.items():
                     cache_key = f"sheet:{selected_sheet_id}:{sheet_title}"
-                    _workspace_store.save_cache(company_id, cache_key, sheet_title, rows)
-                logger.info(f"💾 Sheet workspace persisted to SQLite for user {telegram_id}")
+                    _workspace_store.save_cache(company_id, cache_key, sheet_title, rows, telegram_id=telegram_id)
+                logger.info(f"💾 Sheet workspace persisted to SQLite+Supabase for user {telegram_id}")
             # ---------------------------------------------------------------
             
             # Show summary of all sheets read
@@ -3678,8 +3823,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 for sid, sheets_dict in all_folder_sheets_data.items():
                     for sheet_title, rows in sheets_dict.items():
                         cache_key = f"folder:{sid}:{sheet_title}"
-                        _workspace_store.save_cache(company_id, cache_key, sheet_title, rows)
-                logger.info(f"💾 Folder workspace persisted to SQLite for user {telegram_id}")
+                        _workspace_store.save_cache(company_id, cache_key, sheet_title, rows, telegram_id=telegram_id)
+                logger.info(f"💾 Folder workspace persisted to SQLite+Supabase for user {telegram_id}")
             # ---------------------------------------------------------------
             
             # Create summary
