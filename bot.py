@@ -5,12 +5,13 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from html import escape as html_escape
 import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import openpyxl
@@ -273,6 +274,373 @@ rate_limiter = RateLimiter(max_requests=20, time_window=60)  # 20 requests per m
 input_validator = InputValidator()
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# ---------------------------------------------------------------------------
+# SQLite-backed Google token store
+# Tokens are persisted to a local SQLite file so they survive bot restarts.
+# Supabase is still used as a secondary backup; SQLite is the primary fast
+# store that works even when Supabase is unavailable.
+# ---------------------------------------------------------------------------
+
+class SQLiteTokenStore:
+    """Persist Google OAuth tokens in a local SQLite database."""
+
+    DB_PATH = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+
+    def __init__(self) -> None:
+        self._init_db()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS google_tokens (
+                        telegram_id   INTEGER PRIMARY KEY,
+                        credentials_json TEXT NOT NULL,
+                        updated_at    TEXT NOT NULL
+                    )
+                """)
+                conn.commit()
+            logger.info("✅ SQLite token store initialised")
+        except Exception as exc:
+            logger.error(f"❌ SQLite token store init error: {exc}")
+
+    def save(self, telegram_id: int, credentials_json: str) -> None:
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT INTO google_tokens (telegram_id, credentials_json, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(telegram_id) DO UPDATE SET
+                        credentials_json = excluded.credentials_json,
+                        updated_at       = excluded.updated_at
+                """, (telegram_id, credentials_json, now))
+                conn.commit()
+            logger.info(f"💾 SQLite: saved token for user {telegram_id}")
+        except Exception as exc:
+            logger.warning(f"⚠️ SQLite token save error: {exc}")
+
+    def load(self, telegram_id: int) -> str | None:
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT credentials_json FROM google_tokens WHERE telegram_id = ?",
+                    (telegram_id,)
+                ).fetchone()
+            if row:
+                logger.info(f"✅ SQLite: loaded token for user {telegram_id}")
+                return row["credentials_json"]
+        except Exception as exc:
+            logger.warning(f"⚠️ SQLite token load error: {exc}")
+        return None
+
+    def delete(self, telegram_id: int) -> None:
+        try:
+            with self._connect() as conn:
+                conn.execute("DELETE FROM google_tokens WHERE telegram_id = ?", (telegram_id,))
+                conn.commit()
+        except Exception as exc:
+            logger.warning(f"⚠️ SQLite token delete error: {exc}")
+
+
+# Singleton token store – imported everywhere inside this module
+_token_store = SQLiteTokenStore()
+
+# ---------------------------------------------------------------------------
+# SQLite-backed workspace store
+# Persists connected folder/sheet metadata and cached spreadsheet data so
+# users never have to re-upload a link after a bot restart.
+#
+# Schema (future-proof multi-tenant structure):
+#   companies       – one company per admin; holds folder_id / folder_url
+#   company_users   – links telegram_id → company_id
+#   sheets_cache    – cached JSON data per sheet_id
+# ---------------------------------------------------------------------------
+
+class WorkspaceStore:
+    """Persist folder/sheet connections and cached data across restarts."""
+
+    DB_PATH = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")  # same file
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.DB_PATH, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")  # safe concurrent reads
+        return conn
+
+    def init_db(self) -> None:
+        try:
+            with self._connect() as conn:
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS companies (
+                        company_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admin_user_id INTEGER NOT NULL UNIQUE,
+                        folder_id    TEXT,
+                        folder_url   TEXT,
+                        sheet_id     TEXT,
+                        sheet_name   TEXT,
+                        mode         TEXT DEFAULT 'sheets',
+                        folder_spreadsheets TEXT,
+                        selected_spreadsheets TEXT,
+                        connected_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS company_users (
+                        user_id    INTEGER PRIMARY KEY,
+                        company_id INTEGER NOT NULL,
+                        joined_at  TEXT NOT NULL,
+                        FOREIGN KEY (company_id) REFERENCES companies(company_id)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS sheets_cache (
+                        cache_key    TEXT PRIMARY KEY,
+                        company_id   INTEGER NOT NULL,
+                        sheet_name   TEXT,
+                        data         TEXT NOT NULL,
+                        last_updated TEXT NOT NULL,
+                        FOREIGN KEY (company_id) REFERENCES companies(company_id)
+                    );
+                """)
+                conn.commit()
+            logger.info("✅ SQLite workspace store initialised")
+        except Exception as exc:
+            logger.error(f"❌ SQLite workspace store init error: {exc}")
+
+    # ------------------------------------------------------------------
+    # Save / load a user's workspace (folder or single-sheet connection)
+    # ------------------------------------------------------------------
+
+    def save_workspace(
+        self,
+        telegram_id: int,
+        *,
+        mode: str,                              # "folder" | "sheets"
+        folder_id: str | None = None,
+        folder_url: str | None = None,
+        sheet_id: str | None = None,
+        sheet_name: str | None = None,
+        folder_spreadsheets: list | None = None,
+        selected_spreadsheets: list | None = None,
+    ) -> int:
+        """Upsert a company row for this admin and return company_id."""
+        now = datetime.now(timezone.utc).isoformat()
+        fs_json  = json.dumps(folder_spreadsheets or [])
+        sel_json = json.dumps(selected_spreadsheets or [])
+        try:
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT INTO companies
+                        (admin_user_id, folder_id, folder_url, sheet_id, sheet_name,
+                         mode, folder_spreadsheets, selected_spreadsheets, connected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(admin_user_id) DO UPDATE SET
+                        folder_id              = excluded.folder_id,
+                        folder_url             = excluded.folder_url,
+                        sheet_id               = excluded.sheet_id,
+                        sheet_name             = excluded.sheet_name,
+                        mode                   = excluded.mode,
+                        folder_spreadsheets    = excluded.folder_spreadsheets,
+                        selected_spreadsheets  = excluded.selected_spreadsheets,
+                        connected_at           = excluded.connected_at
+                """, (telegram_id, folder_id, folder_url, sheet_id, sheet_name,
+                      mode, fs_json, sel_json, now))
+                row = conn.execute(
+                    "SELECT company_id FROM companies WHERE admin_user_id = ?",
+                    (telegram_id,)
+                ).fetchone()
+                company_id = row["company_id"]
+                # Also register this user in company_users
+                conn.execute("""
+                    INSERT INTO company_users (user_id, company_id, joined_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        company_id = excluded.company_id,
+                        joined_at  = excluded.joined_at
+                """, (telegram_id, company_id, now))
+                conn.commit()
+            logger.info(f"💾 WorkspaceStore: saved workspace for user {telegram_id} (company {company_id})")
+            return company_id
+        except Exception as exc:
+            logger.warning(f"⚠️ WorkspaceStore save_workspace error: {exc}")
+            return -1
+
+    def load_workspace(self, telegram_id: int) -> dict | None:
+        """Return the saved workspace dict for this user, or None."""
+        try:
+            with self._connect() as conn:
+                row = conn.execute("""
+                    SELECT c.*
+                    FROM companies c
+                    JOIN company_users cu ON cu.company_id = c.company_id
+                    WHERE cu.user_id = ?
+                    ORDER BY c.connected_at DESC
+                    LIMIT 1
+                """, (telegram_id,)).fetchone()
+            if not row:
+                # Try as admin directly
+                with self._connect() as conn:
+                    row = conn.execute(
+                        "SELECT * FROM companies WHERE admin_user_id = ? ORDER BY connected_at DESC LIMIT 1",
+                        (telegram_id,)
+                    ).fetchone()
+            if row:
+                return dict(row)
+        except Exception as exc:
+            logger.warning(f"⚠️ WorkspaceStore load_workspace error: {exc}")
+        return None
+
+    def delete_workspace(self, telegram_id: int) -> None:
+        """Remove workspace + cache for this user (used by /disconnect)."""
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT company_id FROM companies WHERE admin_user_id = ?",
+                    (telegram_id,)
+                ).fetchone()
+                if row:
+                    company_id = row["company_id"]
+                    conn.execute("DELETE FROM sheets_cache WHERE company_id = ?", (company_id,))
+                    conn.execute("DELETE FROM company_users WHERE company_id = ?", (company_id,))
+                    conn.execute("DELETE FROM companies WHERE company_id = ?", (company_id,))
+                else:
+                    # Remove from company_users if they're not the admin
+                    conn.execute("DELETE FROM company_users WHERE user_id = ?", (telegram_id,))
+                conn.commit()
+            logger.info(f"🗑️ WorkspaceStore: deleted workspace for user {telegram_id}")
+        except Exception as exc:
+            logger.warning(f"⚠️ WorkspaceStore delete_workspace error: {exc}")
+
+    # ------------------------------------------------------------------
+    # Sheet data cache
+    # ------------------------------------------------------------------
+
+    def save_cache(self, company_id: int, cache_key: str, sheet_name: str, data: Any) -> None:
+        """Save spreadsheet data as JSON. data can be list[list] or dict."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            data_json = json.dumps(data, ensure_ascii=False)
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT INTO sheets_cache (cache_key, company_id, sheet_name, data, last_updated)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(cache_key) DO UPDATE SET
+                        data         = excluded.data,
+                        sheet_name   = excluded.sheet_name,
+                        last_updated = excluded.last_updated
+                """, (cache_key, company_id, sheet_name, data_json, now))
+                conn.commit()
+            logger.debug(f"💾 Cache saved: {cache_key}")
+        except Exception as exc:
+            logger.warning(f"⚠️ WorkspaceStore save_cache error: {exc}")
+
+    def load_all_cache(self, company_id: int) -> dict[str, Any]:
+        """Load all cached sheet data for a company. Returns {cache_key: data}."""
+        result: dict[str, Any] = {}
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT cache_key, data FROM sheets_cache WHERE company_id = ?",
+                    (company_id,)
+                ).fetchall()
+            for row in rows:
+                result[row["cache_key"]] = json.loads(row["data"])
+        except Exception as exc:
+            logger.warning(f"⚠️ WorkspaceStore load_all_cache error: {exc}")
+        return result
+
+
+# Singleton workspace store
+_workspace_store = WorkspaceStore()
+_workspace_store.init_db()
+
+
+def save_google_token(telegram_id: int, credentials_json: str) -> None:
+    """Save Google credentials to BOTH SQLite (primary) and Supabase (backup)."""
+    # 1. SQLite – fast, always available
+    _token_store.save(telegram_id, credentials_json)
+    # 2. Supabase – persistent across container re-creations
+    try:
+        from supabase import create_client as _sc
+        _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+        resp = _sb.table("users").select("telegram_id").eq("telegram_id", telegram_id).execute()
+        if resp.data:
+            _sb.table("users").update({
+                "google_credentials": credentials_json,
+                "google_credentials_updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("telegram_id", telegram_id).execute()
+            logger.info(f"💾 Supabase: saved token for user {telegram_id}")
+        else:
+            logger.warning(f"⚠️ Supabase: user {telegram_id} not found, token not saved to Supabase")
+    except Exception as exc:
+        logger.warning(f"⚠️ Supabase token save error (SQLite backup still worked): {exc}")
+
+
+def load_google_token(telegram_id: int) -> str | None:
+    """Load Google credentials – tries SQLite first, then Supabase."""
+    creds_json = _token_store.load(telegram_id)
+    if creds_json:
+        return creds_json
+    # Fall back to Supabase
+    try:
+        from supabase import create_client as _sc
+        _sb = _sc(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
+        resp = _sb.table("users").select("google_credentials").eq("telegram_id", telegram_id).execute()
+        if resp.data and resp.data[0].get("google_credentials"):
+            creds_json = resp.data[0]["google_credentials"]
+            # Backfill SQLite so next call is fast
+            _token_store.save(telegram_id, creds_json)
+            logger.info(f"✅ Supabase→SQLite backfill for user {telegram_id}")
+            return creds_json
+    except Exception as exc:
+        logger.warning(f"⚠️ Supabase token load error: {exc}")
+    return None
+
+
+def load_and_refresh_google_token(telegram_id: int) -> str | None:
+    """Load token, auto-refresh if expired, save refreshed token, return JSON or None.
+
+    Returns ``None`` only when:
+      - No token exists anywhere (user has never authenticated), OR
+      - The refresh_token itself is expired/revoked (user must re-authenticate).
+    """
+    creds_json = load_google_token(telegram_id)
+    if not creds_json:
+        return None
+    try:
+        data = json.loads(creds_json)
+        creds = Credentials.from_authorized_user_info(data, scopes=SCOPES)
+
+        # Check for old read-only scopes → force re-auth
+        stored_scopes = data.get("scopes", [])
+        if any("readonly" in s for s in stored_scopes):
+            logger.warning(f"⚠️ Old read-only scopes for user {telegram_id}. Re-auth required.")
+            return None
+
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                logger.info(f"🔄 Token expired for user {telegram_id}, refreshing...")
+                creds.refresh(GoogleAuthRequest())
+                refreshed_json = creds.to_json()
+                # Persist the freshly-issued token immediately
+                save_google_token(telegram_id, refreshed_json)
+                logger.info(f"✅ Token refreshed and saved for user {telegram_id}")
+                return refreshed_json
+            else:
+                # No refresh_token or some other invalidity
+                logger.warning(f"⚠️ Token invalid and cannot be refreshed for user {telegram_id}")
+                return None
+        return creds_json
+    except Exception as exc:
+        logger.warning(f"⚠️ load_and_refresh_google_token error for user {telegram_id}: {exc}")
+        return None
+
+
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",  # Full read/write access to Sheets
     "https://www.googleapis.com/auth/drive",         # Full read/write access to Drive (folders, files, etc)
@@ -413,33 +781,107 @@ class SessionStore:
             self._store[telegram_id] = UserSession()
             self._timestamps[telegram_id] = time.time()
         
-        # Always try to load/reload credentials from database if not in session
-        # This ensures we pick up credentials saved after OAuth
+        # ---------------------------------------------------------------
+        # Load Google credentials if not already in memory.
+        # Uses load_and_refresh_google_token which:
+        #   1. Tries SQLite first (fast, local)
+        #   2. Falls back to Supabase
+        #   3. Auto-refreshes if token is expired
+        #   4. Saves the refreshed token back to SQLite + Supabase
+        # This means after a bot restart, users are automatically
+        # re-authenticated without any manual login required.
+        # ---------------------------------------------------------------
         if not self._store[telegram_id].google_credentials_json:
+            refreshed = load_and_refresh_google_token(telegram_id)
+            if refreshed:
+                self._store[telegram_id].google_credentials_json = refreshed
+                logger.info(f"✅ Loaded (and refreshed if needed) Google token for user {telegram_id}")
+            # Also load GitHub credentials from Supabase
             try:
                 from supabase import create_client
                 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
-                user_response = supabase.table("users").select("google_credentials, github_username, github_email, github_access_token").eq("telegram_id", telegram_id).execute()
-                
+                user_response = supabase.table("users").select("github_username, github_email, github_access_token").eq("telegram_id", telegram_id).execute()
                 if user_response.data:
-                    if user_response.data[0].get("google_credentials"):
-                        self._store[telegram_id].google_credentials_json = user_response.data[0]["google_credentials"]
-                        logger.info(f"✅ Loaded Google credentials from database for user {telegram_id}")
-                    # Also load GitHub credentials if available
                     if user_response.data[0].get("github_username"):
                         self._store[telegram_id].github_username = user_response.data[0]["github_username"]
                         self._store[telegram_id].github_email = user_response.data[0].get("github_email")
                         self._store[telegram_id].github_access_token = user_response.data[0].get("github_access_token")
                         logger.info(f"✅ Loaded GitHub credentials from database for user {telegram_id}")
-                else:
-                    logger.debug(f"ℹ️  No credentials in database for user {telegram_id}")
             except Exception as e:
-                logger.debug(f"⚠️ Could not load credentials from database: {e}")
+                logger.debug(f"⚠️ Could not load GitHub credentials from database: {e}")
+
+            # ---------------------------------------------------------------
+            # Restore workspace (folder / sheet connection) from DB.
+            # This means after a bot restart the user's sheets are still
+            # loaded and they can immediately ask questions.
+            # ---------------------------------------------------------------
+            self._restore_workspace(telegram_id)
+
         else:
             # Update timestamp on access if session already existed
             self._timestamps[telegram_id] = time.time()
         
         return self._store[telegram_id]
+
+    def _restore_workspace(self, telegram_id: int) -> None:
+        """Silently restore folder/sheet connection from SQLite workspace store."""
+        sess = self._store[telegram_id]
+        # Skip if data is already in memory
+        if sess.all_folder_sheets_data or sess.all_sheets_data:
+            return
+        try:
+            ws = _workspace_store.load_workspace(telegram_id)
+            if not ws:
+                return
+            company_id = ws["company_id"]
+            mode = ws.get("mode", "sheets")
+            sess.folder_id = ws.get("folder_id")
+            sess.sheet_id  = ws.get("sheet_id")
+            sess.sheet_name = ws.get("sheet_name")
+            # Restore spreadsheet list metadata
+            if ws.get("folder_spreadsheets"):
+                try:
+                    sess.folder_spreadsheets = json.loads(ws["folder_spreadsheets"])
+                except Exception:
+                    pass
+            if ws.get("selected_spreadsheets"):
+                try:
+                    sess.selected_spreadsheets = json.loads(ws["selected_spreadsheets"])
+                except Exception:
+                    pass
+            # Restore cached sheet data
+            cached = _workspace_store.load_all_cache(company_id)
+            if mode == "folder" and cached:
+                # Rebuild all_folder_sheets_data: {sheet_id: {sheet_title: rows}}
+                folder_data: dict[str, dict[str, list]] = {}
+                for cache_key, data in cached.items():
+                    # cache_key format: "folder:{sheet_id}:{sheet_title}"
+                    if cache_key.startswith("folder:"):
+                        parts = cache_key.split(":", 2)
+                        if len(parts) == 3:
+                            _, sid, stitle = parts
+                            if sid not in folder_data:
+                                folder_data[sid] = {}
+                            folder_data[sid][stitle] = data
+                if folder_data:
+                    sess.all_folder_sheets_data = folder_data
+                    sess.step = "in_chat"
+                    logger.info(f"✅ Restored folder workspace for user {telegram_id}: {len(folder_data)} spreadsheets")
+            elif mode == "sheets" and cached:
+                # Rebuild all_sheets_data: {sheet_title: rows}
+                sheets_data: dict[str, list] = {}
+                for cache_key, data in cached.items():
+                    if cache_key.startswith("sheet:"):
+                        parts = cache_key.split(":", 2)
+                        if len(parts) == 3:
+                            _, _, stitle = parts
+                            sheets_data[stitle] = data
+                if sheets_data:
+                    sess.all_sheets_data = sheets_data
+                    sess.step = "in_chat"
+                    logger.info(f"✅ Restored sheet workspace for user {telegram_id}: {len(sheets_data)} tabs")
+        except Exception as exc:
+            logger.warning(f"⚠️ _restore_workspace error for user {telegram_id}: {exc}")
     
     def cleanup_expired(self) -> None:
         """Remove expired sessions"""
@@ -872,7 +1314,13 @@ def table_to_text(rows: list[list[Any]]) -> str:
     return text[:MAX_CHARS_CONTEXT]
 
 
-def credentials_from_json(credentials_json: str) -> Credentials:
+def credentials_from_json(credentials_json: str, telegram_id: int | None = None) -> Credentials:
+    """Parse credentials JSON, auto-refresh if expired, and persist the refreshed token.
+
+    Pass ``telegram_id`` so that a freshly-refreshed token is immediately saved
+    back to SQLite + Supabase, preventing the need to re-authenticate after
+    every bot restart.
+    """
     data = json.loads(credentials_json)
     creds = Credentials.from_authorized_user_info(data, scopes=SCOPES)
     
@@ -885,11 +1333,13 @@ def credentials_from_json(credentials_json: str) -> Credentials:
         logger.warning(f"⚠️ Old credential scopes detected (read-only). User needs to re-authenticate.")
         raise ValueError("Credentials have old scopes. Please re-authenticate to grant full access.")
     
-    # Refresh if expired
+    # Refresh if expired, then save the new token so it survives future restarts
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(GoogleAuthRequest())
             logger.info("✅ Credentials refreshed successfully")
+            if telegram_id:
+                save_google_token(telegram_id, creds.to_json())
         except Exception as e:
             logger.warning(f"⚠️ Could not refresh credentials: {e}")
     
@@ -974,24 +1424,8 @@ class AppContext:
         self.bot: Bot | None = None
     
     def _save_credentials_sync(self, telegram_id: int, credentials_json: str) -> None:
-        """Synchronously save Google credentials to database"""
-        try:
-            from supabase import create_client
-            supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
-            
-            user_response = supabase.table("users").select("*").eq("telegram_id", telegram_id).execute()
-            
-            if user_response.data:
-                supabase.table("users").update({
-                    "google_credentials": credentials_json,
-                    "google_credentials_updated_at": datetime.utcnow().isoformat()
-                }).eq("telegram_id", telegram_id).execute()
-                logger.info(f"✅ Saved Google credentials to database for user {telegram_id}")
-            else:
-                logger.warning(f"⚠️ User {telegram_id} not found in database for credential save")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not save credentials to database: {e}")
-
+        """Synchronously save Google credentials to SQLite + Supabase."""
+        save_google_token(telegram_id, credentials_json)
     def _save_github_credentials_sync(self, telegram_id: int, github_username: str, github_email: str, github_token: str) -> None:
         """Synchronously save GitHub credentials to database"""
         try:
@@ -1020,14 +1454,12 @@ class AppContext:
                 self.oauth_service.exchange_code, state, code
             )
             session = self.sessions.get(telegram_id)
-            session.google_credentials_json = credentials.to_json()
+            creds_json = credentials.to_json()
+            session.google_credentials_json = creds_json
             logger.info(f"✅ OAuth successful for user {telegram_id}")
             
-            # Save credentials to database immediately for persistence
-            try:
-                await asyncio.to_thread(self._save_credentials_sync, telegram_id, session.google_credentials_json)
-            except Exception as e:
-                logger.warning(f"⚠️ Credential save error: {e}")
+            # Save credentials to SQLite + Supabase immediately so they survive restarts
+            await asyncio.to_thread(save_google_token, telegram_id, creds_json)
             
             # Check which mode user chose
             if session.auth_mode == "folder":
@@ -1233,21 +1665,44 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 
                 session.full_name = full_name
                 session.email = user.get("email")
-                session.step = "ready"
+
+                # session.step may already be "in_chat" if workspace was restored
+                # by SessionStore._restore_workspace(); don't overwrite it.
+                if session.step not in ("in_chat", "selecting_folder_sheets"):
+                    session.step = "ready"
                 
-                # Check for active sheet integration
+                # Check for active sheet integration (Supabase metadata only)
                 active = await ctx.supabase_service.get_active_integration(telegram_id)
                 if active:
-                    session.sheet_id = active.get("sheet_id")
-                    session.sheet_name = active.get("sheet_name")
+                    if not session.sheet_id:
+                        session.sheet_id = active.get("sheet_id")
+                    if not session.sheet_name:
+                        session.sheet_name = active.get("sheet_name")
                 
                 logger.info(f"✅ User {telegram_id} already registered: {full_name}")
-                
-                await message.answer(
-                    f"👋 Xush kelibsiz, {full_name}!\n\n"
-                    "Menyudan kerakli bo'limni tanlang:",
-                    reply_markup=build_main_menu(),
-                )
+
+                # Build a greeting that reflects the actual state
+                if session.step == "in_chat":
+                    # Workspace already loaded — tell the user they can go straight to chat
+                    if session.all_folder_sheets_data:
+                        n = len(session.all_folder_sheets_data)
+                        ws_hint = f"📁 {n} ta spreadsheet yuklangan. Savol berishingiz mumkin!"
+                    elif session.all_sheets_data:
+                        n = len(session.all_sheets_data)
+                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} ta varaq) yuklangan. Savol berishingiz mumkin!"
+                    else:
+                        ws_hint = "Menyudan kerakli bo'limni tanlang:"
+                        session.step = "ready"
+                    await message.answer(
+                        f"👋 Xush kelibsiz, {full_name}!\n\n{ws_hint}",
+                        reply_markup=build_main_menu(),
+                    )
+                else:
+                    await message.answer(
+                        f"👋 Xush kelibsiz, {full_name}!\n\n"
+                        "Menyudan kerakli bo'limni tanlang:",
+                        reply_markup=build_main_menu(),
+                    )
                 logger.info(f"✅ Response sent to {telegram_id}")
                 return
             
@@ -1337,17 +1792,12 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit"
                 )
             
-            # Force reload credentials from database in case they were saved after session started
+            # Try to load & auto-refresh token from SQLite/Supabase (works after restart too)
             if not session.google_credentials_json:
-                try:
-                    from supabase import create_client
-                    supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
-                    user_response = supabase.table("users").select("google_credentials").eq("telegram_id", telegram_id).execute()
-                    if user_response.data and user_response.data[0].get("google_credentials"):
-                        session.google_credentials_json = user_response.data[0]["google_credentials"]
-                        logger.info(f"✅ Force-reloaded Google credentials for user {telegram_id}")
-                except Exception as e:
-                    logger.debug(f"⚠️ Could not force-reload credentials: {e}")
+                refreshed = await asyncio.to_thread(load_and_refresh_google_token, telegram_id)
+                if refreshed:
+                    session.google_credentials_json = refreshed
+                    logger.info(f"✅ Force-loaded & refreshed Google token for user {telegram_id}")
             
             # Now check again after reload attempt
             if not session.google_credentials_json:
@@ -1396,17 +1846,12 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     "https://drive.google.com/drive/folders/1ABC123xyz"
                 )
             
-            # Force reload credentials from database in case they were saved after session started
+            # Try to load & auto-refresh token from SQLite/Supabase (works after restart too)
             if not session.google_credentials_json:
-                try:
-                    from supabase import create_client
-                    supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_ANON_KEY"))
-                    user_response = supabase.table("users").select("google_credentials").eq("telegram_id", telegram_id).execute()
-                    if user_response.data and user_response.data[0].get("google_credentials"):
-                        session.google_credentials_json = user_response.data[0]["google_credentials"]
-                        logger.info(f"✅ Force-reloaded Google credentials for user {telegram_id}")
-                except Exception as e:
-                    logger.debug(f"⚠️ Could not force-reload credentials: {e}")
+                refreshed = await asyncio.to_thread(load_and_refresh_google_token, telegram_id)
+                if refreshed:
+                    session.google_credentials_json = refreshed
+                    logger.info(f"✅ Force-loaded & refreshed Google token for user {telegram_id}")
             
             # Now check again after reload attempt
             if not session.google_credentials_json:
@@ -1446,8 +1891,43 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             logger.exception(f"❌ Excel command error: {exc}")
             await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
 
+    @dp.message(Command("disconnect"))
+    async def disconnect_command_handler(message: Message) -> None:
+        """Disconnect the user's Google Drive/Sheets workspace and clear cached data."""
+        telegram_id = message.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        logger.info(f"🔌 /disconnect - User {telegram_id}")
+
+        if session.step in {"waiting_first_name", "waiting_last_name", "waiting_contact", "waiting_email"}:
+            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang.")
+            return
+
+        # Clear session data
+        session.sheet_id = None
+        session.sheet_name = None
+        session.sheet_data = []
+        session.all_sheets_data = {}
+        session.all_folder_sheets_data = {}
+        session.folder_spreadsheets = []
+        session.selected_spreadsheets = []
+        session.folder_id = None
+        session.pending_sheets = {}
+        session.step = "ready"
+
+        # Remove from SQLite workspace store
+        await asyncio.to_thread(_workspace_store.delete_workspace, telegram_id)
+
+        await message.answer(
+            "✅ <b>Ulanish uzildi.</b>\n\n"
+            "Barcha spreadsheet ma'lumotlari o'chirildi.\n\n"
+            "Qayta ulash uchun /sheets yoki /folder buyrug'ini yuboring.",
+            parse_mode="HTML",
+            reply_markup=build_main_menu(),
+        )
+        logger.info(f"✅ Workspace disconnected for user {telegram_id}")
+
     @dp.message(Command("help"))
-    async def help_command_handler(message: Message) -> None:
+    async def _help_command_handler(message: Message) -> None:
         """Handle /help command to show help information"""
         telegram_id = message.from_user.id
         logger.info(f"❓ /help command - User {telegram_id}")
@@ -1461,6 +1941,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 "📊 <b>/sheets</b> - Google Sheets ulash\n"
                 "📁 <b>/folder</b> - Google Drive Papka ulash\n"
                 "📄 <b>/excel</b> - Excel fayl yuklash\n"
+                "🔌 <b>/disconnect</b> - Ulangan spreadsheetni uzish\n"
                 "❓ <b>/help</b> - Bu yordam matnini ko'rsatish\n\n"
                 "<b>Asosiy funksiyalar:</b>\n"
                 "📊 <b>Google Sheets</b> - Google Sheets fayllari bilan ishlash\n"
@@ -2004,7 +2485,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         
                         try:
                             # Use the existing credential helper function that handles refresh
-                            creds = credentials_from_json(session.google_credentials_json)
+                            creds = credentials_from_json(session.google_credentials_json, telegram_id=telegram_id)
                             logger.info(f"✅ Credentials loaded and refreshed if needed")
                         except ValueError as scope_error:
                             logger.info(f"Old scopes detected for user {telegram_id}: {scope_error}")
@@ -2315,7 +2796,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     
                     # Get credentials
                     try:
-                        creds = credentials_from_json(session.google_credentials_json)
+                        creds = credentials_from_json(session.google_credentials_json, telegram_id=telegram_id)
                     except ValueError as e:
                         logger.info(f"Old scopes detected for user {telegram_id}: {e}")
                         await message.answer(
@@ -2381,6 +2862,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         return
                     
                     # Store the folder spreadsheets
+                    session.folder_id = folder_id          # persist for workspace save
                     session.folder_spreadsheets = spreadsheets
                     session.selected_spreadsheets = []
                     
@@ -3027,7 +3509,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             )
             
             credentials = await asyncio.to_thread(
-                credentials_from_json, session.google_credentials_json
+                credentials_from_json, session.google_credentials_json, telegram_id
             )
             all_sheets_data = await asyncio.to_thread(fetch_sheet_rows, credentials, selected_sheet_id)
             
@@ -3041,6 +3523,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             await ctx.supabase_service.save_integration(
                 telegram_id, selected_sheet_id, selected_sheet_name
             )
+
+            # ---- Persist workspace to SQLite so it survives restarts ----
+            company_id = _workspace_store.save_workspace(
+                telegram_id,
+                mode="sheets",
+                sheet_id=selected_sheet_id,
+                sheet_name=selected_sheet_name,
+            )
+            if company_id > 0:
+                for sheet_title, rows in all_sheets_data.items():
+                    cache_key = f"sheet:{selected_sheet_id}:{sheet_title}"
+                    _workspace_store.save_cache(company_id, cache_key, sheet_title, rows)
+                logger.info(f"💾 Sheet workspace persisted to SQLite for user {telegram_id}")
+            # ---------------------------------------------------------------
             
             # Show summary of all sheets read
             sheet_summary = "📊 Barcha jadvallar o'qildi:\n\n"
@@ -3109,7 +3605,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             
             # Get credentials
             try:
-                creds = credentials_from_json(session.google_credentials_json)
+                creds = credentials_from_json(session.google_credentials_json, telegram_id=telegram_id)
             except ValueError as scope_error:
                 logger.info(f"Old scopes detected for user {telegram_id}: {scope_error}")
                 await callback.message.edit_text(
@@ -3165,6 +3661,26 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             # Store the data
             session.all_folder_sheets_data = all_folder_sheets_data
             session.step = "in_chat"
+
+            # ---- Persist workspace to SQLite so it survives restarts ----
+            folder_url = None
+            if session.folder_id:
+                folder_url = f"https://drive.google.com/drive/folders/{session.folder_id}"
+            company_id = _workspace_store.save_workspace(
+                telegram_id,
+                mode="folder",
+                folder_id=session.folder_id,
+                folder_url=folder_url,
+                folder_spreadsheets=session.folder_spreadsheets,
+                selected_spreadsheets=session.selected_spreadsheets,
+            )
+            if company_id > 0:
+                for sid, sheets_dict in all_folder_sheets_data.items():
+                    for sheet_title, rows in sheets_dict.items():
+                        cache_key = f"folder:{sid}:{sheet_title}"
+                        _workspace_store.save_cache(company_id, cache_key, sheet_title, rows)
+                logger.info(f"💾 Folder workspace persisted to SQLite for user {telegram_id}")
+            # ---------------------------------------------------------------
             
             # Create summary
             summary = "✅ <b>Google Drive spreadsheetlari muvaffaqiyatli ulandi!</b>\n\n"
