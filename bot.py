@@ -1,4 +1,4 @@
-# OnBrain AI Bot v2.1.3 - Safe HTML Send Fix (March 20, 2026)
+# OnBrain AI Bot v2.2.0 - Koyeb Migration (March 22, 2026)
 import asyncio
 import io
 import json
@@ -44,8 +44,11 @@ import gspread
 # Import GitHub OAuth Service
 from github_oauth import GitHubOAuthService
 
-# Import Data Indexing Service
-from data_indexing_service import DataIndexingService
+# Import Data Indexing Service (optional — graceful fallback if file missing)
+try:
+    from data_indexing_service import DataIndexingService
+except ImportError:
+    DataIndexingService = None  # type: ignore
 
 
 logging.basicConfig(
@@ -815,9 +818,9 @@ class Config:
     grok_api_key: str = ""
     # Server configuration - can be overridden via env vars
     server_host: str = "0.0.0.0"  # Listen on all interfaces for production
-    server_port: int = 8080  # Render uses 8080 by default
-    google_redirect_uri: str = "https://onbrain.onrender.com/"  # For Google OAuth
-    github_redirect_uri: str = "https://onbrain.onrender.com/github/callback"  # For GitHub OAuth
+    server_port: int = 8080  # Koyeb / Render both use 8080 by default
+    google_redirect_uri: str = "https://onbrain.koyeb.app/"  # For Google OAuth
+    github_redirect_uri: str = "https://onbrain.koyeb.app/github/callback"  # For GitHub OAuth
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -840,13 +843,13 @@ class Config:
         
         # Optional server configuration
         server_host = os.getenv("SERVER_HOST", "0.0.0.0").strip()
-        # Render uses PORT env var, fallback to SERVER_PORT, then 8080
+        # Koyeb and Render both inject PORT env var; fallback to 8080
         server_port = int(os.getenv("PORT", os.getenv("SERVER_PORT", "8080")))
         
         # Google OAuth redirect URI
         google_redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
         if not google_redirect_uri:
-            domain = os.getenv("APP_DOMAIN", "onbrain.onrender.com").strip()
+            domain = os.getenv("APP_DOMAIN", "onbrain.koyeb.app").strip()
             if domain == "localhost":
                 google_redirect_uri = f"http://localhost:{server_port}/"
             else:
@@ -855,7 +858,7 @@ class Config:
         # GitHub OAuth redirect URI
         github_redirect_uri = os.getenv("GITHUB_REDIRECT_URI", "").strip()
         if not github_redirect_uri:
-            domain = os.getenv("APP_DOMAIN", "onbrain.onrender.com").strip()
+            domain = os.getenv("APP_DOMAIN", "onbrain.koyeb.app").strip()
             if domain == "localhost":
                 github_redirect_uri = f"http://localhost:{server_port}/github/callback"
             else:
@@ -1217,7 +1220,7 @@ class SupabaseService:
 
 
 class GoogleOAuthService:
-    def __init__(self, client_id: str, client_secret: str, redirect_uri: str = "https://onbrain.onrender.com/") -> None:
+    def __init__(self, client_id: str, client_secret: str, redirect_uri: str = "https://onbrain.koyeb.app/") -> None:
         self.client_config = {
             "web": {
                 "client_id": client_id,
