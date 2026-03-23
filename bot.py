@@ -915,6 +915,7 @@ class UserSession:
     # Data Indexing
     indexing_service: Any = None  # DataIndexingService instance
     folder_id: str | None = None  # Current folder ID being indexed
+    web_search_mode: bool = False  # When True, bypass spreadsheet and use Tavily
 
 
 class SessionStore:
@@ -1422,6 +1423,7 @@ def build_chat_response_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="💬 Chat-ga qaytish", callback_data="chat_continue")],
+            [InlineKeyboardButton(text="🌐 Internet qidirish", callback_data="web_search_mode")],
             [InlineKeyboardButton(text="🚪 Chat-ni tugatish", callback_data="exit_chat")]
         ]
     )
@@ -2175,6 +2177,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         
         try:
             session.step = "in_chat"
+            session.web_search_mode = False  # Reset web search mode
             await callback_query.answer("✅ Chat davom etmoqda...", show_alert=False)
             await callback_query.message.answer(
                 "💬 Yana savolingizni yozing yoki /start buyrug'ini bosing asosiy menuyga qaytish uchun."
@@ -2182,6 +2185,25 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         except Exception as exc:
             logger.exception(f"❌ Chat continue error: {exc}")
             await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+
+    @dp.callback_query(F.data == "web_search_mode")
+    async def web_search_mode_handler(callback_query: CallbackQuery) -> None:
+        """Switch to internet web search mode (Tavily), bypasses spreadsheet data"""
+        telegram_id = callback_query.from_user.id
+        session = ctx.sessions.get(telegram_id)
+        session.step = "in_chat"
+        session.web_search_mode = True
+        await callback_query.answer("🌐 Internet qidirish yoqildi", show_alert=False)
+        await callback_query.message.answer(
+            "🌐 <b>Internet qidirish rejimi</b>\n\n"
+            "Endi savolingizni yozing — men internetdan qidiraman.\n"
+            "Spreadsheet ma'lumotlariga qaytish uchun <b>Chat-ga qaytish</b> tugmasini bosing.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Spreadsheet rejimiga qaytish", callback_data="chat_continue")],
+                [InlineKeyboardButton(text="🚪 Chat-ni tugatish", callback_data="exit_chat")],
+            ])
+        )
 
     @dp.callback_query(F.data == "main_menu")
     async def main_menu_handler(callback_query: CallbackQuery) -> None:
@@ -3141,20 +3163,25 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 # Check if we have local spreadsheet data (from folder or single sheet)
                 local_context = None
                 
-                # Priority 1: Folder sheets data
-                if session.all_folder_sheets_data:
-                    local_context = session.all_folder_sheets_data
-                    logger.info(f"📁 Using folder sheets data with {len(local_context)} spreadsheets")
-                # Priority 2: Single sheet data
-                elif session.all_sheets_data:
-                    local_context = {session.sheet_id or "sheet": session.all_sheets_data}
-                    logger.info(f"📊 Using single sheet data: {list(session.all_sheets_data.keys())}")
-                # Priority 3: Excel file data
-                elif session.excel_data:
-                    local_context = {"excel": {"Sheet1": session.excel_data}}
-                    logger.info(f"📄 Using Excel file data: {len(session.excel_data)} rows")
+                # If user explicitly chose web search mode — skip spreadsheet entirely
+                if session.web_search_mode:
+                    logger.info(f"🌐 Web search mode active for user {telegram_id} — skipping spreadsheet")
+                    local_context = None
                 else:
-                    logger.info(f"⚠️ No spreadsheet data in session. sheet_id={session.sheet_id}, all_sheets_data={bool(session.all_sheets_data)}, all_folder_sheets_data={bool(session.all_folder_sheets_data)}, excel_data={bool(session.excel_data)}")
+                    # Priority 1: Folder sheets data
+                    if session.all_folder_sheets_data:
+                        local_context = session.all_folder_sheets_data
+                        logger.info(f"📁 Using folder sheets data with {len(local_context)} spreadsheets")
+                    # Priority 2: Single sheet data
+                    elif session.all_sheets_data:
+                        local_context = {session.sheet_id or "sheet": session.all_sheets_data}
+                        logger.info(f"📊 Using single sheet data: {list(session.all_sheets_data.keys())}")
+                    # Priority 3: Excel file data
+                    elif session.excel_data:
+                        local_context = {"excel": {"Sheet1": session.excel_data}}
+                        logger.info(f"📄 Using Excel file data: {len(session.excel_data)} rows")
+                    else:
+                        logger.info(f"⚠️ No spreadsheet data in session. sheet_id={session.sheet_id}, all_sheets_data={bool(session.all_sheets_data)}, all_folder_sheets_data={bool(session.all_folder_sheets_data)}, excel_data={bool(session.excel_data)}")
                 
                 # If we have local data, use it for context
                 if local_context:
