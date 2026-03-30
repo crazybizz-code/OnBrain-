@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  onbrain-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: onbrain-ai-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./excel_files:/app/excel_files
+      - ./token.json:/app/token.json
+      - ./credentials.json:/app/credentials.json
+    ports:
+      - "8080:8080"
+    networks:
+      - onbrain-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; print('healthy')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  onbrain-network:
+    driver: bridge

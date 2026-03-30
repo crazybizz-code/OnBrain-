@@ -1,0 +1,114 @@
+# Koyeb deployment configuration for OnBrain AI Bot
+# Docs: https://www.koyeb.com/docs/reference/koyeb-yaml
+#
+# HOW TO USE:
+#   1. Push this repo to GitHub
+#   2. In Koyeb dashboard → Create App → Docker → point to your GitHub repo
+#   3. Koyeb auto-detects Dockerfile and builds it
+#   4. Set all environment variables listed under "env" section in the Koyeb dashboard
+#   5. (Optional) Add a persistent volume mounted at /data to keep SQLite across deploys
+#
+# APP URL FORMAT: https://<service-name>-<org-name>.koyeb.app
+# Example:        https://onbrain-mycompany.koyeb.app
+# → Set APP_DOMAIN env var to match your actual Koyeb URL (without https://)
+
+app:
+  name: onbrain
+
+services:
+  - name: bot
+    type: web          # "web" exposes HTTP port; Koyeb routes traffic to it
+    docker:
+      dockerfile: Dockerfile
+      # If using Koyeb's GitHub integration, leave "image" blank — it builds from Dockerfile
+      # If pushing a pre-built image to a registry, set: image: ghcr.io/yourname/onbrain:latest
+
+    # Koyeb injects PORT automatically; the app reads it via os.getenv("PORT", "8080")
+    ports:
+      - port: 8080
+        protocol: http
+
+    # HTTP route — all traffic goes to port 8080
+    routes:
+      - path: /
+        port: 8080
+
+    # Health check — bot exposes /health endpoint
+    health_checks:
+      - path: /health
+        port: 8080
+        protocol: http
+        interval: 30     # seconds between checks
+        timeout: 10      # seconds before timeout
+        unhealthy_threshold: 3
+        healthy_threshold: 1
+
+    # Instance size: "nano" (free tier) or "micro"/"small" for more memory
+    instance_type: nano
+
+    # Scaling: 1 instance (bot must be singleton — only 1 process polling Telegram)
+    scaling:
+      min: 1
+      max: 1
+
+    # ─────────────────────────────────────────────────────────────────────
+    # ENVIRONMENT VARIABLES
+    # Set these in the Koyeb dashboard (Settings → Environment Variables).
+    # Values shown here are PLACEHOLDERS — replace with your real values.
+    # ─────────────────────────────────────────────────────────────────────
+    env:
+      # Bot domain — MUST match your actual Koyeb app URL (no https://)
+      - name: APP_DOMAIN
+        value: "onbrain-YOURORG.koyeb.app"   # ← replace YOURORG with your Koyeb org name
+
+      # Port (Koyeb injects this automatically, but explicit is fine)
+      - name: PORT
+        value: "8080"
+
+      # SQLite path — set to /data/... so it lands on the persistent volume
+      - name: SQLITE_TOKEN_DB
+        value: "/data/google_tokens.db"
+
+      # Telegram bot token (from @BotFather)
+      - name: BOT_TOKEN
+        value: "YOUR_TELEGRAM_BOT_TOKEN"
+
+      # Grok / xAI API key
+      - name: XAI_API_KEY
+        value: "YOUR_XAI_API_KEY"
+
+      # Supabase connection details
+      - name: SUPABASE_URL
+        value: "https://YOUR_PROJECT.supabase.co"
+      - name: SUPABASE_KEY
+        value: "YOUR_SUPABASE_ANON_OR_SERVICE_KEY"
+
+      # Google OAuth credentials
+      - name: GOOGLE_CLIENT_ID
+        value: "YOUR_GOOGLE_CLIENT_ID"
+      - name: GOOGLE_CLIENT_SECRET
+        value: "YOUR_GOOGLE_CLIENT_SECRET"
+      - name: GOOGLE_REDIRECT_URI
+        value: "https://onbrain-YOURORG.koyeb.app/"   # ← must match Google Console entry
+
+      # GitHub OAuth credentials
+      - name: GITHUB_CLIENT_ID
+        value: "YOUR_GITHUB_CLIENT_ID"
+      - name: GITHUB_CLIENT_SECRET
+        value: "YOUR_GITHUB_CLIENT_SECRET"
+      - name: GITHUB_REDIRECT_URI
+        value: "https://onbrain-YOURORG.koyeb.app/github/callback"
+
+      # (Optional) Telegram channel for subscription gate
+      # - name: CHANNEL_ID
+      #   value: "@yourchannel"
+
+    # ─────────────────────────────────────────────────────────────────────
+    # PERSISTENT VOLUME (Koyeb paid feature)
+    # Keeps google_tokens.db alive across deploys.
+    # Comment out if using Supabase-only persistence (free tier).
+    # To enable: create a volume named "onbrain-data" in Koyeb dashboard first.
+    # ─────────────────────────────────────────────────────────────────────
+    # volumes:
+    #   - id: onbrain-data      # volume name created in Koyeb dashboard
+    #     path: /data           # mounted inside the container

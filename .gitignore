@@ -1,0 +1,92 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# API Credentials
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Uploaded files
+excel_files/
+uploads/
+downloads/
+
+# OS
+.DS_Store
+Thumbs.db
+.windows-build-tools
+
+# Database backups
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE configurations
+.vscode/settings.json
+.vscode/launch.json
+
+# Project specific
+.env.production
+secrets/
+cache/
