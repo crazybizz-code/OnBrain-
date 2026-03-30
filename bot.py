@@ -522,7 +522,7 @@ class InputValidator:
 
         # Allow letters (Latin and Cyrillic), spaces, hyphens, apostrophes
 
-        return bool(re.match(r"^[a-zA-Z'░-П'Р-''Б0-9\s\-'\.]+$", name))
+        return bool(re.match(r"^[a-zA-Z\u0400-\u04FF\u02BB0-9\s\-'\.]+$", name))
 
     
 
