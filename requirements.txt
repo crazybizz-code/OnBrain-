@@ -27,3 +27,6 @@ supabase>=2.7.4,<3.0.0
 
 # Web Search (optional - used if TAVILY_API_KEY is set)
 tavily-python>=0.3.0,<1.0.0
+
+# AI (optional - used if GROK_API_KEY is set)
+openai>=1.51.0,<2.0.0
