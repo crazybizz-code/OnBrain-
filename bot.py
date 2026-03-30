@@ -2082,6 +2082,8 @@ class UserSession:
 
     web_search_mode: bool = False  # When True, bypass spreadsheet and use Tavily
 
+    chat_history: list = field(default_factory=list)  # List of {"role": ..., "content": ...} for conversation context
+
 
 
 
@@ -6003,17 +6005,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                         
 
+                                        # Build messages with conversation history for follow-up questions
+                                        grok_messages = [{"role": "system", "content": system_prompt}]
+                                        # Include last 10 conversation turns for context
+                                        if session.chat_history:
+                                            grok_messages.extend(session.chat_history[-10:])
+                                        grok_messages.append({"role": "user", "content": user_prompt})
+
                                         grok_payload = {
 
                                             "model": model_name,
 
-                                            "messages": [
-
-                                                {"role": "system", "content": system_prompt},
-
-                                                {"role": "user", "content": user_prompt},
-
-                                            ],
+                                            "messages": grok_messages,
 
                                             "temperature": 0.3,
 
@@ -6072,6 +6075,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 
 
                                 if ai_answer:
+
+                                    # Save conversation for follow-up questions
+                                    session.chat_history.append({"role": "user", "content": user_message})
+                                    session.chat_history.append({"role": "assistant", "content": ai_answer})
+                                    # Keep only last 20 messages to avoid token overflow
+                                    if len(session.chat_history) > 20:
+                                        session.chat_history = session.chat_history[-20:]
 
                                     response_text = f"💬 AI Javob\n\n{ai_answer}"
 
