@@ -2832,6 +2832,85 @@ def _escape_url_for_html(url: str) -> str:
 
 
 
+async def _fetch_all_public_sheets(sheet_id: str) -> dict:
+    """
+    Fetch all tabs from a publicly shared Google Sheet without OAuth credentials.
+
+    Strategy:
+      1. Try the Sheets gviz HTML export to discover all tab names.
+      2. For each tab, export as CSV and parse rows.
+      3. Fall back to single-tab CSV if tab discovery fails.
+
+    Returns dict[sheet_title -> list[list[str]]].
+    Raises RuntimeError if the sheet cannot be read at all.
+    """
+    import csv
+    import io as _io
+    import re as _re
+    import urllib.parse as _up
+    import aiohttp as _aiohttp
+
+    base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+    result: dict = {}
+
+    async with _aiohttp.ClientSession() as http:
+        # Step 1: discover tab names from the HTML export
+        tab_names: list = []
+        try:
+            html_url = f"{base_url}/export?format=html"
+            async with http.get(html_url, timeout=15, allow_redirects=True) as resp:
+                if resp.status == 200:
+                    html_text = await resp.text(errors="replace")
+                    found = _re.findall(
+                        r'<li[^>]+data-sheet-index[^>]*>.*?<span[^>]*>(.*?)</span>',
+                        html_text, _re.DOTALL
+                    )
+                    if found:
+                        tab_names = [t.strip() for t in found if t.strip()]
+                elif resp.status in (401, 403):
+                    raise RuntimeError("Sheet is private. Share it as 'Anyone with the link'.")
+                elif resp.status == 404:
+                    raise RuntimeError("Sheet not found. Check the link.")
+        except RuntimeError:
+            raise
+        except Exception as _e:
+            logger.debug("Tab discovery failed (non-fatal): %s", _e)
+
+        if not tab_names:
+            tab_names = ["Sheet1"]
+
+        # Step 2: fetch each tab as CSV
+        any_ok = False
+        for tab in tab_names:
+            try:
+                csv_url = f"{base_url}/export?format=csv&sheet={_up.quote(tab)}"
+                async with http.get(csv_url, timeout=20, allow_redirects=True) as resp:
+                    if resp.status == 200:
+                        raw = await resp.read()
+                        text = raw.decode("utf-8", errors="replace")
+                        rows = list(csv.reader(_io.StringIO(text)))
+                        if rows:
+                            result[tab] = rows
+                            any_ok = True
+                            logger.info(
+                                "Fetched tab '%s' from sheet %s (%d rows)", tab, sheet_id, len(rows)
+                            )
+                    else:
+                        logger.warning(
+                            "CSV export status %s for tab '%s' sheet %s", resp.status, tab, sheet_id
+                        )
+            except Exception as _te:
+                logger.warning("Failed to fetch tab '%s': %s", tab, _te)
+
+        if not any_ok:
+            raise RuntimeError(
+                f"Could not read any tab from sheet {sheet_id}. "
+                "Make sure the sheet is shared as 'Anyone with the link'."
+            )
+
+    return result
+
+
 def _extract_sheet_id(text: str) -> str | None:
 
     """
