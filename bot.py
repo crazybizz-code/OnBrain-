@@ -200,7 +200,7 @@ class UIAnimations:
 
             msg += f"\n📬 {details}"
 
-        msg += "\n\n⚙️▒⏳ This may take a moment..."
+        msg += "\n\n⏳ Biroz kuting..."
 
         return msg
 
@@ -3861,23 +3861,23 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         n = len(session.all_folder_sheets_data)
 
-                        ws_hint = f"📁 {n} spreadsheet(s) loaded. You can ask your question now!"
+                        ws_hint = f"📁 {n} ta jadval yuklandi. Savolingizni berishingiz mumkin!"
 
                     elif session.all_sheets_data:
 
                         n = len(session.all_sheets_data)
 
-                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} sheet(s)) loaded. You can ask your question now!"
+                        ws_hint = f"📊 {session.sheet_name or 'Jadval'} ({n} ta varaq) yuklandi. Savolingizni berishingiz mumkin!"
 
                     else:
 
-                        ws_hint = "Select the section you need from the menu:"
+                        ws_hint = "Menyudan kerakli bo'limni tanlang:"
 
                         session.step = "ready"
 
                     await message.answer(
 
-                        f"👋 Welcome back, {full_name}!\n\n{ws_hint}",
+                        f"👋 Xush kelibsiz, {full_name}!\n\n{ws_hint}",
 
                         reply_markup=build_main_menu(),
 
@@ -3887,9 +3887,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await message.answer(
 
-                        f"👋 Welcome back, {full_name}!\n\n"
+                        f"👋 Xush kelibsiz, {full_name}!\n\n"
 
-                        "Select the section you need from the menu:",
+                        "Menyudan kerakli bo'limni tanlang:",
 
                         reply_markup=build_main_menu(),
 
@@ -3913,9 +3913,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-            "Hello! 👋 Welcome to OnBrain AI bot.\n\n"
+            "Salom! 👋 OnBrain AI botiga xush kelibsiz.\n\n"
 
-                "📝 <b>To complete registration, please send your name:</b>",
+                "📝 <b>Ro'yxatdan o'tish uchun ismingizni yuboring:</b>",
 
                 parse_mode="HTML",
 
@@ -4395,7 +4395,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "1. Send the /start command\n"
 
-                "2. Select the section you need from the main menu\n"
+                "2. Asosiy menyudan kerakli bo'limni tanlang\n"
 
                 "3. Send a Google Sheets or Excel file\n"
 
@@ -5131,15 +5131,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🔐 <b>You need to connect your Google account</b>\n\n"
+                    "🔐 <b>Google hisobingizni ulashingiz kerak</b>\n\n"
 
-                    "📁 Before sending the folder link:\n"
+                    "📁 Papka havolasini yuborishdan oldin:\n"
 
                     "1. \"📊 Connect Google Sheets\" tugmasini bosing\n"
 
                     "2. Google hisobingizga kiring\n"
 
-                    "3. Then send the folder link",
+                    "3. Keyin papka havolasini yuboring",
 
                     parse_mode="HTML"
 
@@ -5309,7 +5309,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "🔐 <b>Xavfsizlik tekshiruvi</b>\n\n"
 
-                    "❌ You need to connect your Google account first.\n\n"
+                    "❌ Avval Google hisobingizni ulashing.\n\n"
 
                     "Asosiy menyu ga qayting va \"📁 Google Drive Folder\" tugmasini bosing.",
 
@@ -6376,7 +6376,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if not input_validator.validate_name(full_name):
 
-                    await message.answer("❌ Ism noto'g'Invalid format. Qaytadan urinib ko'ring'")
+                    await message.answer("❌ Ism noto'g'ri formatda. Qaytadan urinib ko'ring.")
 
                     return
 
@@ -6402,15 +6402,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🚀▒ <b>Telefon raqamingizni ulashing:</b>\n\n"
+                    "📱 <b>Telefon raqamingizni ulashing:</b>\n\n"
 
-                    "Pastdagi tugmani bosib, o'Share your phone number'",
+                    "Pastdagi tugmani bosing 👇",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
+                            [KeyboardButton(text="📱 Kontaktni ulashish", request_contact=True)],
 
                         ],
 
@@ -6476,15 +6476,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🚀▒ <b>Endi kontaktingizni ulashing:</b>\n\n"
+                    "📱 <b>Endi kontaktingizni ulashing:</b>\n\n"
 
-                    "Pastdagi tugmani bosib, o'Share your phone number'ling.",
+                    "Pastdagi tugmani bosing 👇",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
+                            [KeyboardButton(text="📱 Kontaktni ulashish", request_contact=True)],
 
                         ],
 
@@ -6540,7 +6540,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "❌ Kontakt tugmasi bu vaqtda mumkin emas. Please send /start command",
+                "❌ Kontakt tugmasi bu vaqtda mumkin emas. /start buyrug'ini yuboring.",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -6564,13 +6564,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "❌ Phone number not found. Please try sharing your contact again",
+                    "❌ Telefon raqami topilmadi. Kontaktingizni qaytadan ulashing.",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
+                            [KeyboardButton(text="📱 Kontaktni ulashish", request_contact=True)],
 
                         ],
 
@@ -6592,7 +6592,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 logger.warning(f"⚠️ Invalid phone format from user {telegram_id}: {phone_number}")
 
-                await message.answer("❌ Telefon raqami noto'g'Invalid format. Qaytadan urinib ko'ring'")
+                await message.answer("❌ Telefon raqami noto'g'ri formatda. Qaytadan urinib ko'ring.")
 
                 return
 
@@ -6638,11 +6638,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    f"✅ <b>Registration complete!</b>\n\n"
+                    f"✅ <b>Ro'yxatdan o'tish yakunlandi!</b>\n\n"
 
                     f"👤 Ism: {session.full_name}\n"
 
-                    f"🚀▒ Telefon: {phone_number}\n"
+                    f"📱 Telefon: {phone_number}\n"
 
                     f"🎉 Xush kelibsiz!",
 
@@ -6680,7 +6680,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 f"❌ An error occurred during registration:\n\n{str(exc)}\n\n"
 
-                "Please send /start command",
+                "/start buyrug'ini yuboring.",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -6710,9 +6710,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "Registration cancelled.\n\n"
+                "Ro'yxatdan o'tish bekor qilindi.\n\n"
 
-                "If you want to register again, send /start command",
+                "Qaytadan ro'yxatdan o'tish uchun /start buyrug'ini yuboring.",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -7382,7 +7382,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "• Fayl juda katta\n\n"
 
-                "Please send another file or use /start command"
+                "Boshqa fayl yuboring yoki /start buyrug'ini yuboring."
 
             )
 
