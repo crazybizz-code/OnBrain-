@@ -5945,7 +5945,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "6. Do NOT add any information from the internet or other sources.\n"
 
-                                    "7. Answer in English.\n"
+                                    "7. Answer in Uzbek language (O'zbek tilida javob bering).\n"
 
                                     "8. Give short, clear and direct answers.\n"
 
@@ -5987,7 +5987,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 # Try grok-3-mini-fast first, fallback to other models
 
-                                grok_models = ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"]
+                                grok_models = ["grok-3-mini-fast", "grok-2-latest"]
 
                                 ai_answer = None
 
@@ -6041,7 +6041,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                                 json=grok_payload,
 
-                                                timeout=aiohttp.ClientTimeout(total=90),
+                                                timeout=aiohttp.ClientTimeout(total=45),
 
                                             ) as grok_resp:
 
@@ -6243,67 +6243,10 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             
 
-                            # Translate answer to Uzbek
+                            # Grok already answers in Uzbek — no translation needed
 
                             uzbek_answer = ai_answer
 
-                            try:
-
-                                logger.info(f"🌐 Translating response to Uzbek...")
-
-                                from google.cloud import translate_v2
-
-                                
-
-                                translate_client = translate_v2.Client()
-
-                                result = translate_client.translate_text(
-
-                                    ai_answer,
-
-                                    source_language_code="en",
-
-                                    target_language_code="uz"
-
-                                )
-
-                                uzbek_answer = result["translatedText"]
-
-                                logger.info(f"✅ Translation successful: {uzbek_answer[:50]}...")
-
-                            except Exception as trans_err:
-
-                                logger.warning(f"⚠️  Translation failed: {trans_err}")
-
-                                try:
-
-                                    from_text = requests.get(
-
-                                        "https://api.mymemory.translated.net/get",
-
-                                        params={
-
-                                            "q": ai_answer[:500],
-
-                                            "langpair": "en|uz"
-
-                                        },
-
-                                        timeout=5
-
-                                    ).json()
-
-                                    uzbek_answer = from_text.get("responseData", {}).get("translatedText", ai_answer)
-
-                                    logger.info(f"✅ Fallback translation successful")
-
-                                except Exception as my_err:
-
-                                    logger.warning(f"⚠️  MyMemory translation failed: {my_err}")
-
-                                    uzbek_answer = ai_answer
-
-                            
 
                             # Decode HTML entities (like &#39; to ')
 
