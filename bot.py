@@ -264,11 +264,11 @@ class DynamicGreetings:
 
     MORNING_GREETINGS = [
 
-        "Xayrli tong, {name}! 🌅 Bugun ham yangi narsalar o'rganamizmi?",
+        "Good morning, {name}! 🌅 Ready to learn something new today?",
 
-        "Assalomu alaykum, {name}! 🌅П Yangi kun — yangi imkoniyatlar.",
+        "Hello, {name}! 🌅П New day, — new opportunities.",
 
-        "Xayrli tong, {name}! 🌄 Bugungi rejalaringiz uchun tayyor turaman.",
+        "Good morning, {name}! 🌄 I'm ready for your plans today.",
 
     ]
 
@@ -276,11 +276,11 @@ class DynamicGreetings:
 
     AFTERNOON_GREETINGS = [
 
-        "Xayrli kun, {name}! 🌅П Savol bering — javob berishga tayyorman.",
+        "Good morning, {name}! 🌅П Ask a question, — I'm ready to answer.",
 
-        "Salom, {name}! 🍽 Tushlik vaqtida ham yordam bera olaman.",
+        "Hello, {name}! 🍽 I can help you during lunch too.",
 
-        "Salom, {name}! 📋 Bugungi vazifalar haqida gaplashamizmi?",
+        "Hello, {name}! 📋 Shall we talk about today's tasks?",
 
     ]
 
@@ -288,11 +288,11 @@ class DynamicGreetings:
 
     EVENING_GREETINGS = [
 
-        "Xayrli kech, {name}! 🌆 Kechqurun ham yordamga tayyorman.",
+        "Good evening, {name}! 🌆 I'm ready to help you this evening.",
 
-        "Salom, {name}! 🌙 Kechqurun ham savollar bo'lsa — men shu yerdaman.",
+        "Hello, {name}! 🌙 I'm right here for your evening questions too.",
 
-        "Xayrli kech, {name}! ✨ Bugun amalga oshirganlaringiz haqida gaplashamizmi?",
+        "Good evening, {name}! ✨ Want to talk about what you accomplished today?",
 
     ]
 
@@ -300,11 +300,11 @@ class DynamicGreetings:
 
     NIGHT_GREETINGS = [
 
-        "Assalomu alaykum, {name}! 🌃 Kech bo'lsa ham yordam berishga tayyorman.",
+        "Hello, {name}! 🌃 Even if it's late, I'm ready to help.",
 
-        "Salom, {name}! 🌙 Tunda ham savollaringizga javob beraman.",
+        "Hello, {name}! 🌙 I'll answer your questions at night too.",
 
-        "Salom, {name}! 🌌 Uxlamayapsizmi? Men shu yerdaman.",
+        "Hello, {name}! 🌌 Can't sleep? I'm right here.",
 
     ]
 
@@ -312,15 +312,15 @@ class DynamicGreetings:
 
     FOLLOW_UPS = [
 
-        "Istalgan savolingizni yozing.",
+        "Type any question you have.",
 
-        "Nima bilan yordam bera olaman?",
+        "How can I help you?",
 
-        "Qanday savol bor?",
+        "What's your question?",
 
         "Qaysi mavzu sizni qiziqtiradi?",
 
-        "Yordam kerak bo'lsa — yozing!",
+        "If you need help — just write!",
 
     ]
 
@@ -780,7 +780,7 @@ class FileValidator:
 
                     logger.warning(f"⚠️ File contains VBA macros")
 
-                    return False, "❌ Fayl VBA makros o'z ichiga oladi. Iltimos, sof faylni yuboring."
+                    return False, "❌ File contains VBA macros. Please send a clean file"
 
                 
 
@@ -808,11 +808,11 @@ class FileValidator:
 
             logger.error(f"❌ Failed to parse Excel file: {e}")
 
-            return False, f"❌ Faylni o'qib bo'lmadi: {str(e)[:50]}"
+            return False, f"❌ Could not read file: {str(e)[:50]}"
 
         
 
-        return True, "✅ Fayl tekshirildi"
+        return True, "✅ File verified"
 
     
 
@@ -1894,9 +1894,9 @@ SCOPES = [
 
 # REDIRECT_URI is now set from config - see Config class
 
-MAIN_MENU_SHEETS = "📊 Google Sheets ulash"
+MAIN_MENU_SHEETS = "📊 Connect Google Sheets"
 
-MAIN_MENU_EXCEL = "📁 Excel fayl yuklash"
+MAIN_MENU_EXCEL = "📁 Upload Excel File"
 
 MAX_ROWS_FOR_CONTEXT = 1000
 
@@ -2776,7 +2776,7 @@ class GoogleOAuthService:
 
                 logger.warning(f"   Available state prefix: {s[:12]}...")
 
-            raise ValueError("OAuth holati topilmadi yoki muddati tugagan. Iltimos, qayta urinib ko'ring. (State not in pending flows)")
+            raise ValueError("OAuth state not found or expired. Please try again (State not in pending flows)")
 
         flow_item = self.pending_flows.pop(state)
 
@@ -2796,7 +2796,7 @@ class GoogleOAuthService:
 
 # Safe HTML message helpers 🔧 catch TelegramBadRequest and fall back to plain
 
-# text so the bot never crashes on an unparseable HTML string.
+# text so the bot never crashes on an unparseable HTML st
 
 # ---------------------------------------------------------------------------
 
@@ -3182,7 +3182,7 @@ def table_to_text(rows: list[list[Any]]) -> str:
 
     if not trimmed:
 
-        return "Ma'lumot topilmadi."
+        return "No data found."
 
     lines = [" | ".join(row) for row in trimmed]
 
@@ -3268,7 +3268,7 @@ def list_google_sheets(credentials: Credentials) -> list[dict[str, str]]:
 
     files = gc.list_spreadsheet_files()
 
-    sheets = [{"id": item["id"], "name": item.get("name", "Nomsiz jadval")} for item in files]
+    sheets = [{"id": item["id"], "name": item.get("name", "Unnamed spreadsheet")} for item in files]
 
     if sheets:
 
@@ -3360,7 +3360,7 @@ def parse_excel_bytes(file_name: str, content: bytes) -> list[list[Any]]:
 
         return rows
 
-    raise ValueError("Noto'g'ri fayl turi.")
+    raise ValueError("Invalid file type.")
 
 
 
@@ -3440,8 +3440,8 @@ class AppContext:
 
                 session.step = "waiting_folder_link"
 
-                message_text = ("✅ <b>Google hisobiga muvaffaqiyatli ulandi!</b>\n\n"
-                               "Endi Google Drive papka havolasini jo'nating:\n\n"
+                message_text = ("✅ <b>Successfully connected to Google account!</b>\n\n"
+                               "Now send your Google Drive folder link:\n\n"
                                "📋 <b>Misol:</b>\n"
                                "<code>https://drive.google.com/drive/folders/1ABC123xyz</code>")
 
@@ -3454,8 +3454,8 @@ class AppContext:
 
                 session.step = "waiting_sheet_link"
 
-                message_text = "✅ <b>Google hisobiga muvaffaqiyatli ulandi!</b>\n\n" \
-                              "Endi Google Sheets havolasini jo'nating:\n\n" \
+                message_text = "✅ <b>Successfully connected to Google account!</b>\n\n" \
+                              "Now send your Google Sheets link:\n\n" \
                               "📋 <b>Misol:</b>\n" \
                               "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>"
 
@@ -3495,7 +3495,7 @@ class AppContext:
 
                         logger.error("Plain-text fallback also failed in OAuth callback: %s", inner)
 
-            return "✅ Ruxsat olindi! Endi havolani yuboring."
+            return "✅ Permission granted! Now send the link"
 
         
 
@@ -3509,7 +3509,7 @@ class AppContext:
 
             logger.error(f"❌ OAuth callback error: {e}", exc_info=True)
 
-            return f"❌ OAuth xatoligi: {str(e)[:100]}"
+            return f"❌ OAuth error: {str(e)[:100]}"
 
 
 
@@ -3617,13 +3617,13 @@ class OAuthServer:
 
             return web.Response(
 
-                text=f"OAuth xatoligi: {error}. Telegram botga qayting va qayta urinib ko'ring."
+                text=f"OAuth error: {error}. Return to the Telegram bot and try again"
 
             )
 
         if not state or not code:
 
-            return web.Response(text="Noto'g'ri OAuth so'rovi.")
+            return web.Response(text="Invalid OAuth request.")
 
         try:
 
@@ -3639,31 +3639,31 @@ class OAuthServer:
 
             # Provide helpful message for state errors
 
-            if "state not in" in error_str.lower() or "holati topilmadi" in error_str.lower():
+            if "state not in" in error_str.lower() or "state not found" in error_str.lower():
 
                 return web.Response(
 
                     text="❌ OAuth sessiyasi muddati tugagan.\n\n"
 
-                         "Iltimos, Telegram botga qaytib /start buyrug'ini yuboring va qayta urinib ko'ring.\n\n"
+                         "Please return to the Telegram bot, send /start and try again\n\n"
 
-                         "Agar muammo davom etsa, bir necha daqiqaga qayta urinib ko'ring."
+                         "If the problem persists, try again in a few minutes"
 
                 )
 
             else:
 
-                return web.Response(text=f"❌ OAuth xatosi: {error_str[:80]}")
+                return web.Response(text=f"❌ OAuth error: {error_str[:80]}")
 
         except Exception as exc:
 
-            logger.exception("OAuth callback xatosi: %s", exc)
+            logger.exception("OAuth callback error: %s", exc)
 
             return web.Response(
 
                 text=f"❌ Xato: {str(exc)[:100]}.\n\n"
 
-                     "Iltimos, /start'ga qaytib qayta urinib ko'ring."
+                     "Please return to /start and try again"
 
             )
 
@@ -3765,11 +3765,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         n = len(session.all_sheets_data)
 
-                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} ta varaq) yuklangan. Savol berishingiz mumkin!"
+                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} sheet(s)) loaded. Ask your questionrishingiz mumkin!"
 
                     else:
 
-                        ws_hint = "Menyudan kerakli bo'limni tanlang:"
+                        ws_hint = "Select the section you need from the menu:"
 
                         session.step = "ready"
 
@@ -3787,7 +3787,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         f"👋 Xush kelibsiz, {full_name}!\n\n"
 
-                        "Menyudan kerakli bo'limni tanlang:",
+                        "Select the section you need from the menu:",
 
                         reply_markup=build_main_menu(),
 
@@ -3811,9 +3811,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-            "Assalomu alaykum! 👋 OnBrain AI botiga xush kelibsiz.\n\n"
+            "Hello! 👋 Welcome to OnBrain AI bot.\n\n"
 
-                "📝П <b>Ro'yxatdan o'tish uchun, iltimos, ismingizni yuboring:</b>",
+                "📝 <b>To complete registration, please send your name:</b>",
 
                 parse_mode="HTML",
 
@@ -3831,7 +3831,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "❌ Xatolik yuz berdi. Iltimos, /start buyrug'ini qayta yuboring."
+                    "❌ An error occurred. Please send /start command again"
 
                 )
 
@@ -3861,7 +3861,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("❌ Please complete registration first. Send /start command.")
 
             return
 
@@ -3903,7 +3903,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Chat command error: {exc}")
 
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+            await message.answer("❌ An error occurred. Please try again")
 
 
 
@@ -3927,7 +3927,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("❌ Please complete registration first. Send /start command.")
 
             return
 
@@ -3943,13 +3943,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "📊 <b>Connect Google Sheets</b>\n\n"
 
                     "Google Sheets fayli ulash uchun:\n\n"
 
                     "1️⃣ Google hisobiga kiring\n"
 
-                    "2️⃣ Spreadsheet linkini yuboring:\n"
+                    "2️⃣ Send the spreadsheet link:\n"
 
                     "<code>https://docs.google.com/spreadsheets/d/1ABC123xyz/edit</code>",
 
@@ -3963,13 +3963,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "📊 Google Sheets ulash\n\n"
+                    "📊 Connect Google Sheets\n\n"
 
                     "Google Sheets fayli ulash uchun:\n\n"
 
                     "1. Google hisobiga kiring\n"
 
-                    "2. Spreadsheet linkini yuboring:\n"
+                    "2. Send the spreadsheet link:\n"
 
                     "https://docs.google.com/spreadsheets/d/1ABC123xyz/edit"
 
@@ -3999,11 +3999,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🔐 Iltimos, Google hisobiga kiring:",
+                    "🔐 Please sign in to your Google account:",
 
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
 
-                        [InlineKeyboardButton(text="🔐 Google'da kirish", callback_data="auth_google")]
+                        [InlineKeyboardButton(text="🔐 Google'access", callback_data="auth_google")]
 
                     ])
 
@@ -4013,7 +4013,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Sheets command error: {exc}")
 
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+            await message.answer("❌ An error occurred. Please try again")
 
 
 
@@ -4037,7 +4037,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("❌ Please complete registration first. Send /start command.")
 
             return
 
@@ -4057,7 +4057,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "1️⃣ Google hisobiga kiring\n"
 
-                    "2️⃣ Papka linkini yuboring:\n"
+                    "2️⃣ Send the folder link:\n"
 
                     "<code>https://drive.google.com/drive/folders/1ABC123xyz</code>",
 
@@ -4077,7 +4077,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "1. Google hisobiga kiring\n"
 
-                    "2. Papka linkini yuboring:\n"
+                    "2. Send the folder link:\n"
 
                     "https://drive.google.com/drive/folders/1ABC123xyz"
 
@@ -4107,11 +4107,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🔐 Iltimos, Google hisobiga kiring:",
+                    "🔐 Please sign in to your Google account:",
 
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
 
-                        [InlineKeyboardButton(text="🔐 Google'da kirish", callback_data="auth_google")]
+                        [InlineKeyboardButton(text="🔐 Google'access", callback_data="auth_google")]
 
                     ])
 
@@ -4121,7 +4121,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Folder command error: {exc}")
 
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+            await message.answer("❌ An error occurred. Please try again")
 
 
 
@@ -4145,7 +4145,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("❌ Please complete registration first. Send /start command.")
 
             return
 
@@ -4157,11 +4157,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "📁 <b>Excel fayl yuklash</b>\n\n"
+                "📁 <b>Upload Excel File</b>\n\n"
 
-                "Excel fayl (.xlsx, .xls) yuboring:\n\n"
+                "Send an Excel file (.xlsx, .xls):\n\n"
 
-                "Botni fayl bilan javob bering.",
+                "Reply to the bot with a file.",
 
                 parse_mode="HTML"
 
@@ -4171,7 +4171,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Excel command error: {exc}")
 
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+            await message.answer("❌ An error occurred. Please try again")
 
 
 
@@ -4191,7 +4191,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await message.answer("❌ Avval ro'yxatdan o'tishni yakunlang.")
+            await message.answer("❌ Please complete registration first.")
 
             return
 
@@ -4229,11 +4229,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         await message.answer(
 
-            "✅ <b>Ulanish uzildi.</b>\n\n"
+            "🔌 <b>Connection disconnected.</b>\n\n"
 
             "Barcha spreadsheet ma'lumotlari o'chirildi.\n\n"
 
-            "Qayta ulash uchun /sheets yoki /folder buyrug'ini yuboring.",
+            "To reconnect, use /sheets or /folder command'ini yubo",
 
             parse_mode="HTML",
 
@@ -4269,15 +4269,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "💬 <b>/chat</b> - Assistant bilan suhbat\n"
 
-                "📊 <b>/sheets</b> - Google Sheets ulash\n"
+                "📊 <b>/sheets</b> - Connect Google Sheets\n"
 
                 "📁 <b>/folder</b> - Google Drive Papka ulash\n"
 
-                "📄 <b>/excel</b> - Excel fayl yuklash\n"
+                "📄 <b>/excel</b> - Upload Excel File\n"
 
-                "🔌 <b>/disconnect</b> - Ulangan spreadsheetni uzish\n"
+                "🔌 <b>/disconnect</b> - Disconnect the linked spreadsheet\n"
 
-                "📋 <b>/help</b> - Bu yordam matnini ko'rsatish\n\n"
+                "📋 <b>/help</b> - Show this help text\n\n"
 
                 "<b>Asosiy funksiyalar:</b>\n"
 
@@ -4285,21 +4285,21 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "📁 <b>Google Drive</b> - Google Drive papkasidagi fayllari o'qish\n"
 
-                "📄 <b>Excel</b> - Excel fayllari yuklab jo'natish\n"
+                "📄 <b>Excel</b> - Upload and send Excel files\n"
 
                 "💬 <b>Chat</b> - AI yordamchi bilan suhbat\n\n"
 
                 "<b>Qanday ishlatish:</b>\n"
 
-                "1. /start buyrug'ini yuboring\n"
+                "1. Send the /start command\n"
 
-                "2. Asosiy menyu dan kerakli bo'limni tanlang\n"
+                "2. Select the section you need from the main menu\n"
 
-                "3. Google Sheets yoki Excel fayl jo'nating\n"
+                "3. Send a Google Sheets or Excel file\n"
 
                 "4. Savolingizni yozing va javob oling!\n\n"
 
-                "<i>Agar muammo bo'lsa, @aionbrain_bot ga murojaat qiling</i>"
+                "<i>If you have a problem, contact @aionbrain_bot for help</i>"
 
             )
 
@@ -4309,7 +4309,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Help command error: {exc}")
 
-            await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+            await message.answer("❌ An error occurred. Please try again")
 
 
 
@@ -4333,7 +4333,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_first_name", "waiting_contact", "waiting_email"}:
 
-            await callback_query.answer("❌ Avval ro'yxatdan o'tishni yakunlang!", show_alert=True)
+            await callback_query.answer("❌ Please complete registration first!", show_alert=True)
 
             return
 
@@ -4367,7 +4367,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Chat button error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4411,7 +4411,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Exit chat error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4441,7 +4441,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await callback_query.message.answer(
 
-                "💬 Yana savolingizni yozing yoki /start buyrug'ini bosing asosiy menuyga qaytish uchun."
+                "💬 Type your next question or send /start to return to the main menu."
 
             )
 
@@ -4449,7 +4449,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Chat continue error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4473,9 +4473,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             "🌐 <b>Internet qidirish rejimi</b>\n\n"
 
-            "Endi savolingizni yozing — men internetdan qidiraman.\n"
+            "Now type your question and I'll search the internet.\n"
 
-            "Spreadsheet ma'lumotlariga qaytish uchun <b>Chat-ga qaytish</b> tugmasini bosing.",
+            "Press <b>Return to Chat</b> to go back to spreadsheet data.",
 
             parse_mode="HTML",
 
@@ -4531,7 +4531,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Main menu error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4563,7 +4563,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if session.step in {"waiting_name", "waiting_email"}:
 
-                await callback_query.answer("Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.", show_alert=True)
+                await callback_query.answer("Please complete registration first. Send /start command.", show_alert=True)
 
                 return
 
@@ -4579,19 +4579,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await callback_query.message.edit_text(
 
-                        "📊 <b>Google Sheets ulash</b>\n\n"
+                        "📊 <b>Connect Google Sheets</b>\n\n"
 
-                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "✅ You are connected to your Google account!\n\n"
 
-                        "Endi Google Sheets havolasini jo'nating:\n\n"
+                        "Now send your Google Sheets link:\n\n"
 
-                        "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                        "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
 
-                        "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                        "2️⃣ Click the \"Share\" button\n"
 
-                        "3️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                        "3️⃣ Select \"Anyone with link\" access\n"
 
-                        "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "4️⃣ Copy the link and send it to the bot\n\n"
 
                         "📋 <b>Misol:</b>\n"
 
@@ -4607,11 +4607,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await callback_query.message.answer(
 
-                        "📊 Google Sheets ulash\n\n"
+                        "📊 Connect Google Sheets\n\n"
 
-                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "✅ You are connected to your Google account!\n\n"
 
-                        "Endi Google Sheets havolasini jo'nating:\n\n"
+                        "Now send your Google Sheets link:\n\n"
 
                         "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
 
@@ -4619,7 +4619,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 session.step = "waiting_sheet_link"
 
-                await callback_query.message.answer("📬 Google Sheets havolasini yuboring...")
+                await callback_query.message.answer("📬 Google Sheets havolasini yubo..")
 
             else:
 
@@ -4629,17 +4629,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await callback_query.message.edit_text(
 
-                        "🔒 <b>Google Sheets ulash</b>\n\n"
+                        "🔒 <b>Connect Google Sheets</b>\n\n"
 
-                        "Google Sheets havolasini bevosita yuboring:\n\n"
+                        "Send the Google Sheets link directly:\n\n"
 
-                        "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                        "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
 
-                        "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                        "2️⃣ Click the \"Share\" button\n"
 
-                        "3️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                        "3️⃣ Select \"Anyone with link\" access\n"
 
-                        "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "4️⃣ Copy the link and send it to the bot\n\n"
 
                         "🔒 <b>Misol:</b>\n"
 
@@ -4655,9 +4655,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await callback_query.message.answer(
 
-                        "🔒 Google Sheets ulash\n\n"
+                        "🔒 Connect Google Sheets\n\n"
 
-                        "Google Sheets havolasini bevosita yuboring:\n\n"
+                        "Send the Google Sheets link directly:\n\n"
 
                         "Misol:\n"
 
@@ -4667,17 +4667,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 session.step = "waiting_sheet_link"
 
-                await callback_query.message.answer("🔒 Google Sheets havolasini yuboring...")
+                await callback_query.message.answer("🔒 Google Sheets havolasini yubo..")
 
             
 
-            await callback_query.answer("✅ Sheets bo'limi faollashtirildi")
+            await callback_query.answer("✅ Sheets bo'mode activated")
 
         except Exception as exc:
 
             logger.exception(f"❌ Sheets button error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4701,7 +4701,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if session.step in {"waiting_name", "waiting_email"}:
 
-                await callback_query.answer("Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.", show_alert=True)
+                await callback_query.answer("Please complete registration first. Send /start command.", show_alert=True)
 
                 return
 
@@ -4711,19 +4711,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await callback_query.message.edit_text(
 
-                "Excel fayl yuboring (.xlsx yoki .xls).\n"
+                "Send an Excel file (.xlsx or .xls).\n"
 
-                "Fayl qabul qilingach, savollaringizga ma'lumot asosida javob beraman."
+                "Once the file is received, I will answer your questions based on the data."
 
             )
 
-            await callback_query.answer("✅ Excel bo'limi faollashtirildi")
+            await callback_query.answer("✅ Excel bo'mode activated")
 
         except Exception as exc:
 
             logger.exception(f"❌ Excel button error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4747,7 +4747,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if session.step in {"waiting_name", "waiting_email"}:
 
-                await callback_query.answer("Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.", show_alert=True)
+                await callback_query.answer("Please complete registration first. Send /start command.", show_alert=True)
 
                 return
 
@@ -4771,19 +4771,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         "📁 <b>Google Drive Papka ulash</b>\n\n"
 
-                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "✅ You are connected to your Google account!\n\n"
 
-                        "Endi Google Drive papka havolasini jo'nating:\n\n"
+                        "Now send your Google Drive folder link:\n\n"
 
                         "1️⃣ Google Drive ni oching (drive.google.com)\n"
 
                         "2️⃣ Spreadsheet lar joylashgan papkani toping\n"
 
-                        "3️⃣ Papka ustiga o'ng click 📊 \"Ulashish\" (Share) tugmasini bosing\n"
+                        "3️⃣ Right-click the folder 📊 and click \"Share\"\n"
 
-                        "4️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                        "4️⃣ Select \"Anyone with link\" access\n"
 
-                        "5️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "5️⃣ Copy the link and send it to the bot\n\n"
 
                         "📋 <b>Misol:</b>\n"
 
@@ -4801,9 +4801,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         "📁 Google Drive Papka ulash\n\n"
 
-                        "✅ Siz Google hisobiga ulangansiz!\n\n"
+                        "✅ You are connected to your Google account!\n\n"
 
-                        "Endi Google Drive papka havolasini jo'nating:\n\n"
+                        "Now send your Google Drive folder link:\n\n"
 
                         "Misol:\nhttps://drive.google.com/drive/folders/1ABC123xyz"
 
@@ -4811,7 +4811,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 session.step = "waiting_folder_link"
 
-                await callback_query.message.answer("📬 Google Drive papka havolasini yuboring...")
+                await callback_query.message.answer("📬 Send your Google Drive folder link..")
 
             else:
 
@@ -4823,17 +4823,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         "🔒 <b>Google Drive Papka ulash</b>\n\n"
 
-                        "Google Drive papka havolasini bevosita yuboring:\n\n"
+                        "Send the Google Drive folder link directly:\n\n"
 
                         "1️⃣ Google Drive ni oching (drive.google.com)\n"
 
                         "2️⃣ Spreadsheet lar joylashgan papkani toping\n"
 
-                        "3️⃣ Papka ustiga o'ng click 📊 \"Ulashish\" (Share)\n"
+                        "3️⃣ Right-click the folder 📊 and click \"Share\"\n"
 
-                        "4️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                        "4️⃣ Select \"Anyone with link\" access\n"
 
-                        "5️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                        "5️⃣ Copy the link and send it to the bot\n\n"
 
                         "🔒 <b>Misol:</b>\n"
 
@@ -4851,7 +4851,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         "🔒 Google Drive Papka ulash\n\n"
 
-                        "Papka havolasini bevosita yuboring:\n\n"
+                        "Send the folder link directly:\n\n"
 
                         "Misol:\nhttps://drive.google.com/drive/folders/1ABC123xyz"
 
@@ -4859,17 +4859,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 session.step = "waiting_folder_link"
 
-                await callback_query.message.answer("🔒 Google Drive papka havolasini yuboring...")
+                await callback_query.message.answer("🔒 Send your Google Drive folder link..")
 
             
 
-            await callback_query.answer("✅ Folder bo'limi faollashtirildi")
+            await callback_query.answer("✅ Folder bo'mode activated")
 
         except Exception as exc:
 
             logger.exception(f"❌ Folder button error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4897,15 +4897,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await callback_query.message.answer(
 
-                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "📊 <b>Connect Google Sheets</b>\n\n"
 
-                    "Iltimos, Google Sheets havolasini yuboring:\n\n"
+                    "Please send your Google Sheets link:\n\n"
 
-                    "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                    "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
 
-                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "2️⃣ Click the \"Share\" button\n"
 
-                    "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "3️⃣ Copy the link and send it to the bot\n\n"
 
                     "📋 <b>Misol:</b>\n"
 
@@ -4921,9 +4921,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await callback_query.message.answer(
 
-                    "📊 Google Sheets ulash\n\n"
+                    "📊 Connect Google Sheets\n\n"
 
-                    "Iltimos, Google Sheets havolasini yuboring:\n\n"
+                    "Please send your Google Sheets link:\n\n"
 
                     "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
 
@@ -4935,7 +4935,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Retry sheets error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4965,13 +4965,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "📁 <b>Google Drive Papka ulash</b>\n\n"
 
-                    "Iltimos, Google Drive papka havolasini yuboring:\n\n"
+                    "Please send your Google Drive folder link:\n\n"
 
                     "1️⃣ Google Drive da papkani oching\n"
 
-                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "2️⃣ Click the \"Share\" button\n"
 
-                    "3️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "3️⃣ Copy the link and send it to the bot\n\n"
 
                     "📋 <b>Misol:</b>\n"
 
@@ -4989,7 +4989,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "📁 Google Drive Papka ulash\n\n"
 
-                    "Iltimos, Google Drive papka havolasini yuboring:\n\n"
+                    "Please send your Google Drive folder link:\n\n"
 
                     "Misol:\nhttps://drive.google.com/drive/folders/1Abc123xyz?usp=sharing"
 
@@ -5001,7 +5001,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Retry folder error: {exc}")
 
-            await callback_query.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -5015,7 +5015,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_name", "waiting_email"}:
 
-            await message.answer("Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("Please complete registration first. Send /start command.")
 
             return
 
@@ -5031,19 +5031,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "📊 <b>Google Sheets ulash</b>\n\n"
+                    "📊 <b>Connect Google Sheets</b>\n\n"
 
-                    "✅ Siz Google hisobiga ulangansiz!\n\n"
+                    "✅ You are connected to your Google account!\n\n"
 
-                    "Endi Google Sheets havolasini jo'nating:\n\n"
+                    "Now send your Google Sheets link:\n\n"
 
-                    "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                    "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
 
-                    "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                    "2️⃣ Click the \"Share\" button\n"
 
-                    "3️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                    "3️⃣ Select \"Anyone with link\" access\n"
 
-                    "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                    "4️⃣ Copy the link and send it to the bot\n\n"
 
                     "📋 <b>Misol:</b>\n"
 
@@ -5059,11 +5059,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "📊 Google Sheets ulash\n\n"
+                    "📊 Connect Google Sheets\n\n"
 
-                    "✅ Siz Google hisobiga ulangansiz!\n\n"
+                    "✅ You are connected to your Google account!\n\n"
 
-                    "Endi Google Sheets havolasini jo'nating:\n\n"
+                    "Now send your Google Sheets link:\n\n"
 
                     "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
 
@@ -5071,7 +5071,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             session.step = "waiting_sheet_link"
 
-            await message.answer("📬 Google Sheets havolasini yuboring...")
+            await message.answer("📬 Google Sheets havolasini yubo..")
 
         else:
 
@@ -5079,17 +5079,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "🔒 <b>Google Sheets ulash</b>\n\n"
+                "🔒 <b>Connect Google Sheets</b>\n\n"
 
-                "Google Sheets havolasini bevosita yuboring:\n\n"
+                "Send the Google Sheets link directly:\n\n"
 
-                "1️⃣ Google Sheets ochib, shunga daxl qiling\n"
+                "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
 
-                "2️⃣ \"Ulashish\" (Share) tugmasini bosing\n"
+                "2️⃣ Click the \"Share\" button\n"
 
-                "3️⃣ \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                "3️⃣ Select \"Anyone with link\" access\n"
 
-                "4️⃣ Havolani nusxa olib, bot ga yuboring\n\n"
+                "4️⃣ Copy the link and send it to the bot\n\n"
 
                 "🔒 <b>Misol:</b>\n"
 
@@ -5101,7 +5101,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             session.step = "waiting_sheet_link"
 
-            await message.answer("📬 Google Sheets havolasini yuboring...")
+            await message.answer("📬 Google Sheets havolasini yubo..")
 
 
 
@@ -5115,7 +5115,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if session.step in {"waiting_name", "waiting_email"}:
 
-            await message.answer("Avval ro'yxatdan o'tishni yakunlang. /start buyrug'ini yuboring.")
+            await message.answer("Please complete registration first. Send /start command.")
 
             return
 
@@ -5123,9 +5123,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         await message.answer(
 
-            "Excel fayl yuboring (.xlsx yoki .xls).\n"
+            "Send an Excel file (.xlsx or .xls).\n"
 
-            "Fayl qabul qilingach, savollaringizga ma'lumot asosida javob beraman."
+            "Once the file is received, I will answer your questions based on the data."
 
         )
 
@@ -5147,9 +5147,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "⚙️⚠️ <b>Juda ko'p so'rovlar!</b>\n\n"
+                "⚙️⚠️ <b>Juda ko'p so'requests!</b>\n\n"
 
-                "Iltimos, bir daqiqa kutib turing va qayta urinib ko'ring.\n\n"
+                "Please wait a moment and try again'\n\n"
 
                 "🛡️ Bu sizni xavfsizlik xatera yuz beradigan hujumlardan himoya qiladi.",
 
@@ -5197,11 +5197,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "🖼️🖼️ <b>Rasm yoki rasm havolasi qo'llab-quvvatlanmaydi</b>\n\n"
+                "🖼️🖼️ <b>Rasm yoki rasm havolasi qo'not supported</b>\n\n"
 
-                "Hozircha faqat matnli xabarlar qo'llab-quvvatlanadi.\n"
+                "Currently only text messages are supported'llab-quvvatlanadi.\n"
 
-                "Iltimos, savolingizni matn shaklida yuboring.",
+                "Please send your question as text",
 
                 parse_mode="HTML"
 
@@ -5239,15 +5239,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "🔐 <b>Google hisobiga ulanish kerak</b>\n\n"
+                    "🔐 <b>You need to connect your Google account</b>\n\n"
 
-                    "📁 Papka havolasini yuborishdan avval:\n"
+                    "📁 Before sending the folder link:\n"
 
-                    "1. \"📊 Google Sheets ulash\" tugmasini bosing\n"
+                    "1. \"📊 Connect Google Sheets\" tugmasini bosing\n"
 
                     "2. Google hisobingizga kiring\n"
 
-                    "3. Keyin papka havolasini yuboring",
+                    "3. Then send the folder link",
 
                     parse_mode="HTML"
 
@@ -5413,7 +5413,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             # Show summary
 
-                            sheet_summary = "✅ <b>Google Sheets muvaffaqiyatli ulandi!</b>\n\n"
+                            sheet_summary = "✅ <b>Google Sheets connected successfully!</b>\n\n"
 
                             sheet_summary += "📊 <b>Barcha jadvallar:</b>\n"
 
@@ -5427,7 +5427,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             
 
-                            sheet_summary += "\n💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+                            sheet_summary += "\n💬 Now type your question, I'll answer based on the spreadsheet data."
 
                             try:
 
@@ -5453,19 +5453,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 "Sabablari:\n"
 
-                                "• Sheet umumiy (public) yoki jo'natilgan emas\n"
+                                "• Sheet is not public or has not been shared\n"
 
                                 "• Link notog'ri\n\n"
 
                                 "💡 Boshqasi: Sheet havolasini bo'lishanishdan oldin:\n"
 
-                                "1. Google Sheets ochib shunga daxl qiling\n"
+                                "1. Open Google Sheets and navigate to the spreadsheet\n"
 
-                                "2. \"Ulashish\" (Share) tugmasini bosing\n"
+                                "2. Click the \"Share\" button\n"
 
-                                "3. \"Qo'l kiritish\" (Anyone with link) tanlang\n"
+                                "3. Select \"Anyone with link\" access\n"
 
-                                "4. Havolani nusxa olib, bot ga yuboring",
+                                "4. Copy the link and send it to the bot",
 
                                 reply_markup=build_retry_keyboard("sheets")
 
@@ -5539,11 +5539,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                                 summary = (
 
-                                                    "✅ Google Sheets muvaffaqiyatli ulandi! (public rejimda)\n\n"
+                                                    "✅ Google Sheets connected! (public mode)\n\n"
 
                                                     f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
 
-                                                    "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+                                                    "💬 Now type your question, I'll answer based on the spreadsheet data."
 
                                                 )
 
@@ -5573,15 +5573,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 "❌ Faylga kirish huquqi yo'q.\n\n"
 
-                                "Iltimos, quyidagilardan birini bajaring:\n\n"
+                                "Please do one of the following:\n\n"
 
-                                "1️⃣ Google Sheets-da \"Ulashish\" (Share) tugmasini bosing\n"
+                                "1️⃣ Click \"Share\" in Google Sheets\n"
 
-                                "2️⃣ \"Havolani bilgan har kim\" (Anyone with the link) tanlang\n"
+                                "2️⃣ Select \"Anyone with the link\"\n"
 
-                                "3️⃣ \"Ko'ruvchi\" (Viewer) ruxsatini bering\n"
+                                "3️⃣ Grant \"Viewer\" permission\n"
 
-                                "4️⃣ Havolani qayta yuboring\n\n"
+                                "4️⃣ Send the link again\n\n"
 
                                 "💡 Yoki Sheet egasidan ruxsat so'rang."
 
@@ -5589,13 +5589,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         elif "not found" in error_msg:
 
-                            error_text = "❌ Sheet topilmadi.\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
+                            error_text = "❌ Sheet not found.\n\nPlease fix the link and try again"
 
                         else:
 
                             safe_err = html_escape(str(e)[:100])
 
-                            error_text = f"❌ Xatolik: {safe_err}\n\nHavolani to'g'ri qilib, qayta urinib ko'ring."
+                            error_text = f"❌ Xatolik: {safe_err}\n\nPlease fix the link and try again"
 
                         
 
@@ -5615,7 +5615,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             await message.answer(
 
-                                "❌ Xatolik yuz berdi. Qayta urinib ko'ring.",
+                                "❌ An error occurred. Please try again",
 
                                 reply_markup=build_retry_keyboard("sheets")
 
@@ -5701,11 +5701,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                             summary = (
 
-                                                "✅ Google Sheets muvaffaqiyatli ulandi! (public rejimda)\n\n"
+                                                "✅ Google Sheets connected! (public mode)\n\n"
 
                                                 f"📋 Sheet1: {row_count} qator, {col_count} ustun\n\n"
 
-                                                "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+                                                "💬 Now type your question, I'll answer based on the spreadsheet data."
 
                                             )
 
@@ -5727,15 +5727,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 "❌ Google Sheet ga kirish huquqi yo'q.\n\n"
 
-                                "Iltimos, quyidagilardan birini bajaring:\n\n"
+                                "Please do one of the following:\n\n"
 
-                                "1️⃣ Google Sheets-da \"Ulashish\" (Share) tugmasini bosing\n"
+                                "1️⃣ Click \"Share\" in Google Sheets\n"
 
-                                "2️⃣ \"Havolani bilgan har kim\" (Anyone with the link) tanlang\n"
+                                "2️⃣ Select \"Anyone with the link\"\n"
 
-                                "3️⃣ \"Ko'ruvchi\" (Viewer) ruxsatini bering\n"
+                                "3️⃣ Grant \"Viewer\" permission\n"
 
-                                "4️⃣ Havolani qayta yuboring"
+                                "4️⃣ Send the link again"
 
                             )
 
@@ -5743,9 +5743,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         error_msg = (
 
-                            "❌ <b>Sheet topilmadi</b>\n\n"
+                            "❌ <b>Sheet not found</b>\n\n"
 
-                            "Havolani tekshiring, to'g'ri emasdir.\n\n"
+                            "Please check the link, it may be incorrect.\n\n"
 
                             "<b>To'g'ri format:</b>\n"
 
@@ -5759,9 +5759,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             "❌ <b>Autentifikatsiya xatosi</b>\n\n"
 
-                            "Google hisobiga qayta ulanishingiz kerak.\n\n"
+                            "You need to reconnect your Google account.\n\n"
 
-                            "/start buyrug'ini yuboring va \"📊 Google Sheets\" tugmasini bosing."
+                            "Send /start and press the \"📊 Google Sheets\" button."
 
                         )
 
@@ -5777,11 +5777,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         error_msg = (
 
-                            "❌ <b>Xatolik yuz berdi</b>\n\n"
+                            "❌ <b>An error occurred</b>\n\n"
 
                             f"Xatolik: {error_details}\n\n"
 
-                            "Iltimos, qayta urinib ko'ring yoki bot egasiga xabar bering."
+                            "Please try again or contact the bot owner."
 
                         )
 
@@ -5823,15 +5823,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "❌ Linkdan sheet ID ni ajratib ololmadim.\n\n"
 
-                    "Iltimos, link to'g'ri ekanligini tekshiring.\n"
+                    "Please check that the link is correct\n"
 
-                    "Quyidagi formatlardan birini yuboring:\n\n"
+                    "Send one of the following formats:\n\n"
 
                     "• https://docs.google.com/spreadsheets/d/SHEET_ID/edit\n"
 
                     "• https://docs.google.com/spreadsheets/d/SHEET_ID/edit?usp=sharing\n"
 
-                    "• Yoki faqat Sheet ID ni yuboring",
+                    "• Or send just the Sheet ID",
 
                     reply_markup=build_retry_keyboard()
 
@@ -5841,15 +5841,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "❌ Google Sheets linki topilmadi.\n\n"
+                    "❌ Google Sheets link not found.\n\n"
 
-                    "📋 Quyidagi formatlardan birini yuboring:\n\n"
+                    "📋 Send one of the following formats:\n\n"
 
                     "• Google Sheets havolasi\n"
 
                     "• Yoki faqat Sheet ID (masalan: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)\n\n"
 
-                    "💡 Sheet ID — link ichida /d/ dan keyingi uzun belgilar.",
+                    "💡 Sheet ID — is the long string after /d/ in the link.",
 
                     reply_markup=build_retry_keyboard()
 
@@ -5873,7 +5873,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "🔐 <b>Xavfsizlik tekshiruvi</b>\n\n"
 
-                    "❌ Avval Google hisobiga ulanishingiz kerak.\n\n"
+                    "❌ You need to connect your Google account first.\n\n"
 
                     "Asosiy menyu ga qayting va \"📁 Google Drive Folder\" tugmasini bosing.",
 
@@ -5961,7 +5961,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         if "permission" in error.lower() or "forbidden" in error.lower():
 
-                            error += "\n\n💡 <b>Yechim:</b>\n1. Google hisobiga qayta kiring (📊 Google Sheets)\n2. Papka umumiy (public) ekanligini tekshiring\n3. Havolani qayta yuboring"
+                            error += "\n\n💡 <b>Solution:</b>\n1. Sign in to Google again (📊 Google Sheets)\n2. Make sure the folder is public or shared\n3. Send the link again"
 
                         
 
@@ -5985,7 +5985,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         await message.answer(
 
-                            "❌ Papkada spreadsheet topilmadi.",
+                            "❌ No spreadsheets found in this folder.",
 
                             reply_markup=build_retry_keyboard("folder")
 
@@ -6045,7 +6045,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             "❌ Papka ID-ni ajratib ola olmadim.\n\n"
 
-                            "📁 Quyidagi formatlardan birini yuboring:\n"
+                            "📁 Send one of the following formats:\n"
 
                             "• https://drive.google.com/drive/folders/XXXX\n"
 
@@ -6075,7 +6075,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     # Show list of spreadsheets
 
-                    folder_summary = f"✅ <b>Google Drive papkasi muvaffaqiyatli ulandi!</b>\n\n"
+                    folder_summary = f"✅ <b>Google Drive folder connected successfully!</b>\n\n"
 
                     folder_summary += f"📊 <b>Topilgan {len(spreadsheets)} ta spreadsheet:</b>\n\n"
 
@@ -6113,11 +6113,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     if len(spreadsheets) > 20:
 
-                        folder_summary += f"\n... va {len(spreadsheets) - 20} ta boshqa spreadsheet"
+                        folder_summary += f"\n... and {len(spreadsheets) - 20} more spreadsheets"
 
                     
 
-                    folder_summary += "\n\n💡 O'qimoqchi bo'lgan spreadsheet larni tanlang (bir nechta tanlashingiz mumkin):"
+                    folder_summary += "\n\n💡 O'qimoqchi bo'Select spreadsheets (you can select multiple):"
 
                     
 
@@ -6175,9 +6175,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             "🔐 <b>Ruxsatlar muammosi</b>\n\n"
 
-                            "Google hisobiga qayta kiring va yangi ruxsatlarni bering.\n\n"
+                            "Google hisobiga qayta kiring va yangi ruxsatlarni be\n\n"
 
-                            "Asosiy menyudan \"📊 Google Sheets ulash\" tugmasini bosing.",
+                            "Asosiy menyudan \"📊 Connect Google Sheets\" tugmasini bosing.",
 
                             parse_mode="HTML",
 
@@ -6199,7 +6199,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             f"• Papkaga kirish huquqi yo'q\n\n"
 
-                            f"✅ <b>Yechim:</b> Havolani to'g'ri qilib, qayta urinib ko'ring!",
+                            f"✅ <b>Yechim:</b> Please fix the link and try againring!",
 
                             parse_mode="HTML",
 
@@ -6215,7 +6215,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "❌ Bu Google Drive papka linki emas.\n\n"
 
-                    "📁 To'g'ri formatdagi link yuboring:\n"
+                    "📁 Send the link in the correct format:\n"
 
                     "• https://drive.google.com/drive/folders/XXXX\n"
 
@@ -6241,7 +6241,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if not user_message:
 
-                    await message.answer("❌ Xabar bo'sh bo'lmasligi kerak.")
+                    await message.answer("❌ Xabar bo'sh bo'is not allowed.")
 
                     return
 
@@ -6491,21 +6491,21 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 system_prompt = (
 
-                                    "Sen spreadsheet ma'lumotlarini tahlil qiluvchi AI assistantsan. "
+                                    "You are an AI assistant that analyzes spreadsheet data. "
 
-                                    "Senga spreadsheet ma'lumotlari beriladi. Foydalanuvchi savol beradi. "
+                                    "Senga spreadsheet ma'data is provided. The user asks a question. "
 
                                     "QOIDALAR:\n"
 
                                     "1. FAQAT berilgan spreadsheet ma'lumotlari asosida javob ber.\n"
 
-                                    "2. Javobni ISHONCHLI va ANIQ ber. 'Ehtimol', 'balki', 'bo'lishi mumkin' so'zlarini ISHLATMA.\n"
+                                    "2. Give CONFIDENT and PRECISE answers. Avoid words like 'maybe', 'perhaps', 'possibly' ISHLATMA.\n"
 
-                                    "3. Har doim spreadsheet nomini va sheet nomini aytib o'tib javob ber. Masalan: 'Spreadsheet: [nom], Sheet: [nom] ma'lumotlariga ko'ra, ...'\n"
+                                    "3. Always mention the spreadsheet name and sheet name. Example: 'Spreadsheet: [nom], Sheet: [nom] ma'lumotlariga ko'ra, ...'\n"
 
                                     "4. Raqamlarni to'g'ri formatlash: 2500000 -> 2,500,000\n"
 
-                                    "5. Agar ma'lumot spreadsheetda TOPILMASA, aniq ayt: 'Bu ma'lumot spreadsheetda mavjud emas.'\n"
+                                    "5. If data is NOT FOUND in the spreadsheet, clearly say: 'This data is not in the spreadsheetud emas.'\n"
 
                                     "6. Internetdan yoki boshqa manbalardan hech qanday ma'lumot QO'SHMA.\n"
 
@@ -6513,19 +6513,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "8. Qisqa, aniq va to'g'ridan-to'g'ri javob ber.\n"
 
-                                    "9. ISMLARNI AQLLI QIDIRISH: Agar foydalanuvchi 'Yodgorbek' deb so'rasa, lekin spreadsheetda 'Yodgor' bo'lsa — "
+                                    "9. SMART NAME SEARCH: If the user asks for 'Yodgorbek' but the spreadsheetdsheetda 'Yodgor' bo'lsa — "
 
-                                    "bu BIR XILL ODAM. O'zbek ismlarida -bek, -boy, -jon, -ali, -xon qo'shimchalari tushirilishi yoki qo'shilishi mumkin. "
+                                    "they are THE SAME PERSON. Uzbek names with suffixes -bek, -boy, -jon, -ali, -xon areirilishi yoki qo'shilishi mumkin. "
 
                                     "Masalan: Yodgorbek=Yodgor, Jasurbek=Jasur, Sardorbek=Sardor, Nilufar=Nilu, Mahkam=Mahkamboy. "
 
-                                    "Shuningdek, kichik/katta harf farqi bo'lmasin, transliteratsiya (lotin/kirill) ham hisobga olinsin. "
+                                    "Shuningdek, kichik/katta harf farqi bo'Also consider transliteration (latin/cyrillic). "
 
-                                    "Har doim ENG YAQIN moslikni topishga harakat qil.\n"
+                                    "Always find the CLOSEST moslikni topishga harakat qil.\n"
 
-                                    "10. JADVAL TUZILISHI: Spreadsheetda ma'lumotlar turli joylarda bo'lishi mumkin — gorizontal, vertikal, jadval ichida jadval. "
+                                    "10. TABLE STRUCTURE: Data in the spreadsheet may be in various places — gorizontal, vertikal, jadval ichida jadval. "
 
-                                    "Barcha qatorlar va ustunlarni tekshir. Ma'lumot birinchi qatorda ham, oxirgi qatorda ham bo'lishi mumkin."
+                                    "Check all rows and columns. Data may be in the first row or the last rowa ham bo'lishi mumkin."
 
                                 )
 
@@ -6537,9 +6537,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     f"Savol: {user_message}\n\n"
 
-                                    f"Yuqoridagi spreadsheet ma'lumotlariga asoslanib aniq javob ber. "
+                                    f"Yuqoridagi spreadsheet ma'Give accurate answers based on data. "
 
-                                    f"Ismlar to'liq mos kelmasa ham, eng yaqin moslikni top."
+                                    f"Even if names don't fully match, find the closest match."
 
                                 )
 
@@ -6713,7 +6713,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             logger.error(f"❌ Response error: {ai_error}")
 
-                            await message.answer("❌ Javob berishda xatolik. Qayta urinib ko'ring.")
+                            await message.answer("❌ Error generating response. Please try again")
 
                         
 
@@ -6749,7 +6749,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     if not tavily_api_key:
 
-                        await message.answer("❌ Tavily API key topilmadi!")
+                        await message.answer("❌ Tavily API key not found!")
 
                         return
 
@@ -6943,7 +6943,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 logger.warning("AI response send failed: %s", send_err)
 
-                                await message.answer("❌ Javob yuborishda xatolik. Qayta urinib ko'ring.")
+                                await message.answer("❌ Error sending response. Please try again")
 
                         else:
 
@@ -6967,7 +6967,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     logger.error(f"❌ Tavily error: {error_msg}")
 
-                    await message.answer("❌ AI javob berishda xatolik. Qayta urinib ko'ring.")
+                    await message.answer("❌ AI response error. Please try again")
 
                 
 
@@ -6977,7 +6977,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 logger.exception(f"❌ Chat handler error: {exc}")
 
-                await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+                await message.answer("❌ An error occurred. Please try again")
 
                 return
 
@@ -6997,7 +6997,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if not input_validator.validate_name(full_name):
 
-                    await message.answer("❌ Ism noto'g'ri formatda. Iltimos, qayta urinib ko'ring.")
+                    await message.answer("❌ Ism noto'g'Invalid format. Please try again'")
 
                     return
 
@@ -7005,7 +7005,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if len(full_name) < 2:
 
-                    await message.answer("❌ Iltimos, 2 ta harfdan ko'proq ism kiriting.")
+                    await message.answer("❌ Please enter a name with at least 2 characters.")
 
                     return
 
@@ -7025,13 +7025,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "🚀▒ <b>Telefon raqamingizni ulashing:</b>\n\n"
 
-                    "Pastdagi tugmani bosib, o'zingizning telefon raqamingizni baham ko'ring.",
+                    "Pastdagi tugmani bosib, o'Share your phone number'",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀▒ Kontaktni ulashish", request_contact=True)],
+                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
 
                         ],
 
@@ -7051,7 +7051,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 logger.exception(f"❌ Ism kiritishda xato: {exc}")
 
-                await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+                await message.answer("❌ An error occurred. Please try again")
 
             return  # IMPORTANT: Return to prevent further processing
 
@@ -7071,7 +7071,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if not input_validator.validate_name(last_name):
 
-                    await message.answer("❌ Familiya faqat harflarni o'z ichiga olishi kerak. Iltimos, qayta urinib ko'ring.")
+                    await message.answer("❌ Last name must contain only valid characters. Please try again.")
 
                     return
 
@@ -7079,7 +7079,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 if len(last_name) < 2:
 
-                    await message.answer("❌ Iltimos, 2 ta harfdan ko'proq familiyangiz bilan qayta urinib ko'ring.")
+                    await message.answer("❌ Please enter a last name with at least 2 characters.")
 
                     return
 
@@ -7099,13 +7099,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "🚀▒ <b>Endi kontaktingizni ulashing:</b>\n\n"
 
-                    "Pastdagi tugmani bosib, o'zingizning telefon raqamingizni baham ko'ling.",
+                    "Pastdagi tugmani bosib, o'Share your phone number'ling.",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀▒ Kontaktni ulashish", request_contact=True)],
+                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
 
                         ],
 
@@ -7123,9 +7123,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             except Exception as exc:
 
-                logger.exception(f"❌ Familiya kiritishda xato: {exc}")
+                logger.exception(f"❌ Error entering last name: {exc}")
 
-                await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+                await message.answer("❌ An error occurred. Please try again")
 
             return  # IMPORTANT: Return to prevent further processing
 
@@ -7161,7 +7161,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "❌ Kontakt tugmasi bu vaqtda mumkin emas. Iltimos, /start buyrug'ini yuboring.",
+                "❌ Kontakt tugmasi bu vaqtda mumkin emas. Please send /start command",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -7185,13 +7185,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "❌ Telefon raqami topilmadi. Iltimos, kontaktni qayta ulashga urinib ko'ring.",
+                    "❌ Phone number not found. Please try sharing your contact again",
 
                     reply_markup=ReplyKeyboardMarkup(
 
                         keyboard=[
 
-                            [KeyboardButton(text="🚀▒ Kontaktni ulashish", request_contact=True)],
+                            [KeyboardButton(text="🚀 Share Contact", request_contact=True)],
 
                         ],
 
@@ -7213,7 +7213,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 logger.warning(f"⚠️ Invalid phone format from user {telegram_id}: {phone_number}")
 
-                await message.answer("❌ Telefon raqami noto'g'ri formatda. Iltimos, qayta urinib ko'ring.")
+                await message.answer("❌ Telefon raqami noto'g'Invalid format. Please try again'")
 
                 return
 
@@ -7259,7 +7259,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    f"✅ <b>Ro'yxatdan o'tish yakunlandi!</b>\n\n"
+                    f"✅ <b>Registration complete!</b>\n\n"
 
                     f"👤 Ism: {session.full_name}\n"
 
@@ -7279,7 +7279,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 await message.answer(
 
-                    "📋 Menyudan kerakli bo'limni tanlang:",
+                    "📋 Select the section you need from the menu:",
 
                     reply_markup=build_main_menu(),
 
@@ -7299,9 +7299,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                f"❌ Ro'yxatdan o'tishda xatolik yuz berdi:\n\n{str(exc)}\n\n"
+                f"❌ An error occurred during registration:\n\n{str(exc)}\n\n"
 
-                "Iltimos, /start buyrug'ini yuboring.",
+                "Please send /start command",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -7309,7 +7309,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
 
-    @dp.message(F.text == "Bekor qilish")
+    @dp.message(F.text == "Cancel")
 
     async def cancel_registration_handler(message: Message) -> None:
 
@@ -7331,9 +7331,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "Ro'yxatdan o'tish bekor qilindi.\n\n"
+                "Registration cancelled.\n\n"
 
-                "Agar qayta ro'yxatdan o'tmoqchi bo'lsangiz, /start buyrug'ini yuboring.",
+                "If you want to register again, send /start command",
 
                 reply_markup=ReplyKeyboardRemove(),
 
@@ -7341,7 +7341,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         else:
 
-            await message.answer("Buyruq rad etildi.", reply_markup=ReplyKeyboardRemove())
+            await message.answer("Command rejected.", reply_markup=ReplyKeyboardRemove())
 
 
 
@@ -7357,7 +7357,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if key not in session.pending_sheets:
 
-            await callback.answer("Jadval havolasi muddati tugagan. Qayta ulab ko'ring.", show_alert=True)
+            await callback.answer("Spreadsheet link expired. Try reconnecting", show_alert=True)
 
             return
 
@@ -7453,23 +7453,23 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-            sheet_summary += f"\n✅ Ulandi: {html_escape(selected_sheet_name)}\n"
+            sheet_summary += f"\n✅ Connected: {html_escape(selected_sheet_name)}\n"
 
-            sheet_summary += "💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman."
+            sheet_summary += "💬 Now type your question, I'll answer based on the spreadsheet data."
 
             
 
             await callback.message.edit_text(sheet_summary, reply_markup=build_chat_response_keyboard())
 
-            await callback.answer("Google Sheet muvaffaqiyatli ulandi.")
+            await callback.answer("Google Sheet connected successfully.")
 
         except Exception as exc:
 
-            logger.exception("Sheet tanlashda xato: %s", exc)
+            logger.exception("Error selecting sheet: %s", exc)
 
             await callback.answer(
 
-                "Jadvalni ulashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+                "Error connecting the spreadsheet. Please try again",
 
                 show_alert=True,
 
@@ -7499,7 +7499,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if idx >= len(session.folder_spreadsheets):
 
-                await callback.answer("Jadval topilmadi. Qayta ulab ko'ring.", show_alert=True)
+                await callback.answer("Spreadsheet not found. Try reconnecting", show_alert=True)
 
                 return
 
@@ -7533,7 +7533,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             logger.exception(f"❌ Folder sheet selection error: {exc}")
 
-            await callback.answer("❌ Xatolik yuz berdi!", show_alert=True)
+            await callback.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -7553,7 +7553,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if not session.selected_spreadsheets:
 
-                await callback.answer("Hech qanday spreadsheet tanlanmadi. Iltimos, bitta-bitta tanlang!", show_alert=True)
+                await callback.answer("No spreadsheet selected. Please select one at a time!", show_alert=True)
 
                 return
 
@@ -7673,7 +7673,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     "❌ Hech qanday spreadsheet o'qilmadi.\n\n"
 
-                    "💡 Papka havolasini to'g'ri qilib, qayta urinib ko'ring.",
+                    "💡 Fix the folder link and try again",
 
                     reply_markup=build_retry_keyboard("folder")
 
@@ -7735,7 +7735,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # Create summary
 
-            summary = "✅ <b>Google Drive spreadsheetlari muvaffaqiyatli ulandi!</b>\n\n"
+            summary = "✅ <b>Google Drive spreadsheets connected successfully!</b>\n\n"
 
             summary += f"📊 <b>{len(all_folder_sheets_data)} ta spreadsheet o'qildi:</b>\n\n"
 
@@ -7775,7 +7775,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-            summary += "\n💬 Endi savolingizni yozing, barcha spreadsheet ma'lumotlari asosida javob beraman."
+            summary += "\n💬 Now type your question, I'll answer based on all spreadsheet data."
 
             
 
@@ -7817,9 +7817,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await callback.message.edit_text(
 
-                "❌ Spreadsheetlari yuklashda xatolik yuz berdi.\n\n"
+                "❌ Error loading spreadsheets.\n\n"
 
-                "💡 Qayta urinib ko'ring.",
+                "💡 Please try again",
 
                 reply_markup=build_retry_keyboard("folder")
 
@@ -7843,9 +7843,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "⚙️⚠️ <b>Juda ko'p so'rovlar!</b>\n\n"
+                "⚙️⚠️ <b>Juda ko'p so'requests!</b>\n\n"
 
-                "Iltimos, bir daqiqa kutib turing va qayta urinib ko'ring.",
+                "Please wait a moment and try again'",
 
                 parse_mode="HTML"
 
@@ -7861,7 +7861,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "Agar Excel yuklamoqchi bo'lsangiz, avval menyudan \"📁 Excel fayl yuklash\" tugmasini bosing."
+                "Agar Excel yuklamoqchi bo'lsangiz, avval menyudan \"📁 Upload Excel File\" tugmasini bosing."
 
             )
 
@@ -7879,7 +7879,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         if not file_name:
 
-            await message.answer("❌ Fayl nomi topilmadi.")
+            await message.answer("❌ File name not found.")
 
             return
 
@@ -7897,7 +7897,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "❌ Noto'g'ri fayl turi.\n\n"
+                "❌ Invalid file type.\n\n"
 
                 "Faqat quyidagi formatlar ruxsat:\n"
 
@@ -7949,7 +7949,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if not excel_rows:
 
-                await message.answer("❌ Fayl bo'sh ko'rinmoqda. Iltimos, boshqa fayl yuboring.")
+                await message.answer("❌ The file appears to be empty. Please send another file")
 
                 return
 
@@ -7973,13 +7973,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                f"✅ <b>Excel fayl muvaffaqiyatli yuklandi!</b>\n\n"
+                f"✅ <b>Excel file uploaded successfully!</b>\n\n"
 
                 f"📊 Qatorlar: {len(excel_rows)}\n"
 
                 f"📄 Fayl: {file_name}\n\n"
 
-                f"💬 Endi savolingizni yozing, jadval ma'lumotlari asosida javob beraman.",
+                f"💬 Now type your question, I'll answer based on the spreadsheet data.",
 
                 parse_mode="HTML",
 
@@ -7993,7 +7993,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await message.answer(
 
-                "❌ Excel faylni o'qishda xatolik yuz berdi.\n\n"
+                "❌ Error reading the Excel file.\n\n"
 
                 "Sabablari:\n"
 
@@ -8003,7 +8003,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "• Fayl juda katta\n\n"
 
-                "Iltimos, boshqa fayl yuboring yoki /start buyrug'ini yuboring."
+                "Please send another file or use /start command"
 
             )
 
