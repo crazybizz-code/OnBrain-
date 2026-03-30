@@ -3861,13 +3861,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         n = len(session.all_folder_sheets_data)
 
-                        ws_hint = f"📁 {n} ta spreadsheet yuklangan. Savol berishingiz mumkin!"
+                        ws_hint = f"📁 {n} spreadsheet(s) loaded. You can ask your question now!"
 
                     elif session.all_sheets_data:
 
                         n = len(session.all_sheets_data)
 
-                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} sheet(s)) loaded. Ask your questionrishingiz mumkin!"
+                        ws_hint = f"📊 {session.sheet_name or 'Spreadsheet'} ({n} sheet(s)) loaded. You can ask your question now!"
 
                     else:
 
@@ -3877,7 +3877,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await message.answer(
 
-                        f"👋 Xush kelibsiz, {full_name}!\n\n{ws_hint}",
+                        f"👋 Welcome back, {full_name}!\n\n{ws_hint}",
 
                         reply_markup=build_main_menu(),
 
@@ -3887,7 +3887,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     await message.answer(
 
-                        f"👋 Xush kelibsiz, {full_name}!\n\n"
+                        f"👋 Welcome back, {full_name}!\n\n"
 
                         "Select the section you need from the menu:",
 
@@ -4638,148 +4638,43 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
     @dp.callback_query(F.data == "sheets")
-
     async def sheets_button_handler(callback_query: CallbackQuery) -> None:
-
-        """Handle Google Sheets button click from inline menu"""
-
+        """Handle Google Sheets button click - ask user for the link"""
         telegram_id = callback_query.from_user.id
-
         session = ctx.sessions.get(telegram_id)
-
-        
-
-        logger.info(f"📊 Sheets button clicked - User {telegram_id}")
-
-        
+        logger.info(f"Sheets button clicked - User {telegram_id}")
 
         try:
-
-            # Set auth mode to "sheets" so OAuth knows what to do
-
-            session.auth_mode = "sheets"
-
-            
-
-            # Call the same logic as text handler
-
             if session.step in {"waiting_name", "waiting_email"}:
-
                 await callback_query.answer("Please complete registration first. Send /start command.", show_alert=True)
-
                 return
 
-            
+            session.step = "waiting_sheet_link"
 
-            # Check if user already has Google credentials
+            try:
+                await callback_query.message.edit_text(
+                    "\U0001f4ca <b>Google Sheets</b>\n\n"
+                    "Send the Google Sheets link:\n\n"
+                    "1\ufe0f\u20e3 Open your spreadsheet in Google Sheets\n"
+                    "2\ufe0f\u20e3 Click <b>Share</b> \u2192 <b>Anyone with the link</b> \u2192 Viewer\n"
+                    "3\ufe0f\u20e3 Copy the link and send it here\n\n"
+                    "\U0001f4cb <b>Example:</b>\n"
+                    "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                await callback_query.message.answer(
+                    "Google Sheets\n\n"
+                    "Send the Google Sheets link.\n"
+                    "Make sure the sheet is shared as 'Anyone with the link'."
+                )
 
-            if session.google_credentials_json:
-
-                # User already authenticated, ask for sheet link
-
-                try:
-
-                    await callback_query.message.edit_text(
-
-                        "📊 <b>Connect Google Sheets</b>\n\n"
-
-                        "✅ You are connected to your Google account!\n\n"
-
-                        "Now send your Google Sheets link:\n\n"
-
-                        "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
-
-                        "2️⃣ Click the \"Share\" button\n"
-
-                        "3️⃣ Select \"Anyone with link\" access\n"
-
-                        "4️⃣ Copy the link and send it to the bot\n\n"
-
-                        "📋 <b>Misol:</b>\n"
-
-                        "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
-
-                        parse_mode="HTML"
-
-                    )
-
-                except (TelegramBadRequest, TelegramAPIError) as exc:
-
-                    logger.warning("Sheets button edit_text failed, sending plain: %s", exc)
-
-                    await callback_query.message.answer(
-
-                        "📊 Connect Google Sheets\n\n"
-
-                        "✅ You are connected to your Google account!\n\n"
-
-                        "Now send your Google Sheets link:\n\n"
-
-                        "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
-
-                    )
-
-                session.step = "waiting_sheet_link"
-
-                await callback_query.message.answer("📬 Google Sheets havolasini yubo..")
-
-            else:
-
-                # User not authenticated, ask directly for sheet link (no OAuth)
-
-                try:
-
-                    await callback_query.message.edit_text(
-
-                        "🔒 <b>Connect Google Sheets</b>\n\n"
-
-                        "Send the Google Sheets link directly:\n\n"
-
-                        "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
-
-                        "2️⃣ Click the \"Share\" button\n"
-
-                        "3️⃣ Select \"Anyone with link\" access\n"
-
-                        "4️⃣ Copy the link and send it to the bot\n\n"
-
-                        "🔒 <b>Misol:</b>\n"
-
-                        "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
-
-                        parse_mode="HTML"
-
-                    )
-
-                except (TelegramBadRequest, TelegramAPIError) as exc:
-
-                    logger.warning("Sheets button edit_text failed, sending plain: %s", exc)
-
-                    await callback_query.message.answer(
-
-                        "🔒 Connect Google Sheets\n\n"
-
-                        "Send the Google Sheets link directly:\n\n"
-
-                        "Misol:\n"
-
-                        "https://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
-
-                    )
-
-                session.step = "waiting_sheet_link"
-
-                await callback_query.message.answer("🔒 Google Sheets havolasini yubo..")
-
-            
-
-            await callback_query.answer("✅ Sheets bo'mode activated")
+            await callback_query.answer()
 
         except Exception as exc:
+            logger.exception(f"Sheets button error: {exc}")
+            await callback_query.answer("An error occurred!", show_alert=True)
 
-            logger.exception(f"❌ Sheets button error: {exc}")
-
-            await callback_query.answer("❌ An error occurred!", show_alert=True)
 
 
 
@@ -4975,71 +4870,36 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
 
-    @dp.callback_query(F.data == "retry_sheets")
-
+    @dp.callback_query(F.data.startswith("retry_sheets"))
     async def retry_sheets_handler(callback_query: CallbackQuery) -> None:
-
         """Handle retry for sheets - ask for sheets link again"""
-
         telegram_id = callback_query.from_user.id
-
         session = ctx.sessions.get(telegram_id)
-
-        
-
-        logger.info(f"📍 Retry sheets - User {telegram_id}")
-
-        
+        logger.info(f"Retry sheets - User {telegram_id}")
 
         try:
-
             session.step = "waiting_sheet_link"
-
             try:
-
                 await callback_query.message.answer(
-
-                    "📊 <b>Connect Google Sheets</b>\n\n"
-
+                    "\U0001f4ca <b>Google Sheets</b>\n\n"
                     "Please send your Google Sheets link:\n\n"
-
-                    "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
-
-                    "2️⃣ Click the \"Share\" button\n"
-
-                    "3️⃣ Copy the link and send it to the bot\n\n"
-
-                    "📋 <b>Misol:</b>\n"
-
+                    "1\ufe0f\u20e3 Open your spreadsheet in Google Sheets\n"
+                    "2\ufe0f\u20e3 Click <b>Share</b> \u2192 <b>Anyone with the link</b> \u2192 Viewer\n"
+                    "3\ufe0f\u20e3 Copy the link and send it here\n\n"
+                    "\U0001f4cb <b>Example:</b>\n"
                     "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
-
                     parse_mode="HTML"
-
                 )
-
-            except (TelegramBadRequest, TelegramAPIError) as exc:
-
-                logger.warning("Retry sheets HTML failed, sending plain: %s", exc)
-
+            except Exception:
                 await callback_query.message.answer(
-
-                    "📊 Connect Google Sheets\n\n"
-
-                    "Please send your Google Sheets link:\n\n"
-
-                    "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
-
+                    "Google Sheets\n\n"
+                    "Please send your Google Sheets link.\n"
+                    "Make sure it is shared as 'Anyone with the link'."
                 )
-
             await callback_query.answer()
-
         except Exception as exc:
-
-            logger.exception(f"❌ Retry sheets error: {exc}")
-
-            await callback_query.answer("❌ An error occurred!", show_alert=True)
-
-
+            logger.exception(f"Retry sheets error: {exc}")
+            await callback_query.answer("An error occurred!", show_alert=True)
 
     @dp.callback_query(F.data == "retry_folder")
 
@@ -5108,104 +4968,34 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
     @dp.message(F.text == MAIN_MENU_SHEETS)
-
     async def connect_sheets_handler(message: Message) -> None:
-
+        """Handle Google Sheets text button - ask user for the link"""
         telegram_id = message.from_user.id
-
         session = ctx.sessions.get(telegram_id)
 
         if session.step in {"waiting_name", "waiting_email"}:
-
             await message.answer("Please complete registration first. Send /start command.")
-
             return
 
-        
+        session.step = "waiting_sheet_link"
 
-        # Check if user already has Google credentials
-
-        if session.google_credentials_json:
-
-            # User already authenticated, ask for sheet link
-
-            try:
-
-                await message.answer(
-
-                    "📊 <b>Connect Google Sheets</b>\n\n"
-
-                    "✅ You are connected to your Google account!\n\n"
-
-                    "Now send your Google Sheets link:\n\n"
-
-                    "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
-
-                    "2️⃣ Click the \"Share\" button\n"
-
-                    "3️⃣ Select \"Anyone with link\" access\n"
-
-                    "4️⃣ Copy the link and send it to the bot\n\n"
-
-                    "📋 <b>Misol:</b>\n"
-
-                    "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
-
-                    parse_mode="HTML"
-
-                )
-
-            except (TelegramBadRequest, TelegramAPIError) as exc:
-
-                logger.warning("Sheets menu HTML send failed, sending plain: %s", exc)
-
-                await message.answer(
-
-                    "📊 Connect Google Sheets\n\n"
-
-                    "✅ You are connected to your Google account!\n\n"
-
-                    "Now send your Google Sheets link:\n\n"
-
-                    "Misol:\nhttps://docs.google.com/spreadsheets/d/1Abc123xyz/edit"
-
-                )
-
-            session.step = "waiting_sheet_link"
-
-            await message.answer("📬 Google Sheets havolasini yubo..")
-
-        else:
-
-            # Ask directly for sheet link (no OAuth)
-
+        try:
             await message.answer(
-
-                "🔒 <b>Connect Google Sheets</b>\n\n"
-
-                "Send the Google Sheets link directly:\n\n"
-
-                "1️⃣ Open Google Sheets and navigate to the spreadsheet\n"
-
-                "2️⃣ Click the \"Share\" button\n"
-
-                "3️⃣ Select \"Anyone with link\" access\n"
-
-                "4️⃣ Copy the link and send it to the bot\n\n"
-
-                "🔒 <b>Misol:</b>\n"
-
+                "\U0001f4ca <b>Google Sheets</b>\n\n"
+                "Send the Google Sheets link:\n\n"
+                "1\ufe0f\u20e3 Open your spreadsheet in Google Sheets\n"
+                "2\ufe0f\u20e3 Click <b>Share</b> \u2192 <b>Anyone with the link</b> \u2192 Viewer\n"
+                "3\ufe0f\u20e3 Copy the link and send it here\n\n"
+                "\U0001f4cb <b>Example:</b>\n"
                 "<code>https://docs.google.com/spreadsheets/d/1Abc123xyz/edit</code>",
-
                 parse_mode="HTML"
-
             )
-
-            session.step = "waiting_sheet_link"
-
-            await message.answer("📬 Google Sheets havolasini yubo..")
-
-
+        except Exception:
+            await message.answer(
+                "Google Sheets\n\n"
+                "Send the Google Sheets link.\n"
+                "Make sure the sheet is shared as 'Anyone with the link'."
+            )
 
     @dp.message(F.text == MAIN_MENU_EXCEL)
 
@@ -5929,7 +5719,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                     if success:
 
-                        response_text = f"💬 <b>AI Javob (Indexed Data-dan)</b>\n\n{html_escape(answer)}"
+                        response_text = f"💬 <b>AI Answer (from Indexed Data)</b>\n\n{html_escape(answer)}"
 
                         
 
@@ -5973,7 +5763,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         logger.warning(f"⚠️ Indexing query failed: {answer}")
 
-                        await message.answer(f"⚠️ Index-dan javob olishda xato: {html_escape(str(answer))}")
+                        await message.answer(f"⚠️ Error getting answer from index: {html_escape(str(answer))}")
 
                         return
 
@@ -6063,7 +5853,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 if not rows:
 
-                                    context_text += "(bo'sh)\n"
+                                    context_text += "(empty)\n"
 
                                     continue
 
@@ -6097,7 +5887,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 if total_rows > MAX_ROWS_FOR_CONTEXT:
 
-                                    context_text += f"... va yana {total_rows - MAX_ROWS_FOR_CONTEXT} ta qator bor\n"
+                                    context_text += f"... and {total_rows - MAX_ROWS_FOR_CONTEXT} more rows\n"
 
                                 context_text += "\n"
 
@@ -6139,39 +5929,39 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "You are an AI assistant that analyzes spreadsheet data. "
 
-                                    "Senga spreadsheet ma'data is provided. The user asks a question. "
+                                    "You are given spreadsheet data and the user asks a question about it. "
 
-                                    "QOIDALAR:\n"
+                                    "RULES:\n"
 
-                                    "1. FAQAT berilgan spreadsheet ma'lumotlari asosida javob ber.\n"
+                                    "1. Answer ONLY based on the provided spreadsheet data.\n"
 
-                                    "2. Give CONFIDENT and PRECISE answers. Avoid words like 'maybe', 'perhaps', 'possibly' ISHLATMA.\n"
+                                    "2. Give CONFIDENT and PRECISE answers. Avoid vague words like 'maybe', 'perhaps', 'possibly'.\n"
 
-                                    "3. Always mention the spreadsheet name and sheet name. Example: 'Spreadsheet: [nom], Sheet: [nom] ma'lumotlariga ko'ra, ...'\n"
+                                    "3. Always mention the spreadsheet name and sheet name. Example: 'According to Spreadsheet: [name], Sheet: [name], ...'\n"
 
-                                    "4. Raqamlarni to'g'ri formatlash: 2500000 -> 2,500,000\n"
+                                    "4. Format numbers correctly: 2500000 -> 2,500,000\n"
 
-                                    "5. If data is NOT FOUND in the spreadsheet, clearly say: 'This data is not in the spreadsheetud emas.'\n"
+                                    "5. If data is NOT FOUND in the spreadsheet, clearly say: 'This data is not in the spreadsheet.'\n"
 
-                                    "6. Internetdan yoki boshqa manbalardan hech qanday ma'lumot QO'SHMA.\n"
+                                    "6. Do NOT add any information from the internet or other sources.\n"
 
-                                    "7. Javobni o'zbek tilida ber.\n"
+                                    "7. Answer in English.\n"
 
-                                    "8. Qisqa, aniq va to'g'ridan-to'g'ri javob ber.\n"
+                                    "8. Give short, clear and direct answers.\n"
 
-                                    "9. SMART NAME SEARCH: If the user asks for 'Yodgorbek' but the spreadsheetdsheetda 'Yodgor' bo'lsa — "
+                                    "9. SMART NAME SEARCH: If the user asks for 'Yodgorbek' but the spreadsheet has 'Yodgor', "
 
-                                    "they are THE SAME PERSON. Uzbek names with suffixes -bek, -boy, -jon, -ali, -xon areirilishi yoki qo'shilishi mumkin. "
+                                    "they may be THE SAME PERSON. Uzbek names with suffixes -bek, -boy, -jon, -ali, -xon can be shortened or combined. "
 
-                                    "Masalan: Yodgorbek=Yodgor, Jasurbek=Jasur, Sardorbek=Sardor, Nilufar=Nilu, Mahkam=Mahkamboy. "
+                                    "For example: Yodgorbek=Yodgor, Jasurbek=Jasur, Sardorbek=Sardor, Nilufar=Nilu, Mahkam=Mahkamboy. "
 
-                                    "Shuningdek, kichik/katta harf farqi bo'Also consider transliteration (latin/cyrillic). "
+                                    "Also consider case differences and transliteration (latin/cyrillic). "
 
-                                    "Always find the CLOSEST moslikni topishga harakat qil.\n"
+                                    "Always find the CLOSEST match.\n"
 
-                                    "10. TABLE STRUCTURE: Data in the spreadsheet may be in various places — gorizontal, vertikal, jadval ichida jadval. "
+                                    "10. TABLE STRUCTURE: Data in the spreadsheet may be arranged in various ways — horizontal, vertical, nested tables. "
 
-                                    "Check all rows and columns. Data may be in the first row or the last rowa ham bo'lishi mumkin."
+                                    "Check all rows and columns. Data may be in the first row or the last row."
 
                                 )
 
@@ -6179,11 +5969,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 user_prompt = (
 
-                                    f"Quyidagi spreadsheet ma'lumotlari berilgan:\n\n{context_text}\n\n"
+                                    f"The following spreadsheet data is provided:\n\n{context_text}\n\n"
 
-                                    f"Savol: {user_message}\n\n"
+                                    f"Question: {user_message}\n\n"
 
-                                    f"Yuqoridagi spreadsheet ma'Give accurate answers based on data. "
+                                    f"Please give an accurate answer based on the spreadsheet data above. "
 
                                     f"Even if names don't fully match, find the closest match."
 
@@ -6283,7 +6073,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 if ai_answer:
 
-                                    response_text = f"💬 AI Javob\n\n{ai_answer}"
+                                    response_text = f"💬 AI Answer\n\n{ai_answer}"
 
                                 else:
 
@@ -6291,7 +6081,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     response_text = (
 
-                                        f"💬 AI Javob\n\n"
+                                        f"💬 AI Answer\n\n"
 
                                         f"⚠️ AI xizmatida vaqtinchalik xatolik ({last_error[:100]})\n"
 
@@ -6307,11 +6097,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 response_text = (
 
-                                    f"💬 AI Javob\n\n"
+                                    f"💬 AI Answer\n\n"
 
-                                    f"⚠️ AI xizmatida vaqtinchalik xatolik.\n"
+                                    f"⚠️ AI service is temporarily unavailable.\n"
 
-                                    f"Ma'lumotlar:\n{context_text[:2000]}"
+                                    f"Data:\n{context_text[:2000]}"
 
                                 )
 
@@ -6325,7 +6115,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 f"💬 AI Javob\n\n"
 
-                                f"⚠️ AI kaliti sozlanmagan. Ma'lumotlar:\n{context_text[:2000]}"
+                                f"⚠️ AI key not configured. Data:\n{context_text[:2000]}"
 
                             )
 
@@ -6523,7 +6313,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             # Format response with sources
 
-                            response_text = f"💬 AI Javob\n\n{uzbek_answer}"
+                            response_text = f"💬 AI Answer\n\n{uzbek_answer}"
 
                             
 
@@ -6531,7 +6321,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                             if search_results.get("results"):
 
-                                response_text += "\n\n📚 Manbalar:\n"
+                                response_text += "\n\n📚 Sources:\n"
 
                                 for i, result in enumerate(search_results["results"][:3], 1):
 
