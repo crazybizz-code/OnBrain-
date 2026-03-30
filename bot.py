@@ -2853,12 +2853,31 @@ async def _fetch_all_public_sheets(sheet_id: str) -> dict:
     base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
     result: dict = {}
 
+    _timeout_short = _aiohttp.ClientTimeout(total=15)
+    _timeout_long  = _aiohttp.ClientTimeout(total=30)
+
     async with _aiohttp.ClientSession() as http:
-        # Step 1: discover tab names from the HTML export
+        # Step 1: discover tab names via gviz/tq endpoint (more reliable than HTML export)
         tab_names: list = []
         try:
+            # Try gviz endpoint first - returns sheet metadata
+            gviz_url = f"{base_url}/gviz/tq?tqx=out:json"
+            async with http.get(gviz_url, timeout=_timeout_short, allow_redirects=True) as resp:
+                if resp.status in (401, 403):
+                    raise RuntimeError("Sheet is private. Share it as 'Anyone with the link'.")
+                elif resp.status == 404:
+                    raise RuntimeError("Sheet not found. Check the link.")
+                elif resp.status == 200:
+                    pass  # OK, continue with HTML tab discovery
+        except RuntimeError:
+            raise
+        except Exception as _e:
+            logger.debug("gviz check failed (non-fatal): %s", _e)
+
+        # Try HTML export to discover tab names
+        try:
             html_url = f"{base_url}/export?format=html"
-            async with http.get(html_url, timeout=15, allow_redirects=True) as resp:
+            async with http.get(html_url, timeout=_timeout_short, allow_redirects=True) as resp:
                 if resp.status == 200:
                     html_text = await resp.text(errors="replace")
                     found = _re.findall(
@@ -2884,7 +2903,7 @@ async def _fetch_all_public_sheets(sheet_id: str) -> dict:
         for tab in tab_names:
             try:
                 csv_url = f"{base_url}/export?format=csv&sheet={_up.quote(tab)}"
-                async with http.get(csv_url, timeout=20, allow_redirects=True) as resp:
+                async with http.get(csv_url, timeout=_timeout_long, allow_redirects=True) as resp:
                     if resp.status == 200:
                         raw = await resp.read()
                         text = raw.decode("utf-8", errors="replace")
@@ -2895,10 +2914,14 @@ async def _fetch_all_public_sheets(sheet_id: str) -> dict:
                             logger.info(
                                 "Fetched tab '%s' from sheet %s (%d rows)", tab, sheet_id, len(rows)
                             )
+                    elif resp.status in (401, 403) and not any_ok:
+                        raise RuntimeError("Sheet is private. Share it as 'Anyone with the link'.")
                     else:
                         logger.warning(
                             "CSV export status %s for tab '%s' sheet %s", resp.status, tab, sheet_id
                         )
+            except RuntimeError:
+                raise
             except Exception as _te:
                 logger.warning("Failed to fetch tab '%s': %s", tab, _te)
 
