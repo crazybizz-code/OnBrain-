@@ -956,13 +956,13 @@ MAX_CHARS_CONTEXT = 120000
 @dataclass
 class Config:
     bot_token: str
-    tavily_api_key: str
-    # Google OAuth (for Google Sheets access)
-    google_client_id: str
-    google_client_secret: str
-    # Database
-    supabase_url: str
-    supabase_anon_key: str
+    tavily_api_key: str = ""
+    # Google OAuth (optional - not required for public sheet access)
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Database (optional - SQLite used as primary)
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
     # Grok AI (xAI) - for intelligent spreadsheet Q&A
     grok_api_key: str = ""
     # Server configuration - can be overridden via env vars
@@ -975,18 +975,18 @@ class Config:
         load_dotenv()
         required = {
             "BOT_TOKEN": os.getenv("BOT_TOKEN", "").strip(),
-            "TAVILY_API_KEY": os.getenv("TAVILY_API_KEY", "").strip(),
-            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", "").strip(),
-            "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
-            "SUPABASE_URL": os.getenv("SUPABASE_URL", "").strip(),
-            "SUPABASE_ANON_KEY": os.getenv("SUPABASE_ANON_KEY", "").strip(),
         }
         missing = [k for k, v in required.items() if not v]
         if missing:
             raise RuntimeError(
-                "Quyidagi .env qiymatlari to'ldirilmagan: " + ", ".join(missing)
+                "Quyidagi .env qiymatlari toldirilmagan: " + ", ".join(missing)
             )
-        
+        # Optional env vars
+        tavily_api_key = os.getenv("TAVILY_API_KEY", "").strip()
+        google_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        supabase_url = os.getenv("SUPABASE_URL", "").strip()
+        supabase_anon_key = os.getenv("SUPABASE_ANON_KEY", "").strip()
         # Optional server configuration
         server_host = os.getenv("SERVER_HOST", "0.0.0.0").strip()
         # Koyeb and Render both inject PORT env var; fallback to 8080
@@ -1006,12 +1006,12 @@ class Config:
         
         return cls(
             bot_token=required["BOT_TOKEN"],
-            tavily_api_key=required["TAVILY_API_KEY"],
-            google_client_id=required["GOOGLE_CLIENT_ID"],
-            google_client_secret=required["GOOGLE_CLIENT_SECRET"],
-            supabase_url=required["SUPABASE_URL"],
-            supabase_anon_key=required["SUPABASE_ANON_KEY"],
             grok_api_key=grok_api_key,
+            tavily_api_key=tavily_api_key,
+            google_client_id=google_client_id,
+            google_client_secret=google_client_secret,
+            supabase_url=supabase_url,
+            supabase_anon_key=supabase_anon_key,
             server_host=server_host,
             server_port=server_port,
             google_redirect_uri=google_redirect_uri,
