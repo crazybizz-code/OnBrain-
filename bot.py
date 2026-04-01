@@ -5937,11 +5937,25 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "1. Answer ONLY from the exact data provided. If the data is not there, say so.\n"
 
-                                    "2. STRICT NOT-FOUND RULE: If the requested name, item, or value does NOT appear in the data, "
+                                    "2. STRICT NOT-FOUND RULE: If the requested name, item, or value does NOT appear in the data "
+
+                                    "as the PRIMARY person (first name or last name of the main subject), "
 
                                     "respond ONLY with: 'Bu ma\'lumot jadvalda mavjud emas.' Do NOT guess or invent an answer.\n"
 
-                                    "3. SMART NAME SEARCH: Before giving up, check for partial matches — Uzbek names may be shortened. "
+                                    "3. STRICT NAME MATCHING: When searching for a person by name (e.g. \'Ilyosbek\'), "
+
+                                    "match ONLY rows where that name is the person\'s OWN first or last name. "
+
+                                    "Do NOT match rows where the name appears as part of a father\'s name, middle name, "
+
+                                    "or suffix like \'O\'G\'LI\' (meaning \'son of\'). "
+
+                                    "For example: searching for \'Ilyosbek\' must NOT match \'BAHRIDDIN ILYOSBEK O\'G\'LI\' "
+
+                                    "because there Ilyosbek is the father\'s name, not the person\'s name.\n"
+
+                                    "4. ALLOWED partial match: A shortened version of the first name is allowed. "
 
                                     "For example: Yodgorbek may appear as Yodgor, Jasurbek as Jasur. "
 
@@ -5949,15 +5963,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "If you find a close match, answer based on it and note the match found.\n"
 
-                                    "4. If data IS found: give a precise, direct answer. Mention the sheet name.\n"
+                                    "5. If data IS found: give a precise, direct answer. Mention the sheet name.\n"
 
-                                    "5. Format numbers correctly: 2500000 -> 2,500,000\n"
+                                    "6. Format numbers correctly: 2500000 -> 2,500,000\n"
 
-                                    "6. Do NOT add any information from the internet or any outside source.\n"
+                                    "7. Do NOT add any information from the internet or any outside source.\n"
 
-                                    "7. Answer in Uzbek language (O'zbek tilida javob bering).\n"
+                                    "8. Answer in Uzbek language (O'zbek tilida javob bering).\n"
 
-                                    "8. TABLE STRUCTURE: Data may be horizontal, vertical or nested. Check ALL rows and columns."
+                                    "9. TABLE STRUCTURE: Data may be horizontal, vertical or nested. Check ALL rows and columns."
 
                                 )
 
