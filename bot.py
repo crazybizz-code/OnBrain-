@@ -6847,7 +6847,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # We directly copy the message and override text
 
-            message.text = transcribed_text
+            # (message.text assignment removed — Message is immutable in aiogram)
 
             
 
