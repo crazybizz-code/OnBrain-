@@ -4634,6 +4634,12 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         await callback_query.answer()
 
+
+        # Show hint without navigating away from chat — just a dismiss button
+        dismiss_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✖️ Yopish", callback_data="dismiss_hint")]
+        ])
+
         await callback_query.message.answer(
 
             "🎤 <b>Ovozli savol yuborish</b>\n\n"
@@ -4646,9 +4652,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             "2️⃣ Telegram dagi 🎤 <b>mikrofon tugmasini bosing va ushlab turing</b>\n"
 
-            "3️⃣ O\'zbek tilida savolingizni gapiring\n"
+            "3️⃣ O'zbek tilida savolingizni gapiring\n"
 
-            "4️⃣ Tugmani qo\'yib yuboring — bot javob beradi!\n\n"
+            "4️⃣ Tugmani qo'yib yuboring — bot javob beradi!\n\n"
 
             "<b>Masalan:</b>\n"
 
@@ -4658,15 +4664,27 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             "• <i>\"Matematikadan eng yuqori ball kim olgan?\"</i>\n\n"
 
-            "✅ Bot ovozingizni avtomatik matnга aylantiradi va jadvaldan javob beradi.",
+            "✅ Bot ovozingizni avtomatik matnга aylantiradi va jadvaldan javob beradi.\n\n"
+
+            "🎤 <b>Hozir mikrofon tugmasini bosib savol bering!</b>",
 
             parse_mode="HTML",
 
-            reply_markup=build_main_menu()
+            reply_markup=dismiss_keyboard
 
         )
 
+
     
+    @dp.callback_query(F.data == "dismiss_hint")
+    async def dismiss_hint_handler(callback_query: CallbackQuery) -> None:
+        """Dismiss the voice hint popup and go back to chat response keyboard."""
+        await callback_query.answer()
+        try:
+            await callback_query.message.delete()
+        except Exception:
+            pass
+
     @dp.callback_query(F.data == "main_menu")
 
     async def main_menu_handler(callback_query: CallbackQuery) -> None:
