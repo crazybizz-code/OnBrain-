@@ -4575,7 +4575,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             await callback_query.message.answer(
 
-                "💬 Type your next question or send /start to return to the main menu."
+                "💬 Keyingi savolingizni yuboring yoki /start orqali asosiy menyuga qayting."
 
             )
 
@@ -7125,33 +7125,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 
 
-                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-                keyboard = InlineKeyboardMarkup(inline_keyboard=[
-
-                    [
-
-                        InlineKeyboardButton(text="💬 Davom etish", callback_data="chat_continue"),
-
-                        InlineKeyboardButton(text="🏠 Asosiy menyu", callback_data="main_menu"),
-
-                    ]
-
-                ])
-
                 
 
                 await message.answer(
 
-                    f"💬 <b>AI Javob</b>\n\n{ai_answer}\n\n"
-
-                    f"<i>Type your next question or send /start to return to the main menu.</i>",
+                    f"💬 <b>AI Javob</b>\n\n{ai_answer}",
 
                     parse_mode="HTML",
 
-                    reply_markup=keyboard
+                    reply_markup=build_chat_response_keyboard()
 
                 )
+
 
             else:
 
