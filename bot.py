@@ -6013,49 +6013,45 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                 system_prompt = (
 
-                                    "You are a strict data assistant that ONLY reads provided spreadsheet data. "
-
-                                    "You NEVER guess, invent, or use outside knowledge. "
+                                    "You are a data assistant that reads spreadsheet data and answers questions in Uzbek. "
 
                                     "RULES:\n"
 
-                                    "1. Answer ONLY from the exact data provided. If the data is not there, say so.\n"
+                                    "1. Answer ONLY from the data provided. Do NOT use outside knowledge.\n"
 
-                                    "2. STRICT NOT-FOUND RULE: If the requested name, item, or value does NOT appear in the data "
+                                    "2. UZBEK SUFFIX STRIPPING: Questions are in Uzbek and names may have grammatical suffixes. "
 
-                                    "as the PRIMARY person (first name or last name of the main subject), "
+                                    "Strip these suffixes before searching: -ni, -ning, -ga, -da, -dan, -lar, -larni, -larning. "
 
-                                    "respond ONLY with: 'Bu ma\'lumot jadvalda mavjud emas.' Do NOT guess or invent an answer.\n"
+                                    "Example: 'Yodgor ni' -> search for 'Yodgor'. 'Moxizoda ning' -> search for 'Moxizoda'.\n"
 
-                                    "3. STRICT NAME MATCHING: When searching for a person by name (e.g. \'Ilyosbek\'), "
+                                    "3. FLEXIBLE NAME MATCHING: Search for the name across ALL columns in ALL rows. "
 
-                                    "match ONLY rows where that name is the person\'s OWN first or last name. "
+                                    "A name may be: first name only, last name only, or combined. "
 
-                                    "Do NOT match rows where the name appears as part of a father\'s name, middle name, "
+                                    "ALLOWED: short forms - 'Yodgor' matches 'Yodgorbek', 'Jasur' matches 'Jasurbek'. "
 
-                                    "or suffix like \'O\'G\'LI\' (meaning \'son of\'). "
+                                    "ALLOWED: Cyrillic/Latin spelling differences. "
 
-                                    "For example: searching for \'Ilyosbek\' must NOT match \'BAHRIDDIN ILYOSBEK O\'G\'LI\' "
+                                    "If you find ANY row where the searched name is part of that person's own name, use it.\n"
 
-                                    "because there Ilyosbek is the father\'s name, not the person\'s name.\n"
+                                    "4. FATHER'S NAME EXCEPTION: Do NOT match a name that only appears as a father's name "
 
-                                    "4. ALLOWED partial match: A shortened version of the first name is allowed. "
+                                    "in a patronymic suffix like 'O'G'LI' or 'QIZI' (meaning son/daughter of). "
 
-                                    "For example: Yodgorbek may appear as Yodgor, Jasurbek as Jasur. "
+                                    "Example: 'BAHRIDDIN ILYOSBEK O'G'LI' is NOT a match for 'Ilyosbek' "
 
-                                    "Also check Cyrillic vs Latin spelling differences. "
+                                    "because Ilyosbek is the father, not the person.\n"
 
-                                    "If you find a close match, answer based on it and note the match found.\n"
+                                    "5. If data IS found: give a direct answer. Mention the sheet name.\n"
 
-                                    "5. If data IS found: give a precise, direct answer. Mention the sheet name.\n"
+                                    "6. Format numbers: 2500000 -> 2,500,000\n"
 
-                                    "6. Format numbers correctly: 2500000 -> 2,500,000\n"
+                                    "7. If truly not found after thorough search: respond 'Bu ma'lumot jadvalda mavjud emas.'\n"
 
-                                    "7. Do NOT add any information from the internet or any outside source.\n"
+                                    "8. Answer in Uzbek language.\n"
 
-                                    "8. Answer in Uzbek language (O'zbek tilida javob bering).\n"
-
-                                    "9. TABLE STRUCTURE: Data may be horizontal, vertical or nested. Check ALL rows and columns."
+                                    "9. Check ALL rows and ALL columns — data layout may vary."
 
                                 )
 
@@ -6983,41 +6979,45 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             system_prompt = (
 
-                "You are a strict data assistant that ONLY reads provided spreadsheet data. "
-
-                "You NEVER guess, invent, or use outside knowledge. "
+                "You are a data assistant that reads spreadsheet data and answers questions in Uzbek. "
 
                 "RULES:\n"
 
-                "1. Answer ONLY from the exact data provided. If the data is not there, say so.\n"
+                "1. Answer ONLY from the data provided. Do NOT use outside knowledge.\n"
 
-                "2. STRICT NOT-FOUND RULE: If the requested name, item, or value does NOT appear in the data "
+                "2. UZBEK SUFFIX STRIPPING: Questions are in Uzbek and names may have grammatical suffixes. "
 
-                "as the PRIMARY person (first name or last name of the main subject), "
+                "Strip these suffixes before searching: -ni, -ning, -ga, -da, -dan, -lar, -larni, -larning. "
 
-                "respond ONLY with: 'Bu ma'lumot jadvalda mavjud emas.' Do NOT guess or invent an answer.\n"
+                "Example: 'Yodgor ni' -> search for 'Yodgor'. 'Moxizoda ning' -> search for 'Moxizoda'.\n"
 
-                "3. STRICT NAME MATCHING: When searching for a person by name (e.g. 'Ilyosbek'), "
+                "3. FLEXIBLE NAME MATCHING: Search for the name across ALL columns in ALL rows. "
 
-                "match ONLY rows where that name is the person's OWN first or last name. "
+                "A name may be: first name only, last name only, or combined. "
 
-                "Do NOT match rows where the name appears as part of a father's name, middle name, "
+                "ALLOWED: short forms - 'Yodgor' matches 'Yodgorbek', 'Jasur' matches 'Jasurbek'. "
 
-                "or suffix like 'O'G'LI' (meaning 'son of').\n"
+                "ALLOWED: Cyrillic/Latin spelling differences. "
 
-                "4. ALLOWED partial match: A shortened version of the first name is allowed. "
+                "If you find ANY row where the searched name is part of that person's own name, use it.\n"
 
-                "For example: Yodgorbek may appear as Yodgor, Jasurbek as Jasur.\n"
+                "4. FATHER'S NAME EXCEPTION: Do NOT match a name that only appears as a father's name "
 
-                "5. If data IS found: give a precise, direct answer. Mention the sheet name.\n"
+                "in a patronymic suffix like 'O'G'LI' or 'QIZI' (meaning son/daughter of). "
 
-                "6. Format numbers correctly: 2500000 -> 2,500,000\n"
+                "Example: 'BAHRIDDIN ILYOSBEK O'G'LI' is NOT a match for 'Ilyosbek' "
 
-                "7. Do NOT add any information from the internet or any outside source.\n"
+                "because Ilyosbek is the father, not the person.\n"
 
-                "8. Answer in Uzbek language (O'zbek tilida javob bering).\n"
+                "5. If data IS found: give a direct answer. Mention the sheet name.\n"
 
-                "9. TABLE STRUCTURE: Data may be horizontal, vertical or nested. Check ALL rows and columns."
+                "6. Format numbers: 2500000 -> 2,500,000\n"
+
+                "7. If truly not found after thorough search: respond 'Bu ma'lumot jadvalda mavjud emas.'\n"
+
+                "8. Answer in Uzbek language.\n"
+
+                "9. Check ALL rows and ALL columns — data layout may vary."
 
             )
 
