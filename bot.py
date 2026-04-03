@@ -5765,6 +5765,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 
 
+                # Send instant "waiting" message so user knows bot received the request
+
+                waiting_msg = await message.answer(
+
+                    "⏳ <b>Biroz kuting, javob tayyorlanmoqda...</b>",
+
+                    parse_mode="HTML"
+
+                )
+
+                
+
                 logger.info(f"💬 Chat message from {telegram_id}: {user_message[:50]}")
 
                 logger.info(f"📊 Session data check: sheet_id={session.sheet_id}, "
@@ -6213,6 +6225,18 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         
 
+                        # Delete the waiting message now that answer is ready
+
+                        try:
+
+                            await waiting_msg.delete()
+
+                        except Exception:
+
+                            pass
+
+                        
+
                         # Send response to user
 
                         try:
@@ -6260,6 +6284,24 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 # Fall back to web search if no local data
 
                 logger.info(f"🔗 Using web search (no local spreadsheet data)")
+
+                
+
+                # Show waiting message for Tavily web search
+
+                try:
+
+                    waiting_msg = await message.answer(
+
+                        "🌐 <b>Internet qidirilmoqda, biroz kuting...</b>",
+
+                        parse_mode="HTML"
+
+                    )
+
+                except Exception:
+
+                    waiting_msg = None
 
                 
 
@@ -6369,6 +6411,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             
 
                             logger.info(f"✅ Response sent to {telegram_id}: {uzbek_answer[:50]}...")
+
+                            
+
+                            # Delete the "searching..." waiting message
+
+                            if waiting_msg:
+
+                                try:
+
+                                    await waiting_msg.delete()
+
+                                except Exception:
+
+                                    pass
 
                             
 
