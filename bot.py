@@ -3202,8 +3202,6 @@ def build_main_menu() -> InlineKeyboardMarkup:
 
             [InlineKeyboardButton(text="📄 Upload Excel", callback_data="excel")],
 
-            [InlineKeyboardButton(text="🎤 Ovozli savol yuborish", callback_data="voice_hint")],
-
         ]
 
     )
@@ -3240,7 +3238,9 @@ def build_chat_response_keyboard() -> InlineKeyboardMarkup:
 
         inline_keyboard=[
 
-            [InlineKeyboardButton(text="💬 Davom etish", callback_data="chat_continue")],
+            [InlineKeyboardButton(text="💬 Davom etish", callback_data="chat_continue"),
+
+             InlineKeyboardButton(text="🎤 Ovozli savol", callback_data="voice_hint")],
 
             [InlineKeyboardButton(text="🌐 Internet qidiruv", callback_data="web_search_mode")],
 
@@ -6725,11 +6725,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         # Make sure user is registered
 
-        if session.step not in ("ready", "waiting_question"):
+        if session.step not in ("in_chat", "ready", "waiting_question"):
 
             await message.answer(
 
-                "Iltimos, avval ro'yxatdan o'ting. /start buyrug'ini yuboring."
+                "Iltimos, avval jadval ulang (Google Sheets, Excel yoki Folder), keyin ovozli savol yuboring."
 
             )
 
@@ -7903,11 +7903,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         session = ctx.sessions.get(telegram_id)
 
-        if session.step != "waiting_excel":
+        if session.step not in ("waiting_excel", "in_chat", "ready"):
 
             await message.answer(
 
-                "Agar Excel yuklamoqchi bo'lsangiz, avval menyudan \"📁 Upload Excel File\" tugmasini bosing."
+                "Agar Excel yuklamoqchi bo'lsangiz, avval menyudan \"📄 Upload Excel\" tugmasini bosing."
 
             )
 
