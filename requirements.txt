@@ -30,3 +30,6 @@ tavily-python>=0.3.0,<1.0.0
 
 # AI (optional - used if GROK_API_KEY is set)
 openai>=1.51.0,<2.0.0
+
+# Voice transcription (optional - used if GROQ_API_KEY is set)
+groq>=0.11.0,<1.0.0

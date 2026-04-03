@@ -84,6 +84,22 @@ import aiohttp
 
 
 
+# Groq AI - optional, used for voice transcription via Whisper
+
+try:
+
+    from groq import AsyncGroq as _AsyncGroq
+
+    GROQ_AVAILABLE = True
+
+except ImportError:
+
+    _AsyncGroq = None
+
+    GROQ_AVAILABLE = False
+
+
+
 import gspread
 
 
@@ -1932,6 +1948,10 @@ class Config:
 
     grok_api_key: str = ""
 
+    # Groq AI - for voice transcription (Whisper)
+
+    groq_api_key: str = ""
+
     # Server configuration - can be overridden via env vars
 
     server_host: str = "0.0.0.0"  # Listen on all interfaces for production
@@ -2008,6 +2028,10 @@ class Config:
 
         grok_api_key = os.getenv("GROK_API_KEY", "").strip()
 
+        # Optional: Groq AI key for voice transcription
+
+        groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+
         
 
         return cls(
@@ -2025,6 +2049,8 @@ class Config:
             supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", "").strip(),
 
             grok_api_key=grok_api_key,
+
+            groq_api_key=groq_api_key,
 
             server_host=server_host,
 
@@ -6537,6 +6563,525 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
         # (This handler will now delegate to other handlers if step != waiting_first_name/last_name)
 
 
+
+
+    # ============================================================
+    # VOICE MESSAGE HANDLER — Groq Whisper (Uzbek transcription)
+    # ============================================================
+
+    @dp.message(F.voice)
+
+    async def voice_handler(message: Message, bot: Bot) -> None:
+
+        """Handles voice messages: transcribes via Groq Whisper then routes as text."""
+
+        telegram_id = message.from_user.id
+
+        
+
+        # Rate limiting
+
+        if not rate_limiter.is_allowed(telegram_id):
+
+            await message.answer(
+
+                "⚙️⚠️ <b>Juda ko'p so'rovlar!</b>\n\nBiroz kuting va qaytadan urinib ko'ring.",
+
+                parse_mode="HTML"
+
+            )
+
+            return
+
+        
+
+        # Check Groq availability
+
+        groq_api_key = ctx.config.groq_api_key or os.getenv("GROQ_API_KEY", "").strip()
+
+        if not GROQ_AVAILABLE or not groq_api_key:
+
+            await message.answer(
+
+                "🎤 <b>Ovozli xabar qabul qilindi</b>\n\n"
+
+                "❌ Ovozni matnга aylantirish hozircha mavjud emas.\n"
+
+                "Iltimos, savolingizni yozma holda yuboring.",
+
+                parse_mode="HTML"
+
+            )
+
+            return
+
+        
+
+        session = ctx.sessions.get(telegram_id)
+
+        
+
+        # Make sure user is registered
+
+        if session.step not in ("ready", "waiting_question"):
+
+            await message.answer(
+
+                "Iltimos, avval ro'yxatdan o'ting. /start buyrug'ini yuboring."
+
+            )
+
+            return
+
+        
+
+        # Show typing indicator while processing
+
+        processing_msg = await message.answer(
+
+            "🎤 <b>Ovozingiz tinglanmoqda...</b>",
+
+            parse_mode="HTML"
+
+        )
+
+        
+
+        try:
+
+            # 1. Download voice file from Telegram
+
+            voice = message.voice
+
+            file_info = await bot.get_file(voice.file_id)
+
+            file_bytes = await bot.download_file(file_info.file_path)
+
+            audio_bytes = file_bytes.read() if hasattr(file_bytes, "read") else bytes(file_bytes)
+
+            
+
+            # 2. Transcribe with Groq Whisper (Uzbek language)
+
+            groq_client = _AsyncGroq(api_key=groq_api_key)
+
+            
+
+            transcription = await groq_client.audio.transcriptions.create(
+
+                model="whisper-large-v3-turbo",
+
+                file=("voice.ogg", audio_bytes, "audio/ogg"),
+
+                language="uz",
+
+                response_format="text",
+
+            )
+
+            
+
+            # transcription is a plain string when response_format="text"
+
+            transcribed_text = transcription.strip() if isinstance(transcription, str) else str(transcription).strip()
+
+            
+
+            if not transcribed_text:
+
+                await processing_msg.edit_text(
+
+                    "🎤 Ovozingiz tushunilmadi. Iltimos, aniqroq gapiring yoki yozma holda yuboring."
+
+                )
+
+                return
+
+            
+
+            logger.info(f"🎤 Voice transcribed for {telegram_id}: {transcribed_text[:80]}")
+
+            
+
+            # 3. Edit the processing message to show what was heard
+
+            await processing_msg.edit_text(
+
+                f"🎤 <b>Eshitildi:</b> <i>{transcribed_text}</i>\n\n"
+
+                f"⏳ Javob tayyorlanmoqda...",
+
+                parse_mode="HTML"
+
+            )
+
+            
+
+            # 4. Create a fake message-like object and route through text_handler logic
+
+            # We do this by sending the transcribed text as a new message directly
+
+            # But since we can't fake a Message object, we duplicate the core text processing inline
+
+            # Build a simple forwarding: re-use the session's existing data
+
+            await processing_msg.delete()
+
+            
+
+            # Send the transcribed text back to user as their "typed" message, then trigger answer
+
+            fake_text_msg = await message.answer(
+
+                f"🎤 <i>Sizning savolingiz:</i> <b>{transcribed_text}</b>",
+
+                parse_mode="HTML"
+
+            )
+
+            
+
+            # 5. Now simulate the text_handler call with the transcribed text
+
+            # We directly copy the message and override text
+
+            message.text = transcribed_text
+
+            
+
+            # Call the registered text handler logic by dispatching manually
+
+            # The cleanest way: import the inner function and call with modified message
+
+            # Since handlers are registered in dp, easiest is to build Answer directly here
+
+            # using same Grok call as text_handler does for "ready" session
+
+            
+
+            # Get session data
+
+            user_message = transcribed_text
+
+            
+
+            # Determine data source
+
+            has_sheets = bool(session.all_sheets_data)
+
+            has_excel = bool(session.excel_data)
+
+            has_folder = bool(session.all_folder_sheets_data)
+
+            
+
+            if not has_sheets and not has_excel and not has_folder:
+
+                await message.answer(
+
+                    "📊 Hali hech qanday jadval yuklanmagan.\n\n"
+
+                    "Avval Google Sheets, Excel yoki Folder ulang.",
+
+                    parse_mode="HTML"
+
+                )
+
+                return
+
+            
+
+            # Build context text (same logic as text_handler)
+
+            context_parts: list[str] = []
+
+            
+
+            if has_sheets:
+
+                for sname, rows in session.all_sheets_data.items():
+
+                    if rows:
+
+                        header = f"[Sheet: {sname}]"
+
+                        rows_text = "\n".join(
+
+                            ", ".join(str(c) for c in row if str(c).strip())
+
+                            for row in rows[:300] if any(str(c).strip() for c in row)
+
+                        )
+
+                        context_parts.append(f"{header}\n{rows_text}")
+
+            
+
+            if has_excel:
+
+                rows_text = "\n".join(
+
+                    ", ".join(str(c) for c in row if str(c).strip())
+
+                    for row in session.excel_data[:300] if any(str(c).strip() for c in row)
+
+                )
+
+                context_parts.append(f"[Excel data]\n{rows_text}")
+
+            
+
+            if has_folder:
+
+                for sheet_id, sheets_dict in session.all_folder_sheets_data.items():
+
+                    for sname, rows in sheets_dict.items():
+
+                        if rows:
+
+                            header = f"[Folder Sheet: {sname}]"
+
+                            rows_text = "\n".join(
+
+                                ", ".join(str(c) for c in row if str(c).strip())
+
+                                for row in rows[:200] if any(str(c).strip() for c in row)
+
+                            )
+
+                            context_parts.append(f"{header}\n{rows_text}")
+
+            
+
+            context_text = "\n\n".join(context_parts)
+
+            
+
+            if not context_text.strip():
+
+                await message.answer("📊 Jadvalda ma'lumot topilmadi.")
+
+                return
+
+            
+
+            # Grok API key
+
+            grok_api_key_val = os.getenv("GROK_API_KEY", "")
+
+            if not grok_api_key_val:
+
+                await message.answer(f"📋 <b>Ma'lumot:</b>\n{context_text[:1000]}", parse_mode="HTML")
+
+                return
+
+            
+
+            # Build Grok system prompt (same as text_handler)
+
+            system_prompt = (
+
+                "You are a strict data assistant that ONLY reads provided spreadsheet data. "
+
+                "You NEVER guess, invent, or use outside knowledge. "
+
+                "RULES:\n"
+
+                "1. Answer ONLY from the exact data provided. If the data is not there, say so.\n"
+
+                "2. STRICT NOT-FOUND RULE: If the requested name, item, or value does NOT appear in the data "
+
+                "as the PRIMARY person (first name or last name of the main subject), "
+
+                "respond ONLY with: 'Bu ma'lumot jadvalda mavjud emas.' Do NOT guess or invent an answer.\n"
+
+                "3. STRICT NAME MATCHING: When searching for a person by name (e.g. 'Ilyosbek'), "
+
+                "match ONLY rows where that name is the person's OWN first or last name. "
+
+                "Do NOT match rows where the name appears as part of a father's name, middle name, "
+
+                "or suffix like 'O'G'LI' (meaning 'son of').\n"
+
+                "4. ALLOWED partial match: A shortened version of the first name is allowed. "
+
+                "For example: Yodgorbek may appear as Yodgor, Jasurbek as Jasur.\n"
+
+                "5. If data IS found: give a precise, direct answer. Mention the sheet name.\n"
+
+                "6. Format numbers correctly: 2500000 -> 2,500,000\n"
+
+                "7. Do NOT add any information from the internet or any outside source.\n"
+
+                "8. Answer in Uzbek language (O'zbek tilida javob bering).\n"
+
+                "9. TABLE STRUCTURE: Data may be horizontal, vertical or nested. Check ALL rows and columns."
+
+            )
+
+            
+
+            user_prompt = (
+
+                f"Spreadsheet data:\n\n{context_text}\n\n"
+
+                f"Question: {user_message}\n\n"
+
+                f"IMPORTANT: Answer ONLY from the data above. "
+
+                f"If the requested information is not present in the data, respond with: 'Bu ma'lumot jadvalda mavjud emas.' "
+
+                f"Do NOT invent or guess any answer."
+
+            )
+
+            
+
+            # Build messages with conversation history
+
+            grok_messages = [{"role": "system", "content": system_prompt}]
+
+            if session.chat_history:
+
+                grok_messages.extend(session.chat_history[-10:])
+
+            grok_messages.append({"role": "user", "content": user_prompt})
+
+            
+
+            thinking_msg = await message.answer("⏳ <b>AI javob tayyorlanmoqda...</b>", parse_mode="HTML")
+
+            
+
+            try:
+
+                async with httpx.AsyncClient(timeout=45.0) as client:
+
+                    grok_resp = await client.post(
+
+                        "https://api.x.ai/v1/chat/completions",
+
+                        headers={
+
+                            "Content-Type": "application/json",
+
+                            "Authorization": f"Bearer {grok_api_key_val}",
+
+                        },
+
+                        json={
+
+                            "model": "grok-3-mini-fast",
+
+                            "messages": grok_messages,
+
+                            "temperature": 0.3,
+
+                            "max_tokens": 2000,
+
+                        }
+
+                    )
+
+                
+
+                if grok_resp.status_code == 200:
+
+                    grok_data = grok_resp.json()
+
+                    ai_answer = grok_data["choices"][0]["message"]["content"].strip()
+
+                else:
+
+                    ai_answer = None
+
+            
+
+            except Exception as grok_exc:
+
+                logger.warning(f"Voice handler Grok error: {grok_exc}")
+
+                ai_answer = None
+
+            
+
+            await thinking_msg.delete()
+
+            
+
+            if ai_answer:
+
+                # Save to conversation history
+
+                session.chat_history.append({"role": "user", "content": user_message})
+
+                session.chat_history.append({"role": "assistant", "content": ai_answer})
+
+                if len(session.chat_history) > 20:
+
+                    session.chat_history = session.chat_history[-20:]
+
+                
+
+                from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+
+                    [
+
+                        InlineKeyboardButton(text="💬 Davom etish", callback_data="chat_continue"),
+
+                        InlineKeyboardButton(text="🏠 Asosiy menyu", callback_data="main_menu"),
+
+                    ]
+
+                ])
+
+                
+
+                await message.answer(
+
+                    f"💬 <b>AI Javob</b>\n\n{ai_answer}\n\n"
+
+                    f"<i>Type your next question or send /start to return to the main menu.</i>",
+
+                    parse_mode="HTML",
+
+                    reply_markup=keyboard
+
+                )
+
+            else:
+
+                await message.answer(
+
+                    "❌ AI javob bera olmadi. Iltimos, qaytadan urinib ko'ring."
+
+                )
+
+        
+
+        except Exception as exc:
+
+            logger.exception(f"❌ Voice handler error for {telegram_id}: {exc}")
+
+            try:
+
+                await processing_msg.delete()
+
+            except Exception:
+
+                pass
+
+            await message.answer(
+
+                "❌ Ovozni qayta ishlashda xatolik yuz berdi.\n"
+
+                "Iltimos, yozma holda savol yuboring yoki qaytadan urinib ko'ring."
+
+            )
+
+    
 
     @dp.message(F.contact)
 
