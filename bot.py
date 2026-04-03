@@ -3202,6 +3202,8 @@ def build_main_menu() -> InlineKeyboardMarkup:
 
             [InlineKeyboardButton(text="📄 Upload Excel", callback_data="excel")],
 
+            [InlineKeyboardButton(text="🎤 Ovozli savol yuborish", callback_data="voice_hint")],
+
         ]
 
     )
@@ -4415,21 +4417,23 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "📁 <b>Google Drive</b> - Google Drive papkasidagi fayllari o'qish\n"
 
-                "📄 <b>Excel</b> - Upload and send Excel files\n"
+                "📄 <b>Excel</b> - Fayl yuklash va yuborish\n"
 
-                "💬 <b>Chat</b> - AI yordamchi bilan suhbat\n\n"
+                "💬 <b>Chat</b> - AI yordamchi bilan suhbat\n"
+
+                "🎤 <b>Ovozli savol</b> - Mikrofondan o'zbek tilida savol bering, AI javob beradi!\n\n"
 
                 "<b>Qanday ishlatish:</b>\n"
 
-                "1. Send the /start command\n"
+                "1. /start buyrug'ini yuboring\n"
 
                 "2. Asosiy menyudan kerakli bo'limni tanlang\n"
 
-                "3. Send a Google Sheets or Excel file\n"
+                "3. Google Sheets, Excel yoki papka ulang\n"
 
-                "4. Savolingizni yozing va javob oling!\n\n"
+                "4. Savolingizni <b>yozing</b> yoki 🎤 <b>ovozda yuboring</b>!\n\n"
 
-                "<i>If you have a problem, contact @aionbrain_bot for help</i>"
+                "<i>Muammo bo'lsa, @aionbrain_bot ga yozing</i>"
 
             )
 
@@ -4621,6 +4625,48 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
 
+
+    @dp.callback_query(F.data == "voice_hint")
+
+    async def voice_hint_handler(callback_query: CallbackQuery) -> None:
+
+        """Show instructions on how to use the voice feature."""
+
+        await callback_query.answer()
+
+        await callback_query.message.answer(
+
+            "🎤 <b>Ovozli savol yuborish</b>\n\n"
+
+            "Ovozingizdan foydalanib AI ga savol bering!\n\n"
+
+            "<b>Qanday ishlatish:</b>\n"
+
+            "1️⃣ Jadvalingizni ulang (Google Sheets / Excel / Folder)\n"
+
+            "2️⃣ Telegram dagi 🎤 <b>mikrofon tugmasini bosing va ushlab turing</b>\n"
+
+            "3️⃣ O\'zbek tilida savolingizni gapiring\n"
+
+            "4️⃣ Tugmani qo\'yib yuboring — bot javob beradi!\n\n"
+
+            "<b>Masalan:</b>\n"
+
+            "• <i>\"Yodgorbekning umumiy balli nechchi?\"</i>\n"
+
+            "• <i>\"Turgunboyev Ilyosbekning natijasi qanday?\"</i>\n"
+
+            "• <i>\"Matematikadan eng yuqori ball kim olgan?\"</i>\n\n"
+
+            "✅ Bot ovozingizni avtomatik matnга aylantiradi va jadvaldan javob beradi.",
+
+            parse_mode="HTML",
+
+            reply_markup=build_main_menu()
+
+        )
+
+    
     @dp.callback_query(F.data == "main_menu")
 
     async def main_menu_handler(callback_query: CallbackQuery) -> None:
