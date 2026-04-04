@@ -1960,6 +1960,10 @@ class Config:
     # OpenAI - for voice transcription (Whisper)
     openai_whisper_key: str = ""
 
+    # Google Service Account — for Drive folder access without OAuth
+    # Set GOOGLE_SA_CREDENTIALS env var to the full JSON key string
+    google_sa_credentials: str = ""
+
     # Server configuration - can be overridden via env vars
 
     server_host: str = "0.0.0.0"  # Listen on all interfaces for production
@@ -2059,6 +2063,8 @@ class Config:
             grok_api_key=grok_api_key,
 
             openai_whisper_key=openai_whisper_key,
+
+            google_sa_credentials=os.getenv("GOOGLE_SA_CREDENTIALS", "").strip(),
 
             server_host=server_host,
 
@@ -5502,339 +5508,219 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # Check if it's a Google Drive folder link
 
-            if "drive.google.com" in user_input and any(x in user_input for x in ["folders", "open?id=", "drive/folders"]):
+            # ─────────────────────────────────────────────────────────
+            # Google Drive FOLDER link handling (Service Account)
+            # ─────────────────────────────────────────────────────────
+
+            if "drive.google.com" in user_input and any(
+                x in user_input for x in ("folders/", "open?id=")
+            ) and "spreadsheets" not in user_input:
 
                 try:
-
-                    logger.info(f"📁 User {telegram_id} provided Google Drive folder link")
-
-                    await message.answer(
-
-                        UIAnimations.loading_message("reading_folder", "Reading spreadsheets from your folder"),
-
-                        parse_mode="HTML"
-
-                    )
-
-                    
-
-                    # Get credentials
-
-                    try:
-
-                        creds = credentials_from_json(session.google_credentials_json, telegram_id=telegram_id)
-
-                    except ValueError as e:
-
-                        logger.info(f"Old scopes detected for user {telegram_id}: {e}")
-
-                        await message.answer(
-
-                            "🔒 <b>Re-authentication Required</b>\n\n"
-
-                            "Your Google permissions have expired.\n\n"
-
-                            "Please tap the <b>📊 Google Sheets</b> button below to reconnect.",
-
-                            parse_mode="HTML",
-
-                            reply_markup=build_main_menu()
-
-                        )
-
-                        session.google_credentials_json = None  # Clear old credentials
-
-                        session.step = "ready"
-
-                        return
-
-                    
-
-                    # Import the Google Drive service
-
-                    from google_drive_service import get_all_spreadsheets_from_folder
-
-                    
-
-                    # Get all spreadsheets from folder
-
-                    spreadsheets, error = await get_all_spreadsheets_from_folder(creds, user_input)
-
-                    
-
-                    if error:
-
-                        # Add helpful tips if it's a permission error
-
-                        if "permission" in error.lower() or "forbidden" in error.lower():
-
-                            error += "\n\n💡 <b>Solution:</b>\n1. Sign in to Google again (📊 Google Sheets)\n2. Make sure the folder is public or shared\n3. Havolani qayta yuboring"
-
-                        
-
-                        await message.answer(
-
-                            error,
-
-                            parse_mode="HTML",
-
-                            reply_markup=build_retry_keyboard("folder")
-
-                        )
-
-                        session.step = "ready"
-
-                        return
-
-                    
-
-                    if not spreadsheets:
-
-                        await message.answer(
-
-                            "❌ No spreadsheets found in this folder.",
-
-                            reply_markup=build_retry_keyboard("folder")
-
-                        )
-
-                        session.step = "ready"
-
-                        return
-
-                    
-
-                    # ===== NEW: Start indexing process =====
-
-                    logger.info(f"🤖 Starting indexing for user {telegram_id}...")
-
-                    await message.answer(
-
-                        UIAnimations.loading_message("indexing", "This may take 2-5 minutes"),
-
-                        parse_mode="HTML"
-
-                    )
-
-                    
-
-                    # Extract folder ID from URL
-
-                    folder_id = None
-
-                    patterns = [
-
-                        r'drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9-_]+)',
-
-                        r'drive\.google\.com/folders/([a-zA-Z0-9-_]+)',
-
-                        r'drive\.google\.com/open\?id=([a-zA-Z0-9-_]+)',
-
-                        r'drive\.google\.com/drive/folders/([a-zA-Z0-9-_]+)',
-
-                    ]
-
-                    for pattern in patterns:
-
-                        match = re.search(pattern, user_input)
-
-                        if match:
-
-                            folder_id = match.group(1)
-
-                            break
-
-                    
-
-                    if not folder_id:
-
-                        await message.answer(
-
-                            "❌ Papka ID-ni ajratib ola olmadim.\n\n"
-
-                            "📁 Quyidagi formatlardan birini yuboring:\n"
-
-                            "• https://drive.google.com/drive/folders/XXXX\n"
-
-                            "• https://drive.google.com/folders/XXXX\n"
-
-                            "• https://drive.google.com/open?id=XXXX",
-
-                            reply_markup=build_retry_keyboard("folder")
-
-                        )
-
-                        session.step = "ready"
-
-                        return
-
-                    
-
-                    # Store the folder spreadsheets
-
-                    session.folder_id = folder_id          # persist for workspace save
-
-                    session.folder_spreadsheets = spreadsheets
-
-                    session.selected_spreadsheets = []
-
-                    
-
-                    # Show list of spreadsheets
-
-                    folder_summary = f"✅ <b>Google Drive folder connected successfully!</b>\n\n"
-
-                    folder_summary += f"📊 <b>Topilgan {len(spreadsheets)} ta spreadsheet:</b>\n\n"
-
-                    
-
-                    # Create buttons for each spreadsheet
-
-                    keyboard_buttons = []
-
-                    for idx, sheet in enumerate(spreadsheets[:20]):  # Limit to 20 for UI
-
-                        sheet_name = sheet['name']
-
-                        # Truncate long names
-
-                        if len(sheet_name) > 30:
-
-                            sheet_name = sheet_name[:27] + "..."
-
-                        folder_summary += f"{idx+1}. 📋 {sheet['name']}\n"
-
-                        keyboard_buttons.append([
-
-                            InlineKeyboardButton(
-
-                                text=f"📋 {sheet_name}",
-
-                                callback_data=f"select_sheet:{idx}"
-
-                            )
-
-                        ])
-
-                    
-
-                    if len(spreadsheets) > 20:
-
-                        folder_summary += f"\n... and {len(spreadsheets) - 20} more spreadsheets"
-
-                    
-
-                    folder_summary += "\n\n💡 O'qimoqchi bo'Select spreadsheets (you can select multiple):"
-
-                    
-
-                    # Add "Ready" button
-
-                    keyboard_buttons.append([
-
-                        InlineKeyboardButton(text="✅ Tayyor!", callback_data="load_folder_sheets")
-
-                    ])
-
-                    keyboard_buttons.append([
-
-                        InlineKeyboardButton(text="📍 Qayta yuborish", callback_data="folder")
-
-                    ])
-
-                    
-
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
-                    
-
-                    await message.answer(
-
-                        folder_summary,
-
-                        parse_mode="HTML",
-
-                        reply_markup=keyboard
-
-                    )
-
-                    
-
-                    session.step = "selecting_folder_sheets"
-
-                    logger.info(f"✅ Showed {len(spreadsheets)} spreadsheets to user {telegram_id}")
-
-                    
-
-                except Exception as e:
-
-                    logger.error(f"❌ Error reading folder: {e}", exc_info=True)
-
-                    
-
-                    # Check if it's a permission/authentication error
-
-                    error_msg = str(e).lower()
-
-                    if "permission" in error_msg or "forbidden" in error_msg or "unauthenticated" in error_msg:
-
-                        await message.answer(
-
-                            "🔐 <b>Ruxsatlar muammosi</b>\n\n"
-
-                            "Google hisobiga qayta kiring va yangi ruxsatlarni be\n\n"
-
-                            "Asosiy menyudan \"📊 Connect Google Sheets\" tugmasini bosing.",
-
-                            parse_mode="HTML",
-
-                            reply_markup=build_main_menu()
-
-                        )
-
-                    else:
-
-                        await message.answer(
-
-                            f"❌ Google Drive papka o'qilmadi.\n\n"
-
-                            f"<b>Sabablari:</b>\n"
-
-                            f"• Papka umumiy (public) emas\n"
-
-                            f"• Link notog'ri\n"
-
-                            f"• Papkaga kirish huquqi yo'q\n\n"
-
-                            f"✅ <b>Yechim:</b> Havolani to'g'irlab qaytadan yuboringring!",
-
-                            parse_mode="HTML",
-
-                            reply_markup=build_retry_keyboard("folder")
-
-                        )
-
-                    session.step = "ready"
-
-            else:
+                    from drive_service import process_drive_folder, extract_folder_id, SERVICE_ACCOUNT_EMAIL
+                    SA_AVAILABLE = True
+                except ImportError:
+                    SA_AVAILABLE = False
 
                 await message.answer(
-
-                    "❌ Bu Google Drive papka linki emas.\n\n"
-
-                    "📁 Send the link in the correct format:\n"
-
-                    "• https://drive.google.com/drive/folders/XXXX\n"
-
-                    "• https://drive.google.com/folders/XXXX\n"
-
-                    "• https://drive.google.com/open?id=XXXX",
-
-                    reply_markup=build_retry_keyboard("folder")
-
+                    "⏳ <b>Google Drive papka o'qilmoqda...</b>",
+                    parse_mode="HTML",
                 )
 
-        
+                folder_id = extract_folder_id(user_input)
+
+                if not folder_id:
+                    await message.answer(
+                        "❌ Papka ID-ni ajratib ola olmadim.\n\n"
+                        "📁 Quyidagi formatlardan birini yuboring:\n"
+                        "• <code>https://drive.google.com/drive/folders/XXXX</code>\n"
+                        "• <code>https://drive.google.com/folders/XXXX</code>\n"
+                        "• <code>https://drive.google.com/open?id=XXXX</code>",
+                        parse_mode="HTML",
+                        reply_markup=build_retry_keyboard("folder"),
+                    )
+                    session.step = "ready"
+                    return
+
+                # ── Service Account path ───────────────────────────────────
+                if SA_AVAILABLE:
+                    result = await process_drive_folder(user_input)
+
+                    if not result.ok:
+                        await message.answer(
+                            result.error,
+                            parse_mode="HTML",
+                            reply_markup=build_retry_keyboard("folder"),
+                        )
+                        session.step = "ready"
+                        return
+
+                    if not result.files:
+                        await message.answer(
+                            "📂 Papkada qo'llab-quvvatlanadigan fayl topilmadi.\n\n"
+                            "Qo'llab-quvvatlanadigan turlar:\n"
+                            "• Google Sheets\n• Excel (.xlsx)\n• CSV",
+                            reply_markup=build_retry_keyboard("folder"),
+                        )
+                        session.step = "ready"
+                        return
+
+                    # Load all files into session
+                    loaded, errors = [], []
+                    for fr in result.files:
+                        if fr.rows:
+                            session.excel_files[fr.name] = fr.rows
+                            loaded.append(fr.name)
+                            logger.info(
+                                "✅ Loaded '%s': %d rows for user %d",
+                                fr.name, len(fr.rows), telegram_id,
+                            )
+                        elif fr.error:
+                            errors.append(f"• {fr.name}: {fr.error}")
+
+                    # Set active file to first loaded
+                    if loaded:
+                        session.active_excel_name = loaded[0]
+                        session.excel_data = session.excel_files[loaded[0]]
+
+                    session.folder_id = folder_id
+
+                    # Save to SQLite for persistence
+                    try:
+                        ctx.session_store.save_excel_to_db(telegram_id, session)
+                    except Exception:
+                        pass
+
+                    # Build confirmation message
+                    summary = f"✅ <b>Google Drive papka ulandi!</b>\n\n"
+                    summary += f"📊 <b>{len(loaded)} ta fayl yuklandi:</b>\n"
+                    for i, name in enumerate(loaded[:15], 1):
+                        rows = len(session.excel_files[name])
+                        summary += f"{i}. 📋 {name} ({rows} qator)\n"
+                    if len(loaded) > 15:
+                        summary += f"... va yana {len(loaded)-15} ta fayl\n"
+                    if errors:
+                        summary += f"\n⚠️ <b>Yuklanmagan ({len(errors)}):</b>\n"
+                        for e in errors[:5]:
+                            summary += f"{e}\n"
+                    summary += (
+                        f"\n💬 <b>Endi savollaringizni bering!</b>\n"
+                        f"Misol: <i>Umumiy ball necha? Kimning bali eng yuqori?</i>"
+                    )
+                    summary += f"\n\n📁 <b>Faollik fayli:</b> {loaded[0] if loaded else '—'}"
+
+                    await message.answer(summary, parse_mode="HTML")
+                    session.step = "in_chat"
+                    logger.info(
+                        "✅ Folder loaded: %d files, %d rows total for user %d",
+                        len(loaded), result.total_rows, telegram_id,
+                    )
+
+                # ── OAuth fallback (old flow) ──────────────────────────────
+                else:
+                    if not session.google_credentials_json:
+                        await message.answer(
+                            "🔐 <b>Google Drive papkani ochish uchun avval ulaning</b>\n\n"
+                            "Asosiy menyudagi <b>📊 Google Sheets ulash</b> tugmasini bosing.",
+                            parse_mode="HTML",
+                            reply_markup=build_main_menu(),
+                        )
+                        session.step = "ready"
+                        return
+
+                    try:
+                        creds = credentials_from_json(
+                            session.google_credentials_json, telegram_id=telegram_id
+                        )
+                    except ValueError as e:
+                        logger.info("Old scopes for user %d: %s", telegram_id, e)
+                        await message.answer(
+                            "🔒 <b>Qayta autentifikatsiya kerak</b>\n\n"
+                            "Google ruxsatlari eskirgan. "
+                            "<b>📊 Google Sheets ulash</b> tugmasini qayta bosing.",
+                            parse_mode="HTML",
+                            reply_markup=build_main_menu(),
+                        )
+                        session.google_credentials_json = None
+                        session.step = "ready"
+                        return
+
+                    try:
+                        from google_drive_service import get_all_spreadsheets_from_folder
+                        spreadsheets, error = await get_all_spreadsheets_from_folder(
+                            creds, user_input
+                        )
+                    except Exception as e:
+                        logger.error("OAuth folder error: %s", e, exc_info=True)
+                        await message.answer(
+                            f"❌ Papka o'qilmadi: {e}",
+                            reply_markup=build_retry_keyboard("folder"),
+                        )
+                        session.step = "ready"
+                        return
+
+                    if error:
+                        await message.answer(
+                            error,
+                            parse_mode="HTML",
+                            reply_markup=build_retry_keyboard("folder"),
+                        )
+                        session.step = "ready"
+                        return
+
+                    if not spreadsheets:
+                        await message.answer(
+                            "❌ Papkada spreadsheet topilmadi.",
+                            reply_markup=build_retry_keyboard("folder"),
+                        )
+                        session.step = "ready"
+                        return
+
+                    session.folder_id = folder_id
+                    session.folder_spreadsheets = spreadsheets
+                    session.selected_spreadsheets = []
+
+                    folder_summary = (
+                        f"✅ <b>Google Drive papka ulandi!</b>\n\n"
+                        f"📊 <b>{len(spreadsheets)} ta spreadsheet topildi:</b>\n\n"
+                    )
+                    keyboard_buttons = []
+                    for idx, sheet in enumerate(spreadsheets[:20]):
+                        sname = sheet["name"][:27] + "..." if len(sheet["name"]) > 30 else sheet["name"]
+                        folder_summary += f"{idx+1}. 📋 {sheet['name']}\n"
+                        keyboard_buttons.append([
+                            InlineKeyboardButton(
+                                text=f"📋 {sname}",
+                                callback_data=f"select_sheet:{idx}",
+                            )
+                        ])
+                    if len(spreadsheets) > 20:
+                        folder_summary += f"\n... va yana {len(spreadsheets)-20} ta fayl"
+                    keyboard_buttons.append([
+                        InlineKeyboardButton(text="✅ Barchasini yuklash", callback_data="load_folder_sheets")
+                    ])
+                    keyboard_buttons.append([
+                        InlineKeyboardButton(text="📍 Qayta yuborish", callback_data="folder")
+                    ])
+
+                    await message.answer(
+                        folder_summary,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons),
+                    )
+                    session.step = "selecting_folder_sheets"
+
+            else:
+                await message.answer(
+                    "❌ Bu Google Drive papka linki emas.\n\n"
+                    "📁 Quyidagi formatda yuboring:\n"
+                    "• <code>https://drive.google.com/drive/folders/XXXX</code>\n"
+                    "• <code>https://drive.google.com/folders/XXXX</code>\n"
+                    "• <code>https://drive.google.com/open?id=XXXX</code>",
+                    parse_mode="HTML",
+                    reply_markup=build_retry_keyboard("folder"),
+                )
+
 
         # ====== IN CHAT MODE ======
 
