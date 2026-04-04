@@ -84,19 +84,20 @@ import aiohttp
 
 
 
-# Groq AI - optional, used for voice transcription via Whisper
+# OpenAI - used for voice transcription via Whisper
 
 try:
 
-    from groq import AsyncGroq as _AsyncGroq
+    from openai import AsyncOpenAI as _AsyncOpenAI
 
-    GROQ_AVAILABLE = True
+    OPENAI_WHISPER_AVAILABLE = True
 
 except ImportError:
 
-    _AsyncGroq = None
+    _AsyncOpenAI = None
 
-    GROQ_AVAILABLE = False
+    OPENAI_WHISPER_AVAILABLE = False
+
 
 
 
@@ -1949,8 +1950,8 @@ class Config:
     grok_api_key: str = ""
 
     # Groq AI - for voice transcription (Whisper)
-
-    groq_api_key: str = ""
+    # OpenAI - for voice transcription (Whisper)
+    openai_whisper_key: str = ""
 
     # Server configuration - can be overridden via env vars
 
@@ -2029,8 +2030,8 @@ class Config:
         grok_api_key = os.getenv("GROK_API_KEY", "").strip()
 
         # Optional: Groq AI key for voice transcription
-
-        groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+        # Optional: OpenAI key for voice transcription (Whisper)
+        openai_whisper_key = os.getenv("OPENAI_API_KEY", "").strip()
 
         
 
@@ -2050,7 +2051,7 @@ class Config:
 
             grok_api_key=grok_api_key,
 
-            groq_api_key=groq_api_key,
+            openai_whisper_key=openai_whisper_key,
 
             server_host=server_host,
 
@@ -6689,7 +6690,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
     async def voice_handler(message: Message, bot: Bot) -> None:
 
-        """Handles voice messages: transcribes via Groq Whisper then routes as text."""
+        """Handles voice messages: transcribes via OpenAI Whisper then routes as text."""
 
         telegram_id = message.from_user.id
 
@@ -6711,11 +6712,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         
 
-        # Check Groq availability
+        # Check OpenAI Whisper availability
 
-        groq_api_key = ctx.config.groq_api_key or os.getenv("GROQ_API_KEY", "").strip()
+        openai_whisper_key = ctx.config.openai_whisper_key or os.getenv("OPENAI_API_KEY", "").strip()
 
-        if not GROQ_AVAILABLE or not groq_api_key:
+        if not OPENAI_WHISPER_AVAILABLE or not openai_whisper_key:
 
             await message.answer(
 
@@ -6777,15 +6778,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-            # 2. Transcribe with Groq Whisper (Uzbek language)
+        # 2. Transcribe with OpenAI Whisper (Uzbek language)
 
-            groq_client = _AsyncGroq(api_key=groq_api_key)
+            openai_client = _AsyncOpenAI(api_key=openai_whisper_key)
 
             
 
-            transcription = await groq_client.audio.transcriptions.create(
+            transcription = await openai_client.audio.transcriptions.create(
 
-                model="whisper-large-v3-turbo",
+                model="whisper-1",
 
                 file=("voice.ogg", audio_bytes, "audio/ogg"),
 
