@@ -7896,15 +7896,10 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         session = ctx.sessions.get(telegram_id)
 
-        if session.step not in ("waiting_excel", "in_chat", "ready"):
-
-            await message.answer(
-
-                "Agar Excel yuklamoqchi bo'lsangiz, avval menyudan \"📄 Upload Excel\" tugmasini bosing."
-
-            )
-
-            return
+        # Auto-accept Excel/CSV files at any session step.
+        # No need to force users to press a button first — just process the file.
+        if session.step not in ("waiting_excel", "in_chat", "ready", "waiting_excel_file"):
+            session.step = "waiting_excel"
 
 
 
