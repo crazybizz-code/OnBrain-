@@ -6780,6 +6780,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         # 2. Transcribe with OpenAI Whisper (Uzbek language)
 
+
+            logger.info(f"🔑 OpenAI key present: {bool(openai_whisper_key)}, length: {len(openai_whisper_key)}")
             openai_client = _AsyncOpenAI(api_key=openai_whisper_key)
 
             
@@ -6788,7 +6790,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 model="whisper-1",
 
-                file=("voice.ogg", audio_bytes, "audio/ogg"),
+                file=("voice.ogg", io.BytesIO(audio_bytes), "audio/ogg"),
 
                 language="uz",
 
@@ -7180,11 +7182,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 pass
 
             await message.answer(
-
-                "❌ Ovozni qayta ishlashda xatolik yuz berdi.\n"
-
-                "Iltimos, yozma holda savol yuboring yoki qaytadan urinib ko'ring."
-
+                f"❌ Xatolik: <code>{type(exc).__name__}: {str(exc)[:200]}</code>\n\n"
+                "Iltimos, yozma holda savol yuboring yoki qaytadan urinib ko'ring.",
+                parse_mode="HTML"
             )
 
     
