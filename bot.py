@@ -84,7 +84,14 @@ import aiohttp
 
 
 
-# OpenAI - used for voice transcription via Whisper
+# Audio processing pipeline — OGG→WAV conversion, chunking, transcription
+try:
+    from audio_processor import transcribe_audio as _transcribe_audio
+    AUDIO_PROCESSOR_AVAILABLE = True
+except ImportError:
+    AUDIO_PROCESSOR_AVAILABLE = False
+
+# OpenAI - used for voice transcription via Whisper (fallback)
 
 try:
 
@@ -6849,48 +6856,45 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-        # 2. Transcribe with OpenAI Whisper (Uzbek language)
+            # 2. Transcribe via production audio pipeline
+            #    (OGG→WAV, silence-based chunking, Whisper with retry)
 
-
-            logger.info(f"🔑 OpenAI key present: {bool(openai_whisper_key)}, length: {len(openai_whisper_key)}")
-            openai_client = _AsyncOpenAI(api_key=openai_whisper_key)
-
-            
-
-            transcription = await openai_client.audio.transcriptions.create(
-
-                model="whisper-1",
-
-                file=("voice.ogg", io.BytesIO(audio_bytes), "audio/ogg"),
-
-                response_format="text",
-                prompt="O'zbek tilida: Yodgorning bali necha? Moxizodaning bali? Ismni ayting va ball so'rang.",
-
+            logger.info(
+                f"🔑 OpenAI key: {bool(openai_whisper_key)}, "
+                f"audio: {len(audio_bytes):,}B, "
+                f"pipeline: {'audio_processor' if AUDIO_PROCESSOR_AVAILABLE else 'inline'}"
             )
 
-            
-
-            # transcription is a plain string when response_format="text"
-
-            transcribed_text = transcription.strip() if isinstance(transcription, str) else str(transcription).strip()
-
-            
+            if AUDIO_PROCESSOR_AVAILABLE:
+                # Full pipeline: OGG→WAV conversion, chunking, retry
+                transcribed_text, error_reason = await _transcribe_audio(
+                    audio_bytes, openai_whisper_key
+                )
+            else:
+                # Fallback: direct Whisper call without preprocessing
+                logger.warning('⚠️ audio_processor unavailable — using inline Whisper')
+                openai_client = _AsyncOpenAI(api_key=openai_whisper_key)
+                raw = await openai_client.audio.transcriptions.create(
+                    model='whisper-1',
+                    file=('voice.ogg', io.BytesIO(audio_bytes), 'audio/ogg'),
+                    response_format='text',
+                    prompt='O\'zbek tilida so\'zlashuv. Ismlar, fanlar, ball, umumiy ball.',
+                )
+                transcribed_text = raw.strip() if isinstance(raw, str) else str(raw).strip()
+                error_reason = '' if transcribed_text else 'empty_transcription'
 
             if not transcribed_text:
-
-                await processing_msg.edit_text(
-
-                    "🎤 Ovozingiz tushunilmadi. Iltimos, aniqroq gapiring yoki yozma holda yuboring."
-
-                )
-
+                _err_msgs = {
+                    'all_chunks_failed':   '❌ Ovozni matnga aylantirish muvaffaqiyatsiz. Qayta urinib ko\'ring.',
+                    'no_speech_detected':  '🎤 Ovozda nutq aniqlanmadi. Iltimos, aniqroq gapiring.',
+                    'empty_transcription': '🎤 Ovozingiz tushunilmadi. Yozma holda yuboring.',
+                    'openai_not_installed':'❌ OpenAI kutubxonasi o\'rnatilmagan.',
+                }
+                msg = _err_msgs.get(error_reason, '🎤 Ovozingiz tushunilmadi. Qayta urinib ko\'ring.')
+                await processing_msg.edit_text(msg)
                 return
 
-            
-
             logger.info(f"🎤 Voice transcribed for {telegram_id}: {transcribed_text[:80]}")
-
-            
 
             # 3. Edit the processing message to show what was heard
 
