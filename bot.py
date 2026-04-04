@@ -2083,7 +2083,13 @@ class UserSession:
 
     sheet_data: list[list[Any]] = field(default_factory=list)
 
-    excel_data: list[list[Any]] = field(default_factory=list)
+    excel_data: list[list[Any]] = field(default_factory=list)  # Active file rows (backward compat)
+
+    # ── Multi-file support ──────────────────────────────────────────────
+    # Maps filename -> rows. Lets users keep multiple uploaded Excels.
+    # Active file is pointed to by active_excel_name + excel_data.
+    excel_files: dict[str, list[list[Any]]] = field(default_factory=dict)
+    active_excel_name: str | None = None  # Key into excel_files
 
     all_sheets_data: dict[str, list[list[Any]]] = field(default_factory=dict)  # All sheets from Google Sheets
 
@@ -2124,6 +2130,10 @@ class SessionStore:
         self._timestamps: dict[int, float] = {}
 
         self.timeout_seconds = timeout_seconds
+
+        # Warn users 30 min before session expires (tracks who was already warned)
+        self._warned_expiry: set[int] = set()
+        self.expiry_warning_seconds: int = 1800  # 30 minutes
 
 
 
@@ -2202,7 +2212,8 @@ class SessionStore:
 
     def _restore_workspace(self, telegram_id: int) -> None:
 
-        """Silently restore folder/sheet connection from SQLite workspace store."""
+        """Silently restore folder/sheet connection from SQLite workspace store.
+        Also restores any previously uploaded Excel files from the excel_files table."""
 
         sess = self._store[telegram_id]
 
@@ -2210,6 +2221,16 @@ class SessionStore:
 
         if sess.all_folder_sheets_data or sess.all_sheets_data:
 
+            # Still load Excel files even if Google Sheets already restored
+            if not sess.excel_files:
+                loaded = self.load_all_excel_from_db(telegram_id)
+                if loaded:
+                    sess.excel_files = loaded
+                    # Restore active file: use the most recently saved one
+                    last_name = list(loaded.keys())[-1]
+                    if not sess.excel_data:  # only if not already in memory
+                        sess.excel_data = loaded[last_name]
+                        sess.active_excel_name = last_name
             return
 
         try:
@@ -2319,6 +2340,77 @@ class SessionStore:
             logger.warning(f"⚠️ _restore_workspace error for user {telegram_id}: {exc}")
 
     
+
+    def get_expiry_warnings(self) -> list[int]:
+        """Return user IDs whose session expires within expiry_warning_seconds
+        and who have not been warned yet. Call this from the cleanup loop."""
+        now = time.time()
+        warn_ids: list[int] = []
+        for uid, ts in self._timestamps.items():
+            time_left = self.timeout_seconds - (now - ts)
+            if 0 < time_left <= self.expiry_warning_seconds and uid not in self._warned_expiry:
+                warn_ids.append(uid)
+                self._warned_expiry.add(uid)
+        return warn_ids
+
+    # ── Excel persistence (SQLite) ────────────────────────────────────────
+    # Structured so it can be swapped for Redis/PostgreSQL later by
+    # replacing these two methods only.
+
+    def save_excel_to_db(self, telegram_id: int, filename: str, rows: list) -> None:
+        """Persist an Excel file's rows to SQLite so they survive session expiry."""
+        import json as _json, sqlite3 as _sq3
+        db_path = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+        try:
+            with _sq3.connect(db_path) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS excel_files (
+                        telegram_id INTEGER NOT NULL,
+                        filename    TEXT    NOT NULL,
+                        rows_json   TEXT    NOT NULL,
+                        saved_at    TEXT    NOT NULL,
+                        PRIMARY KEY (telegram_id, filename)
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO excel_files (telegram_id, filename, rows_json, saved_at)
+                    VALUES (?, ?, ?, datetime('now'))
+                    ON CONFLICT(telegram_id, filename) DO UPDATE SET
+                        rows_json = excluded.rows_json,
+                        saved_at  = excluded.saved_at
+                """, (telegram_id, filename, _json.dumps(rows)))
+            logger.info(f"💾 Excel persisted to DB: user={telegram_id} file={filename} rows={len(rows)}")
+        except Exception as exc:
+            logger.warning(f"⚠️ Could not save Excel to DB: {exc}")
+
+    def load_all_excel_from_db(self, telegram_id: int) -> dict[str, list]:
+        """Load all persisted Excel files for a user from SQLite.
+        Returns {filename: rows}. Empty dict if nothing saved."""
+        import json as _json, sqlite3 as _sq3
+        db_path = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+        result: dict[str, list] = {}
+        try:
+            with _sq3.connect(db_path) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS excel_files (
+                        telegram_id INTEGER NOT NULL,
+                        filename    TEXT    NOT NULL,
+                        rows_json   TEXT    NOT NULL,
+                        saved_at    TEXT    NOT NULL,
+                        PRIMARY KEY (telegram_id, filename)
+                    )
+                """)
+                rows = conn.execute(
+                    "SELECT filename, rows_json FROM excel_files WHERE telegram_id = ?",
+                    (telegram_id,)
+                ).fetchall()
+                for fname, rjson in rows:
+                    result[fname] = _json.loads(rjson)
+            if result:
+                logger.info(f"📂 Loaded {len(result)} Excel file(s) from DB for user {telegram_id}")
+        except Exception as exc:
+            logger.warning(f"⚠️ Could not load Excel from DB: {exc}")
+        return result
 
     def cleanup_expired(self) -> None:
 
@@ -7993,6 +8085,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             session.step = "in_chat"
 
+            # ── Multi-file support: store in named dict ──────────────────
+            session.excel_files[file_name] = excel_rows
+            session.active_excel_name = file_name
+
+            # ── Persist to SQLite so data survives session expiry ────────
+            ctx.sessions.save_excel_to_db(telegram_id, file_name, excel_rows)
+
             
 
             logger.info(f"✅ Excel file loaded for user {telegram_id}: {len(excel_rows)} rows")
@@ -8179,9 +8278,34 @@ async def main() -> None:
 
     polling_task = None
 
+    async def _session_cleanup_loop() -> None:
+        """Background task: cleans expired sessions every 5 min
+        and sends 30-min expiry warnings to active users."""
+        while True:
+            await asyncio.sleep(300)  # run every 5 minutes
+            try:
+                # Send expiry warnings (30 min before session ends)
+                warn_ids = context.sessions.get_expiry_warnings()
+                for uid in warn_ids:
+                    try:
+                        await bot.send_message(
+                            uid,
+                            "⏰ <b>Eslatma:</b> Sizning sessiyangiz <b>30 daqiqa</b> ichida tugaydi.\n\n"
+                            "Davom etish uchun fayl qayta yuboring yoki /start bosing.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+                # Remove expired sessions from memory
+                context.sessions.cleanup_expired()
+            except Exception as e:
+                logger.warning(f"⚠️ Session cleanup error: {e}")
+
     try:
 
         # Start polling - aiogram handles reconnection automatically
+
+        cleanup_task = asyncio.create_task(_session_cleanup_loop())
 
         polling_task = asyncio.create_task(
 
