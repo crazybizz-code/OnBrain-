@@ -5478,27 +5478,30 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-            # Security check: ensure user has Google authentication
+            # ── Auth check: SA doesn't need OAuth; OAuth fallback does ─────
+            try:
+                from drive_service import DriveService as _DS
+                _sa_ready = _DS.available()
+            except ImportError:
+                _sa_ready = False
 
-            if not session.google_credentials_json:
-
+            # If no SA AND no OAuth → tell user to share with SA email
+            if not _sa_ready and not session.google_credentials_json:
                 await message.answer(
-
-                    "🔐 <b>Xavfsizlik tekshiruvi</b>\n\n"
-
-                    "❌ Avval Google hisobingizni ulashing.\n\n"
-
-                    "Asosiy menyu ga qayting va \"📁 Google Drive Folder\" tugmasini bosing.",
-
-                    parse_mode="HTML"
-
+                    "🔐 <b>Google Drive papkani ulash</b>\n\n"
+                    "Papkani botga ulash uchun quyidagi emailga "
+                    "<b>Viewer</b> huquqi bering:\n\n"
+                    "<code>onbrain-ai@onbrain-ai-489203.iam.gserviceaccount.com</code>\n\n"
+                    "<b>Qanday qilish kerak:</b>\n"
+                    "1. Google Drive → Papkangizni toping\n"
+                    "2. ⋮ → Share (Ulashish)\n"
+                    "3. Yuqoridagi emailni qo\'shing → Viewer\n"
+                    "4. Papka havolasini qayta yuboring.",
+                    parse_mode="HTML",
+                    reply_markup=build_retry_keyboard("folder"),
                 )
-
-                session.step = "ready"
-
+                session.step = "waiting_folder_link"
                 return
-
-            
 
             # Clean the URL - remove /edit, /share, query params
 

@@ -486,10 +486,14 @@ async def process_drive_folder(folder_url: str) -> FolderResult:
     if not DriveService.available():
         return FolderResult(
             error=(
-                "⚙️ <b>Service Account sozlanmagan</b>\n\n"
-                "Administrator GOOGLE_SA_CREDENTIALS env o'zgaruvchisini "
-                "Koyeb'da sozlashi kerak.\n\n"
-                "Yoki OAuth orqali ulangan holda papka havolasini yuboring."
+                "🔐 <b>Papkani botga ulash uchun:</b>\n\n"
+                "Quyidagi emailga <b>Viewer</b> huquqi bering:\n"
+                f"<code>{SERVICE_ACCOUNT_EMAIL}</code>\n\n"
+                "<b>Qanday qilish kerak:</b>\n"
+                "1. Google Drive → Papkangizni toping\n"
+                "2. ⋮ → Share (Ulashish)\n"
+                "3. Yuqoridagi emailni qo'shing → Viewer\n"
+                "4. Papka havolasini qayta yuboring."
             )
         )
     try:
