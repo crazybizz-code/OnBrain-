@@ -6770,8 +6770,6 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 file=("voice.ogg", io.BytesIO(audio_bytes), "audio/ogg"),
 
-                language="uz",
-
                 response_format="text",
 
             )
