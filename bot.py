@@ -6762,8 +6762,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             if AUDIO_PROCESSOR_AVAILABLE:
                 # Full pipeline: OGG→WAV conversion, chunking, retry
+                # Build dynamic vocabulary from loaded sheet data so Whisper
+                # can spell student names and column names correctly
+                try:
+                    from audio_processor import build_sheet_vocabulary as _build_vocab
+                    _sheet_vocab = _build_vocab(session)
+                except Exception:
+                    _sheet_vocab = ""
                 transcribed_text, error_reason = await _transcribe_audio(
-                    audio_bytes, openai_whisper_key
+                    audio_bytes, openai_whisper_key, sheet_vocabulary=_sheet_vocab
                 )
             else:
                 # Fallback: direct Whisper call without preprocessing
@@ -6856,9 +6863,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             has_folder = bool(session.all_folder_sheets_data)
 
+            has_excel_files = bool(getattr(session, 'excel_files', None))
+
             
 
-            if not has_sheets and not has_excel and not has_folder:
+            if not has_sheets and not has_excel and not has_folder and not has_excel_files:
 
                 await message.answer(
 
@@ -6933,6 +6942,22 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                             )
 
                             context_parts.append(f"{header}\n{rows_text}")
+
+            if has_excel_files:
+
+                for fname, frows in session.excel_files.items():
+
+                    if frows:
+
+                        rows_text = "\n".join(
+
+                            ", ".join(str(c) for c in row if str(c).strip())
+
+                            for row in frows[:300] if any(str(c).strip() for c in row)
+
+                        )
+
+                        context_parts.append(f"[{fname}]\n{rows_text}")
 
             
 
