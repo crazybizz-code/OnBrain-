@@ -5875,13 +5875,19 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                         logger.info(f"📊 Using single sheet data: {list(session.all_sheets_data.keys())}")
 
-                    # Priority 3: Excel file data
+                    # Priority 3: excel_files dict (multi-file from Drive SA folder)
+                    elif session.excel_files:
+                        # Combine ALL loaded files into one context
+                        combined = {}
+                        for fname, frows in session.excel_files.items():
+                            combined[fname] = frows
+                        local_context = {"excel_files": {k: {"Sheet1": v} for k, v in combined.items()}}
+                        logger.info(f"📁 Using excel_files dict: {len(combined)} files")
 
+                    # Priority 4: Single legacy Excel data
                     elif session.excel_data:
-
                         local_context = {"excel": {"Sheet1": session.excel_data}}
-
-                        logger.info(f"📄 Using Excel file data: {len(session.excel_data)} rows")
+                        logger.info(f"📄 Using legacy excel_data: {len(session.excel_data)} rows")
 
                     else:
 
@@ -6813,13 +6819,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # Send the transcribed text back to user as their "typed" message, then trigger answer
 
-            fake_text_msg = await message.answer(
-
-                f"🎤 <i>Sizning savolingiz:</i> <b>{transcribed_text}</b>",
-
-                parse_mode="HTML"
-
-            )
+            fake_text_msg = None  # removed visible echo — transcription feeds directly into AI
+            logger.info(f"🎤 Voice question from {telegram_id}: {transcribed_text[:80]}")
 
             
 
