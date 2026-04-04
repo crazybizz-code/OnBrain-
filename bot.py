@@ -4643,31 +4643,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         await callback_query.message.answer(
 
-            "🎤 <b>Ovozli savol yuborish</b>\n\n"
+            "🎤 <b>Ovozli savol yuboring!</b>\n\n"
 
-            "Ovozingizdan foydalanib AI ga savol bering!\n\n"
-
-            "<b>Qanday ishlatish:</b>\n"
-
-            "1️⃣ Jadvalingizni ulang (Google Sheets / Excel / Folder)\n"
-
-            "2️⃣ Telegram dagi 🎤 <b>mikrofon tugmasini bosing va ushlab turing</b>\n"
-
-            "3️⃣ O'zbek tilida savolingizni gapiring\n"
-
-            "4️⃣ Tugmani qo'yib yuboring — bot javob beradi!\n\n"
-
-            "<b>Masalan:</b>\n"
-
-            "• <i>\"Yodgorbekning umumiy balli nechchi?\"</i>\n"
-
-            "• <i>\"Turgunboyev Ilyosbekning natijasi qanday?\"</i>\n"
-
-            "• <i>\"Matematikadan eng yuqori ball kim olgan?\"</i>\n\n"
-
-            "✅ Bot ovozingizni avtomatik matnга aylantiradi va jadvaldan javob beradi.\n\n"
-
-            "🎤 <b>Hozir mikrofon tugmasini bosib savol bering!</b>",
+            "Mikrofon tugmasini <b>bosib ushlab turing</b>, savolingizni ayting va qo'yib yuboring.",
 
             parse_mode="HTML",
 
