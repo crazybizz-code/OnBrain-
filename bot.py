@@ -6853,120 +6853,56 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             
 
-            # Determine data source
+            # Determine data source — identical priority chain to text_handler
+            local_context = None
+            if session.all_folder_sheets_data:
+                local_context = session.all_folder_sheets_data
+            elif session.all_sheets_data:
+                local_context = {session.sheet_id or "sheet": session.all_sheets_data}
+            elif getattr(session, 'excel_files', None):
+                combined = {}
+                for fname, frows in session.excel_files.items():
+                    combined[fname] = frows
+                local_context = {"excel_files": {k: {"Sheet1": v} for k, v in combined.items()}}
+            elif session.excel_data:
+                local_context = {"excel": {"Sheet1": session.excel_data}}
 
-            has_sheets = bool(session.all_sheets_data)
-
-            has_excel = bool(session.excel_data)
-
-            has_folder = bool(session.all_folder_sheets_data)
-
-            has_excel_files = bool(getattr(session, 'excel_files', None))
-
-            
-
-            if not has_sheets and not has_excel and not has_folder and not has_excel_files:
-
+            if not local_context:
                 await message.answer(
-
                     "📊 Hali hech qanday jadval yuklanmagan.\n\n"
-
                     "Avval Google Sheets, Excel yoki Folder ulang.",
-
                     parse_mode="HTML"
-
                 )
-
                 return
 
-            
-
-            # Build context text (same logic as text_handler)
-
-            context_parts: list[str] = []
-
-            
-
-            if has_sheets:
-
-                for sname, rows in session.all_sheets_data.items():
-
-                    if rows:
-
-                        header = f"[Sheet: {sname}]"
-
-                        rows_text = "\n".join(
-
-                            ", ".join(str(c) for c in row if str(c).strip())
-
-                            for row in rows[:300] if any(str(c).strip() for c in row)
-
-                        )
-
-                        context_parts.append(f"{header}\n{rows_text}")
-
-            
-
-            if has_excel:
-
-                rows_text = "\n".join(
-
-                    ", ".join(str(c) for c in row if str(c).strip())
-
-                    for row in session.excel_data[:300] if any(str(c).strip() for c in row)
-
-                )
-
-                context_parts.append(f"[Excel data]\n{rows_text}")
-
-            
-
-            if has_folder:
-
-                for sheet_id, sheets_dict in session.all_folder_sheets_data.items():
-
-                    for sname, rows in sheets_dict.items():
-
-                        if rows:
-
-                            header = f"[Folder Sheet: {sname}]"
-
-                            rows_text = "\n".join(
-
-                                ", ".join(str(c) for c in row if str(c).strip())
-
-                                for row in rows[:200] if any(str(c).strip() for c in row)
-
-                            )
-
-                            context_parts.append(f"{header}\n{rows_text}")
-
-            if has_excel_files:
-
-                for fname, frows in session.excel_files.items():
-
-                    if frows:
-
-                        rows_text = "\n".join(
-
-                            ", ".join(str(c) for c in row if str(c).strip())
-
-                            for row in frows[:300] if any(str(c).strip() for c in row)
-
-                        )
-
-                        context_parts.append(f"[{fname}]\n{rows_text}")
-
-            
-
-            context_text = "\n\n".join(context_parts)
-
-            
+            # Build context — identical Row N: col | col format to text_handler
+            context_text = ""
+            for sheet_id, sheets in local_context.items():
+                sheet_name = next(
+                    (s['name'] for s in session.folder_spreadsheets if s['id'] == sheet_id),
+                    sheet_id
+                ) if session.folder_spreadsheets else (session.sheet_name or sheet_id)
+                context_text += f"=== Spreadsheet: {sheet_name} ===\n"
+                for sheet_title, rows in sheets.items():
+                    context_text += f"\n--- Sheet: {sheet_title} ---\n"
+                    if not rows:
+                        context_text += "(empty)\n"
+                        continue
+                    for idx, row in enumerate(rows[:MAX_ROWS_FOR_CONTEXT]):
+                        while row and str(row[-1]).strip() == "":
+                            row = row[:-1]
+                        if not row:
+                            continue
+                        cells = [str(x).strip() for x in row[:MAX_COLS_FOR_CONTEXT]]
+                        context_text += f"Row {idx+1}: {' | '.join(cells)}\n"
+                    total_rows = len(rows)
+                    if total_rows > MAX_ROWS_FOR_CONTEXT:
+                        context_text += f"... and {total_rows - MAX_ROWS_FOR_CONTEXT} more rows\n"
+                    context_text += "\n"
+            context_text = context_text[:MAX_CHARS_CONTEXT]
 
             if not context_text.strip():
-
                 await message.answer("📊 Jadvalda ma'lumot topilmadi.")
-
                 return
 
             
