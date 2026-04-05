@@ -6055,9 +6055,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     f"IMPORTANT: Answer ONLY from the data above. "
 
-                                    f"If the requested information is not present in the data, respond with: 'Bu ma'lumot jadvalda mavjud emas.' "
+                                    f"NAME MATCHING: If exact name not found, check first 3-4 chars match (voice errors: Yadgar=Yodgor, Sardor=Sardar). If found via this rule, answer with note '(ehtimol X nazarda tutilgan)'. "
 
-                                    f"Do NOT invent or guess any answer."
+                                    f"Only if truly not found after all checks: respond 'Bu ma\'lumot jadvalda mavjud emas.'"
 
                                 )
 
@@ -6946,7 +6946,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "   a) EXACT SUBSTRING: The searched name (after suffix stripping) must appear as a substring inside the cell value. Example: 'Jasur' matches 'Jasurbek' because 'Jasur' is inside 'Jasurbek'.\n"
 
-                "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. If 'Muhammadziyo' is asked, look for rows containing 'Muhammadziyo' or 'Muhammad Ziyo' — NOT 'Moxizoda'.\n"
+                "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. If 'Muhammadziyo' is asked, look for rows containing 'Muhammadziyo' or 'Muhammad Ziyo' — NOT 'Moxizoda'. EXCEPTION: Uzbek vowel alternation (a=o, i=e) in voice queries — 'Yadgar'='Yodgor', 'Yadgar Bek'='Yodgorbek' — if first 3 chars match AND lengths are similar (within 3 chars), treat as same person.\n"
 
                 "   c) SHORT FORMS ONLY: Only allow prefix shortening within the SAME name. 'Yodgor' can match 'Yodgorbek'. 'Jasur' can match 'Jasurbek'. But 'Zio' does NOT match 'Moxizoda' or any other unrelated name.\n"
 
