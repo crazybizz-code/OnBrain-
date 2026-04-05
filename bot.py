@@ -6912,6 +6912,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             context_text = context_text[:MAX_CHARS_CONTEXT]
 
+            logger.info(f"🎤 Voice context built: {len(context_text)} chars, question: {user_message[:80]}")
+
             if not context_text.strip():
                 await message.answer("📊 Jadvalda ma'lumot topilmadi.")
                 return
@@ -6986,9 +6988,9 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 f"IMPORTANT: Answer ONLY from the data above. "
 
-                f"If the requested information is not present in the data, respond with: 'Bu ma'lumot jadvalda mavjud emas.' "
+                f"NAME MATCHING: If exact name not found, try first 3-4 chars match (voice transcription errors like Yadgar=Yodgor). "
 
-                f"Do NOT invent or guess any answer."
+                f"If found via fuzzy match, answer with note. Only if truly not found: respond 'Bu ma'lumot jadvalda mavjud emas.'"
 
             )
 
