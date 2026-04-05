@@ -6877,6 +6877,25 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # Build context — identical Row N: col | col format to text_handler
             context_text = ""
+
+            def _render_rows(rows_list: list, label: str) -> str:
+                """Render a flat list of rows into context lines."""
+                out = f"\n--- Sheet: {label} ---\n"
+                if not rows_list:
+                    return out + "(empty)\n"
+                for idx, row in enumerate(rows_list[:MAX_ROWS_FOR_CONTEXT]):
+                    row = list(row)  # ensure list (not tuple)
+                    while row and str(row[-1]).strip() == "":
+                        row.pop()
+                    if not row:
+                        continue
+                    cells = [str(x).strip() for x in row[:MAX_COLS_FOR_CONTEXT]]
+                    out += f"Row {idx+1}: {' | '.join(cells)}\n"
+                total = len(rows_list)
+                if total > MAX_ROWS_FOR_CONTEXT:
+                    out += f"... and {total - MAX_ROWS_FOR_CONTEXT} more rows\n"
+                return out + "\n"
+
             for sheet_id, sheets in local_context.items():
                 sheet_name = next(
                     (s['name'] for s in session.folder_spreadsheets if s['id'] == sheet_id),
@@ -6884,21 +6903,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 ) if session.folder_spreadsheets else (session.sheet_name or sheet_id)
                 context_text += f"=== Spreadsheet: {sheet_name} ===\n"
                 for sheet_title, rows in sheets.items():
-                    context_text += f"\n--- Sheet: {sheet_title} ---\n"
-                    if not rows:
-                        context_text += "(empty)\n"
-                        continue
-                    for idx, row in enumerate(rows[:MAX_ROWS_FOR_CONTEXT]):
-                        while row and str(row[-1]).strip() == "":
-                            row = row[:-1]
-                        if not row:
-                            continue
-                        cells = [str(x).strip() for x in row[:MAX_COLS_FOR_CONTEXT]]
-                        context_text += f"Row {idx+1}: {' | '.join(cells)}\n"
-                    total_rows = len(rows)
-                    if total_rows > MAX_ROWS_FOR_CONTEXT:
-                        context_text += f"... and {total_rows - MAX_ROWS_FOR_CONTEXT} more rows\n"
-                    context_text += "\n"
+                    # rows can be a list (normal) or dict {tab: [rows]} (excel_files path)
+                    if isinstance(rows, dict):
+                        for tab_name, tab_rows in rows.items():
+                            context_text += _render_rows(tab_rows, f"{sheet_title} / {tab_name}")
+                    else:
+                        context_text += _render_rows(rows, sheet_title)
+
             context_text = context_text[:MAX_CHARS_CONTEXT]
 
             if not context_text.strip():
