@@ -468,7 +468,7 @@ def merge_transcriptions(texts: list[str]) -> str:
 # Utility: extract sheet vocabulary for dynamic Whisper prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_sheet_vocabulary(session: Any, max_names: int = 20) -> str:
+def build_sheet_vocabulary(session: Any, max_names: int = 40) -> str:
     """Extract person names and column headers from the session's loaded sheet data.
 
     Injects these into the Whisper prompt so it can spell domain-specific
@@ -487,52 +487,58 @@ def build_sheet_vocabulary(session: Any, max_names: int = 20) -> str:
 
     if getattr(session, "excel_files", None):
         for rows in session.excel_files.values():
-            all_rows.extend(rows[:50])
+            all_rows.extend(rows[:200])
     elif getattr(session, "excel_data", None):
-        all_rows.extend(session.excel_data[:50])
+        all_rows.extend(session.excel_data[:200])
     elif getattr(session, "all_sheets_data", None):
         for rows in session.all_sheets_data.values():
-            all_rows.extend(rows[:50])
+            all_rows.extend(rows[:200])
     elif getattr(session, "all_folder_sheets_data", None):
         for sheets in session.all_folder_sheets_data.values():
             for rows in sheets.values():
-                all_rows.extend(rows[:50])
+                all_rows.extend(rows[:200])
 
     if not all_rows:
         return ""
 
-    # Name pattern: 2-4 words of Uzbek/Latin/Cyrillic letters
-    name_pattern = re.compile(
-        r"^[A-ZА-ЯЎҚҒҲa-zа-яўқғҳ']{2,}"
-        r"(?:\s+[A-ZА-ЯЎҚҒҲa-zа-яўқғҳ']{2,}){1,3}$"
-    )
-    names:   list[str] = []
+    # Collect header row (row 0) and text cells from all rows.
+    # Strategy: any cell that is 2-50 chars long, contains NO digits,
+    # and consists of letters/spaces/apostrophes is a candidate name/word.
+    # This captures single-word names like "Yodgorbek" that a regex requiring
+    # multi-word structure would miss.
+    _text_only = re.compile(r"^[\w'\- ]{2,50}$", re.UNICODE)
+    _has_digit  = re.compile(r"\d")
+
     headers: list[str] = []
+    names:   list[str] = []
+    seen:    set[str]  = set()
 
     for row_idx, row in enumerate(all_rows):
-        for cell in row:
+        for col_idx, cell in enumerate(row):
             val = str(cell).strip()
-            if not val or len(val) > 60:
+            if not val or len(val) < 2 or len(val) > 50:
                 continue
             if row_idx == 0:
-                headers.append(val)
-            elif name_pattern.match(val) and len(val) > 4:
-                names.append(val)
-
-    # Deduplicate preserving insertion order
-    seen: set[str] = set()
-    unique_names: list[str] = []
-    for n in names:
-        key = n.lower()
-        if key not in seen:
-            seen.add(key)
-            unique_names.append(n)
-        if len(unique_names) >= max_names:
+                # First row = column headers (subject names, field names)
+                if val.lower() not in seen:
+                    seen.add(val.lower())
+                    headers.append(val)
+            else:
+                # Skip purely numeric cells (scores, roll numbers)
+                if _has_digit.search(val):
+                    continue
+                # Keep text cells — likely names, categories
+                if _text_only.match(val) and val.lower() not in seen:
+                    seen.add(val.lower())
+                    names.append(val)
+                    if len(names) >= max_names:
+                        break
+        if len(names) >= max_names:
             break
 
     parts: list[str] = []
-    if unique_names:
-        parts.append("Ismlar: " + ", ".join(unique_names[:max_names]) + ".")
+    if names:
+        parts.append("Ismlar: " + ", ".join(names) + ".")
     if headers:
         parts.append("Ustunlar: " + ", ".join(headers[:10]) + ".")
 
