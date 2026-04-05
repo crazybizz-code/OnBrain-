@@ -6013,7 +6013,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "3. NAME MATCHING RULES:\n"
 
-                                    "   a) EXACT SUBSTRING: The searched name (after suffix stripping) must appear as a substring inside the cell value. Example: 'Jasur' matches 'Jasurbek' because 'Jasur' is inside 'Jasurbek'.\n"
+                                    "   a) SMART NAME MATCHING: Match the PERSON FIRST NAME (ism), not surname/familiya. Jasur matches Jasurbek (short form of same name). BUT Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person). Moxamat or Muhammad only matches if ISM (first name) column contains Muhammad/Muxammad. Compare only the first-name part of each row, NOT the full familiya.\n"
 
                                     "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. EXCEPTION: Uzbek vowel swap (a=o): 'Yadgar'='Yodgor' if first 3 chars match.\n"
 
@@ -6055,7 +6055,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     f"IMPORTANT: Answer ONLY from the data above. "
 
-                                    f"NAME MATCHING: If exact name not found, check first 3-4 chars match (voice errors: Yadgar=Yodgor, Sardor=Sardar). If found via this rule, answer with note '(ehtimol X nazarda tutilgan)'. "
+                                    f"NAME MATCHING: If exact name not found, check first 3-4 chars match (voice errors: Yadgar=Yodgor, Sardor=Sardar). If found via this rule, answer with note '(ehtimol X nazarda tutilgan)'.  SCORE ACCURACY: When reporting ball/score, read the header row carefully and match the EXACT number from the correct column."
 
                                     f"Only if truly not found after all checks: respond 'Bu ma\'lumot jadvalda mavjud emas.'"
 
@@ -6946,7 +6946,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "3. NAME MATCHING RULES:\n"
 
-                "   a) EXACT SUBSTRING: The searched name (after suffix stripping) must appear as a substring inside the cell value. Example: 'Jasur' matches 'Jasurbek' because 'Jasur' is inside 'Jasurbek'.\n"
+                "   a) SMART NAME MATCHING: Match the PERSON FIRST NAME (ism), not surname/familiya. Jasur matches Jasurbek (short form of same name). BUT Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person). Moxamat or Muhammad only matches if ISM (first name) column contains Muhammad/Muxammad. Compare only the first-name part of each row, NOT the full familiya.\n"
 
                 "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. If 'Muhammadziyo' is asked, look for rows containing 'Muhammadziyo' or 'Muhammad Ziyo' — NOT 'Moxizoda'. EXCEPTION: Uzbek vowel alternation (a=o, i=e) in voice queries — 'Yadgar'='Yodgor', 'Yadgar Bek'='Yodgorbek' — if first 3 chars match AND lengths are similar (within 3 chars), treat as same person.\n"
 
@@ -6988,7 +6988,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 f"IMPORTANT: Answer ONLY from the data above. "
 
-                f"NAME MATCHING: If exact name not found, try first 3-4 chars match (voice transcription errors like Yadgar=Yodgor). "
+                f"NAME MATCHING: If exact name not found, try first 3-4 chars match (voice transcription errors like Yadgar=Yodgor).  SCORE ACCURACY: When reporting ball/score, read the header row first and match the EXACT number from the correct column for that person."
 
                 f"If found via fuzzy match, answer with note. Only if truly not found: respond 'Bu ma'lumot jadvalda mavjud emas.'"
 
