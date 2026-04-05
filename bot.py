@@ -6015,7 +6015,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "   a) EXACT SUBSTRING: The searched name (after suffix stripping) must appear as a substring inside the cell value. Example: 'Jasur' matches 'Jasurbek' because 'Jasur' is inside 'Jasurbek'.\n"
 
-                                    "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another.\n"
+                                    "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. EXCEPTION: Uzbek vowel swap (a=o): 'Yadgar'='Yodgor' if first 3 chars match.\n"
 
                                     "   c) SHORT FORMS ONLY: Only allow prefix/suffix shortening within the SAME name. 'Yodgor' can match 'Yodgorbek'. 'Jasur' can match 'Jasurbek'. But 'Mox' does NOT match 'Muhammad'. 'Zio' does NOT match 'Moxizoda'.\n"
 
