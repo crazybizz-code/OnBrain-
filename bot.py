@@ -6013,7 +6013,12 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "3. NAME MATCHING RULES:\n"
 
-                                    "   a) SMART NAME MATCHING: Match the PERSON FIRST NAME (ism), not surname/familiya. Jasur matches Jasurbek (short form of same name). BUT Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person). Moxamat or Muhammad only matches if ISM (first name) column contains Muhammad/Muxammad. Compare only the first-name part of each row, NOT the full familiya.\n"
+                                    "   a) WHOLE-WORD NAME MATCHING: The searched name must match as a COMPLETE WORD or COMPLETE FIRST NAME in the data.\n"
+                                    "      - Muhammad matches Muhammad Karimov (exact first name match).\n"
+                                    "      - Muhammad does NOT match MuhammadRizo (MuhammadRizo is a DIFFERENT single name, not Muhammad + Rizo).\n"
+                                    "      - Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person).\n"
+                                    "      - Jasur matches Jasurbek (common Uzbek short form: -bek suffix).\n"
+                                    "      - RULE: If the searched name appears ONLY as part of a longer single name (no space), it is NOT a match. Muhammad inside MuhammadRizo = NO MATCH. Muhammad as a separate word = MATCH.\n"
 
                                     "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. EXCEPTION: Uzbek vowel swap (a=o): 'Yadgar'='Yodgor' if first 3 chars match.\n"
 
@@ -6946,7 +6951,12 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "3. NAME MATCHING RULES:\n"
 
-                "   a) SMART NAME MATCHING: Match the PERSON FIRST NAME (ism), not surname/familiya. Jasur matches Jasurbek (short form of same name). BUT Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person). Moxamat or Muhammad only matches if ISM (first name) column contains Muhammad/Muxammad. Compare only the first-name part of each row, NOT the full familiya.\n"
+                "   a) WHOLE-WORD NAME MATCHING: The searched name must match as a COMPLETE WORD or COMPLETE FIRST NAME in the data.\n"
+                "      - Muhammad matches Muhammad Karimov (exact first name match).\n"
+                "      - Muhammad does NOT match MuhammadRizo (MuhammadRizo is a DIFFERENT single name, not Muhammad + Rizo).\n"
+                "      - Muhammad does NOT match MAXAMATZOKIRJONOV (completely different person).\n"
+                "      - Jasur matches Jasurbek (common Uzbek short form: -bek suffix).\n"
+                "      - RULE: If the searched name appears ONLY as part of a longer single name (no space), it is NOT a match. Muhammad inside MuhammadRizo = NO MATCH. Muhammad as a separate word = MATCH.\n"
 
                 "   b) NO PHONETIC GUESSING: Do NOT match names that merely sound similar. 'Zio', 'Ziyo', 'Muhammadziyo' and 'Moxizoda' are completely different people — never substitute one for another. If 'Muhammadziyo' is asked, look for rows containing 'Muhammadziyo' or 'Muhammad Ziyo' — NOT 'Moxizoda'. EXCEPTION: Uzbek vowel alternation (a=o, i=e) in voice queries — 'Yadgar'='Yodgor', 'Yadgar Bek'='Yodgorbek' — if first 3 chars match AND lengths are similar (within 3 chars), treat as same person.\n"
 
