@@ -2372,22 +2372,6 @@ class SessionStore:
             except Exception as ex2:
                 logger.warning(f"⚠️ Excel restore error for user {telegram_id}: {ex2}")
 
-        # ── Always restore Excel files from DB if not already in memory ──────
-        if not sess.excel_files:
-            try:
-                loaded = self.load_all_excel_from_db(telegram_id)
-                if loaded:
-                    sess.excel_files = loaded
-                    last_name = list(loaded.keys())[-1]
-                    if not sess.excel_data:
-                        sess.excel_data = loaded[last_name]
-                        sess.active_excel_name = last_name
-                    if sess.step not in ("in_chat", "waiting_sheet_link", "waiting_folder_link"):
-                        sess.step = "in_chat"
-                    logger.info(f"📂 Excel restored from DB (standalone) for user {telegram_id}: {list(loaded.keys())}")
-            except Exception as ex2:
-                logger.warning(f"⚠️ Excel restore error for user {telegram_id}: {ex2}")
-
     
 
     def get_expiry_warnings(self) -> list[int]:
@@ -5414,6 +5398,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     session.all_sheets_data = all_sheets_data
                     session.sheet_data = []
                     session.excel_data = []
+                    session.web_search_mode = False
                     session.step = "in_chat"
 
                     sheet_summary = "\u2705 <b>Google Sheets muvaffaqiyatli ulandi!</b>\n\n"
@@ -5649,6 +5634,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                     summary += f"\n\n📁 <b>Faollik fayli:</b> {loaded[0] if loaded else '—'}"
 
                     await message.answer(summary, parse_mode="HTML")
+                    session.web_search_mode = False
                     session.step = "in_chat"
                     logger.info(
                         "✅ Folder loaded: %d files, %d rows total for user %d",
@@ -5808,6 +5794,16 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                            f"all_folder_sheets_data={len(session.all_folder_sheets_data) if session.all_folder_sheets_data else 0} spreadsheets, "
 
                            f"excel_data={len(session.excel_data) if session.excel_data else 0} rows")
+
+                # Safety: if spreadsheet data exists, force-disable stale web search mode
+                if session.web_search_mode and (
+                    session.all_folder_sheets_data or
+                    session.all_sheets_data or
+                    session.excel_files or
+                    session.excel_data
+                ):
+                    logger.info(f"📊 Local spreadsheet data present; auto-disabling web_search_mode for user {telegram_id}")
+                    session.web_search_mode = False
 
                 
 
@@ -6085,7 +6081,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     "7. Format numbers: 2500000 -> 2,500,000\n"
 
-                                    "8. If truly not found after thorough search: respond 'Bu ma\'lumot jadvalda mavjud emas.'\n"
+                                    "8. If truly not found after thorough search: respond EXACTLY with only this sentence: 'Bu ma\'lumot jadvalda mavjud emas.' Do NOT add explanation, reasoning, source, or extra text.\n"
 
                                     "9. Answer in Uzbek language.\n"
 
@@ -6105,7 +6101,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                                     f"NAME MATCHING: If exact name not found, check first 3-4 chars match (voice errors: Yadgar=Yodgor, Sardor=Sardar). If found via this rule, answer with note '(ehtimol X nazarda tutilgan)'.  SCORE ACCURACY: When reporting ball/score, read the header row carefully and match the EXACT number from the correct column."
 
-                                    f"Only if truly not found after all checks: respond 'Bu ma\'lumot jadvalda mavjud emas.'"
+                                    f"Only if truly not found after all checks: respond EXACTLY 'Bu ma\'lumot jadvalda mavjud emas.' and nothing else."
 
                                 )
 
@@ -6315,9 +6311,20 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 
 
-                # Fall back to web search if no local data
+                # No local data: use web search ONLY if user explicitly enabled it
+                if not session.web_search_mode:
+                    logger.info(f"⚠️ No local spreadsheet data and web_search_mode is OFF for user {telegram_id}")
+                    try:
+                        await waiting_msg.delete()
+                    except Exception:
+                        pass
+                    await message.answer(
+                        "❌ Hozir faol jadval topilmadi. Iltimos, jadvalni qayta yuklang.",
+                        reply_markup=build_main_menu()
+                    )
+                    return
 
-                logger.info(f"🔗 Using web search (no local spreadsheet data)")
+                logger.info(f"🔗 Using web search (explicit mode, no local spreadsheet data)")
 
                 
 
@@ -7023,7 +7030,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 "7. Format numbers: 2500000 -> 2,500,000\n"
 
-                "8. If truly not found after thorough search: respond 'Bu ma\'lumot jadvalda mavjud emas.'\n"
+                "8. If truly not found after thorough search: respond EXACTLY with only this sentence: 'Bu ma\'lumot jadvalda mavjud emas.' Do NOT add explanation, reasoning, source, or extra text.\n"
 
                 "9. Answer in Uzbek language.\n"
 
@@ -7043,7 +7050,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 f"NAME MATCHING: If exact name not found, try first 3-4 chars match (voice transcription errors like Yadgar=Yodgor).  SCORE ACCURACY: When reporting ball/score, read the header row first and match the EXACT number from the correct column for that person."
 
-                f"If found via fuzzy match, answer with note. Only if truly not found: respond 'Bu ma'lumot jadvalda mavjud emas.'"
+                f"If found via fuzzy match, answer with note. Only if truly not found: respond EXACTLY 'Bu ma'lumot jadvalda mavjud emas.' and nothing else."
 
             )
 
@@ -7438,6 +7445,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             session.excel_data = []
 
+            session.web_search_mode = False
+
             session.step = "in_chat"
 
             
@@ -7728,6 +7737,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             session.all_folder_sheets_data = all_folder_sheets_data
 
+            session.web_search_mode = False
+
             session.step = "in_chat"
 
 
@@ -7996,6 +8007,8 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             session.sheet_id = None
 
             session.sheet_name = file_name
+
+            session.web_search_mode = False
 
             session.step = "in_chat"
 
