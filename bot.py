@@ -2244,6 +2244,10 @@ class SessionStore:
                     if not sess.excel_data:  # only if not already in memory
                         sess.excel_data = loaded[last_name]
                         sess.active_excel_name = last_name
+                    # Ensure step is set so follow-up messages route correctly
+                    if sess.step not in ("in_chat", "waiting_sheet_link", "waiting_folder_link"):
+                        sess.step = "in_chat"
+                    logger.info(f"📂 Excel restored from DB for user {telegram_id}: {list(loaded.keys())}")
             return
 
         try:
@@ -2351,6 +2355,38 @@ class SessionStore:
         except Exception as exc:
 
             logger.warning(f"⚠️ _restore_workspace error for user {telegram_id}: {exc}")
+
+        # ── Always restore Excel files from DB if not already in memory ──────
+        if not sess.excel_files:
+            try:
+                loaded = self.load_all_excel_from_db(telegram_id)
+                if loaded:
+                    sess.excel_files = loaded
+                    last_name = list(loaded.keys())[-1]
+                    if not sess.excel_data:
+                        sess.excel_data = loaded[last_name]
+                        sess.active_excel_name = last_name
+                    if sess.step not in ("in_chat", "waiting_sheet_link", "waiting_folder_link"):
+                        sess.step = "in_chat"
+                    logger.info(f"📂 Excel restored from DB (standalone) for user {telegram_id}: {list(loaded.keys())}")
+            except Exception as ex2:
+                logger.warning(f"⚠️ Excel restore error for user {telegram_id}: {ex2}")
+
+        # ── Always restore Excel files from DB if not already in memory ──────
+        if not sess.excel_files:
+            try:
+                loaded = self.load_all_excel_from_db(telegram_id)
+                if loaded:
+                    sess.excel_files = loaded
+                    last_name = list(loaded.keys())[-1]
+                    if not sess.excel_data:
+                        sess.excel_data = loaded[last_name]
+                        sess.active_excel_name = last_name
+                    if sess.step not in ("in_chat", "waiting_sheet_link", "waiting_folder_link"):
+                        sess.step = "in_chat"
+                    logger.info(f"📂 Excel restored from DB (standalone) for user {telegram_id}: {list(loaded.keys())}")
+            except Exception as ex2:
+                logger.warning(f"⚠️ Excel restore error for user {telegram_id}: {ex2}")
 
     
 
@@ -5849,15 +5885,22 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
                 
 
-                # If user explicitly chose web search mode — skip spreadsheet entirely
+                # Check if spreadsheet data is present — if yes, ALWAYS use it first.
+                # web_search_mode is only used when there is truly no local data.
+                _has_local_data = bool(
+                    session.all_folder_sheets_data or
+                    session.all_sheets_data or
+                    session.excel_files or
+                    session.excel_data
+                )
 
-                if session.web_search_mode:
-
-                    logger.info(f"🌐 Web search mode active for user {telegram_id} — skipping spreadsheet")
-
+                if session.web_search_mode and not _has_local_data:
+                    logger.info(f"🌐 Web search mode active for user {telegram_id} — no spreadsheet data, using internet")
                     local_context = None
 
                 else:
+                    if session.web_search_mode and _has_local_data:
+                        logger.info(f"📊 Spreadsheet data found — ignoring web_search_mode, answering from data")
 
                     # Priority 1: Folder sheets data
 
