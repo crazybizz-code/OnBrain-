@@ -1,5 +1,15 @@
 # OnBrain AI Bot v2.2.0 - Koyeb Migration (March 22, 2026)
 
+try:
+    from uzbek_names import normalize_name, find_similar_names, ALL_UZBEK_NAMES_SET
+    UZBEK_NAMES_AVAILABLE = True
+except ImportError:
+    UZBEK_NAMES_AVAILABLE = False
+    ALL_UZBEK_NAMES_SET = set()
+    def normalize_name(n): return n
+    def find_similar_names(n, d=None): return []
+
+
 import asyncio
 
 import io
@@ -7031,9 +7041,13 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
             # Build Grok system prompt (same as text_handler)
 
+            # Add Uzbek names knowledge to help with voice transcription errors
+            uzbek_names_note = ""
+            if UZBEK_NAMES_AVAILABLE:
+                uzbek_names_note = "\nUZBEK NAMES DATABASE: The system knows common Uzbek names (Yodgorbek, Moxizoda, Muhammad, etc). If the transcribed name is close to a known Uzbek name, match it. For example: 'Yadgorbek' should match 'Yodgorbek', 'Moxizada' should match 'Moxizoda'.\n"
+            
             system_prompt = (
-
-                                "You are a data assistant that reads spreadsheet data and answers questions in Uzbek. IMPORTANT: This question came from a VOICE MESSAGE transcribed by speech recognition. The name in the question may be slightly misspelled due to transcription errors. Use the transcribed name as-is for matching — do NOT substitute a completely different name.\n"
+                                "You are a data assistant that reads spreadsheet data and answers questions in Uzbek. IMPORTANT: This question came from a VOICE MESSAGE transcribed by speech recognition. The name in the question may be slightly misspelled due to transcription errors. Use the transcribed name as-is for matching — do NOT substitute a completely different name." + uzbek_names_note + "\n"
 
                 "RULES:\n"
 

@@ -41,6 +41,16 @@ import asyncio
 import io
 import logging
 import re
+
+# Import Uzbek names database for better voice transcription
+try:
+    from uzbek_names import get_names_prompt, normalize_name, ALL_UZBEK_NAMES_SET
+    UZBEK_NAMES_AVAILABLE = True
+except ImportError:
+    UZBEK_NAMES_AVAILABLE = False
+    get_names_prompt = lambda max_names=100: ""
+    normalize_name = lambda name: None
+    ALL_UZBEK_NAMES_SET = set()
 from typing import Any
 
 logger = logging.getLogger("onbrain-ai-bot")
@@ -536,10 +546,18 @@ def build_sheet_vocabulary(session: Any, max_names: int = 40) -> str:
         if len(names) >= max_names:
             break
 
+    # Add common Uzbek names if available (helps Whisper spell correctly)
+    uzbek_names_hint = ""
+    if UZBEK_NAMES_AVAILABLE:
+        # Add top 50 common Uzbek names that may appear in voice queries
+        uzbek_names_hint = get_names_prompt(50)
+    
     parts: list[str] = []
     if names:
         parts.append("Ismlar: " + ", ".join(names) + ".")
     if headers:
         parts.append("Ustunlar: " + ", ".join(headers[:10]) + ".")
+    if uzbek_names_hint:
+        parts.append(uzbek_names_hint)
 
     return " ".join(parts)
