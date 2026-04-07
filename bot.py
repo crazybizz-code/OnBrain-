@@ -3347,7 +3347,7 @@ def build_assistant_keyboard() -> InlineKeyboardMarkup:
 
             [InlineKeyboardButton(text="💬 Davom etish", callback_data="chat_start")],
 
-            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu")],
+            [InlineKeyboardButton(text="🏠 Asosiy menyu", callback_data="main_menu")],
 
         ]
 
@@ -4412,7 +4412,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         try:
 
-            session.step = "waiting_excel_file"
+            session.step = "waiting_excel"
 
             await message.answer(
 
@@ -5747,9 +5747,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 )
 
 
-        # ====== IN CHAT MODE ======
+        # ====== AUTO-ENTER CHAT if user has data but step is 'ready' ======
+        if session.step == "ready" and (
+            session.excel_data or session.all_sheets_data or session.all_folder_sheets_data
+        ):
+            logger.info(f"📊 Auto-entering chat mode for user {telegram_id} (has data, was in 'ready')")
+            session.step = "in_chat"
 
-        elif session.step == "in_chat":
+        # ====== IN CHAT MODE ======
+        if session.step == "in_chat":
 
             try:
 
