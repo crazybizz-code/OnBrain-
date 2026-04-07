@@ -5748,10 +5748,15 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
 
         # ====== AUTO-ENTER CHAT if user has data but step is 'ready' ======
-        if session.step == "ready" and (
-            session.excel_data or session.all_sheets_data or session.all_folder_sheets_data
-        ):
-            logger.info(f"📊 Auto-entering chat mode for user {telegram_id} (has data, was in 'ready')")
+        # ====== AUTO-ENTER CHAT if user has data but step is NOT in_chat ======
+        _has_any_data = bool(
+            session.excel_data or 
+            session.excel_files or 
+            session.all_sheets_data or 
+            session.all_folder_sheets_data
+        )
+        if _has_any_data and session.step not in ("in_chat", "waiting_sheet_link", "waiting_folder_link", "selecting_folder_sheets"):
+            logger.info(f"📊 Auto-entering chat mode for user {telegram_id} (has data, was in '{session.step}')")
             session.step = "in_chat"
 
         # ====== IN CHAT MODE ======
@@ -6318,7 +6323,28 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 
 
                 # No local data: use web search ONLY if user explicitly enabled it
-                if not session.web_search_mode:
+                # Double-check we really have no data
+                _final_data_check = bool(
+                    session.excel_data or 
+                    session.excel_files or 
+                    session.all_sheets_data or 
+                    session.all_folder_sheets_data
+                )
+                if _final_data_check:
+                    # We have data but local_context was None - rebuild it
+                    logger.warning(f"⚠️ Data exists but local_context is None - rebuilding for user {telegram_id}")
+                    if session.excel_data:
+                        local_context = {"excel": {"Sheet1": session.excel_data}}
+                    elif session.excel_files:
+                        local_context = {"excel_files": {k: {"Sheet1": v} for k, v in session.excel_files.items()}}
+                    elif session.all_sheets_data:
+                        local_context = {session.sheet_id or "sheet": session.all_sheets_data}
+                    elif session.all_folder_sheets_data:
+                        local_context = session.all_folder_sheets_data
+                    # Retry with the rebuilt context - but for now just log
+                    logger.info(f"📊 Rebuilt local_context: {list(local_context.keys()) if local_context else 'None'}")
+                
+                if not session.web_search_mode and not _final_data_check:
                     logger.info(f"⚠️ No local spreadsheet data and web_search_mode is OFF for user {telegram_id}")
                     try:
                         await waiting_msg.delete()
@@ -6770,17 +6796,27 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         
 
-        # Make sure user is registered
 
-        if session.step not in ("in_chat", "ready", "waiting_question"):
+        # Auto-enter chat if user has data but step is not in_chat
+        _voice_has_data = bool(
+            session.excel_data or 
+            session.excel_files or 
+            session.all_sheets_data or 
+            session.all_folder_sheets_data
+        )
+        if _voice_has_data and session.step not in ("in_chat",):
+            logger.info(f"🎤 Voice: Auto-entering chat for user {telegram_id} (has data, was in '{session.step}')")
+            session.step = "in_chat"
 
+        # Make sure user has data to query
+        if not _voice_has_data:
             await message.answer(
-
-                "Iltimos, avval jadval ulang (Google Sheets, Excel yoki Folder), keyin ovozli savol yuboring."
-
+                "📊 <b>Avval jadval yuklang</b>\n\n"
+                "Ovozli savol berish uchun avval Google Sheets, Excel yoki Drive papkasini ulang.",
+                parse_mode="HTML"
             )
-
             return
+
 
         
 
