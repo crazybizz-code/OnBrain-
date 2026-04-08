@@ -1010,11 +1010,11 @@ class Config:
         
         return cls(
             bot_token=required["BOT_TOKEN"],
-            tavily_api_key=required["TAVILY_API_KEY"],
-            google_client_id=required["GOOGLE_CLIENT_ID"],
-            google_client_secret=required["GOOGLE_CLIENT_SECRET"],
-            supabase_url=required["SUPABASE_URL"],
-            supabase_anon_key=required["SUPABASE_ANON_KEY"],
+            tavily_api_key=os.getenv("TAVILY_API_KEY", "").strip(),
+            google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+            google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+            supabase_url=os.getenv("SUPABASE_URL", "").strip(),
+            supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", "").strip(),
             grok_api_key=grok_api_key,
             server_host=server_host,
             server_port=server_port,
