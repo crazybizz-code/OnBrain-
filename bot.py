@@ -1,4 +1,4 @@
-﻿# OnBrain AI Bot v2.2.0 - Koyeb Migration (March 22, 2026)
+# OnBrain AI Bot v2.2.0 - Koyeb Migration (March 22, 2026)
 import asyncio
 import io
 import json
@@ -1502,30 +1502,6 @@ def _extract_sheet_id(text: str) -> str | None:
 
     # Remove /edit, /share, /export and query params from the end
     text = re.sub(r'(/edit.*|/share.*|/export.*|\?usp.*)$', '', text)
-
-    # 1. Standard docs.google.com/spreadsheets/d/<ID> URLs
-    m = re.search(r'docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]{10,})', text)
-    if m:
-        return m.group(1)
-
-    # 2. Published "d/e/<pubid>" links — strip the "e/" prefix, use the long ID
-    m = re.search(r'docs\.google\.com/spreadsheets/d/e/([a-zA-Z0-9_-]{10,})', text)
-    if m:
-        return m.group(1)
-
-    # 3. Sheets API URL  sheets.googleapis.com/v4/spreadsheets/<ID>
-    m = re.search(r'sheets\.googleapis\.com/v4/spreadsheets/([a-zA-Z0-9_-]{10,})', text)
-    if m:
-        return m.group(1)
-
-    # 4. User pasted a raw sheet ID (no URL around it)
-    m = re.match(r'^([a-zA-Z0-9_-]{20,})$', text)
-    if m:
-        return m.group(1)
-
-    return None
-
-    text = text.strip()
 
     # 1. Standard docs.google.com/spreadsheets/d/<ID> URLs
     m = re.search(r'docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]{10,})', text)
