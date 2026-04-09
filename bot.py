@@ -426,7 +426,12 @@ def has_data(session: Session) -> bool:
 
 
 async def ask_grok(question: str, context: str, grok_key: str) -> str:
-    system = """Sen jadval (Excel/Sheets) malumotlarini tahlil qiluvchi assistantsan.
+    # If no context — translation/general mode
+    if not context.strip():
+        system = "Sen O'zbek tilida javob beruvchi assistantsan. Barcha javoblar FAQAT O'ZBEK TILIDA bo'lishi shart. Hech qachon inglizcha yoki boshqa tilda yozma."
+        user_prompt = question
+    else:
+        system = """Sen jadval (Excel/Sheets) malumotlarini tahlil qiluvchi assistantsan.
 
 MUHIM QOIDALAR:
 1. Faqat quyida berilgan jadval malumotlari asosida javob ber.
@@ -440,14 +445,13 @@ MUHIM QOIDALAR:
    - Har biri uchun topilgan yoki topilmaganini ayt
 4. "Umumiy ball" yoki "ball" so'ralganda: hamma ball ustunlarini qo'shib yig'indisini ber
 5. Malumot topilmasa: "Jadvalda [ism] topilmadi" de, boshqa ismni o'rniga qo'yma
-6. Javob o'zbek tilida, qisqa va aniq bo'lsin
+6. !!!! BARCHA JAVOBLAR FAQAT O'ZBEK TILIDA bo'lishi SHART. Hech qachon inglizcha, ruscha yoki boshqa tilda yozma !!!!
 7. Raqamlarni oqilona yoz"""
-
-    user_prompt = (
-        f"JADVAL MALUMOTLARI:\n{context}\n\n"
-        f"SAVOL: {question}\n\n"
-        f"Yuqoridagi jadval malumotlariga qarab aniq javob ber."
-    )
+        user_prompt = (
+            f"JADVAL MALUMOTLARI:\n{context}\n\n"
+            f"SAVOL: {question}\n\n"
+            f"Yuqoridagi jadval malumotlariga qarab aniq javob ber. Javob FAQAT O'ZBEK TILIDA bo'lsin."
+        )
 
     # Use grok-3-mini for better accuracy with data analysis
     models = ["grok-3-mini", "grok-3-mini-fast", "grok-2-latest"]
@@ -487,7 +491,7 @@ MUHIM QOIDALAR:
     return f"AI xizmatida xatolik: {last_err[:100]}"
 
 
-async def do_web_search(query: str, tavily_key: str) -> str:
+async def do_web_search(query: str, tavily_key: str, grok_key: str = "") -> str:
     try:
         resp = await asyncio.to_thread(
             requests.post,
@@ -502,15 +506,30 @@ async def do_web_search(query: str, tavily_key: str) -> str:
         )
         if resp.status_code == 200:
             data = resp.json()
-            answer = data.get("answer", "")
+            raw_answer = data.get("answer", "")
             sources = data.get("results", [])
-            result = f"Internet qidiruv natijasi:\n\n{answer or 'Javob topilmadi.'}"
+
+            # Translate to Uzbek via Grok if answer is not Uzbek
+            if raw_answer and grok_key:
+                try:
+                    translated = await ask_grok(
+                        f"Quyidagi matnni o'zbek tiliga tarjima qil. Faqat tarjimani ber, boshqa hech narsa yozma:\n\n{raw_answer}",
+                        "",
+                        grok_key,
+                    )
+                    uz_answer = translated.strip()
+                except Exception:
+                    uz_answer = raw_answer
+            else:
+                uz_answer = raw_answer or "Natija topilmadi."
+
+            result = f"Internet qidiruv natijasi:\n\n{uz_answer}"
             if sources:
                 result += "\n\nManbalar:\n"
                 for i, s in enumerate(sources[:3], 1):
                     result += f"{i}. {s.get('title', '')}\n"
             return result
-        return f"Tavily xatolik: HTTP {resp.status_code}"
+        return f"Qidiruv xatolik: HTTP {resp.status_code}"
     except Exception as e:
         return f"Internet qidiruv xatolik: {e}"
 
@@ -1278,7 +1297,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 await msg.answer("Internet qidiruv sozlanmagan.", reply_markup=kb_main())
                 return
             await msg.answer("Internetdan qidirilmoqda...")
-            result = await do_web_search(question, config.tavily_key)
+            result = await do_web_search(question, config.tavily_key, config.grok_key)
             await msg.answer(result, parse_mode=None, reply_markup=kb_chat())
             return
 
@@ -1323,7 +1342,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         answer = await ask_grok(question, context, config.grok_key)
 
         if sess.web_search and config.tavily_key:
-            web_result = await do_web_search(question, config.tavily_key)
+            web_result = await do_web_search(question, config.tavily_key, config.grok_key)
             answer = f"{answer}\n\n{web_result}"
 
         if len(answer) > 4000:
