@@ -2395,9 +2395,17 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             text, error_key = await transcribe_audio(ogg_bytes, openai_api_key, sheet_vocabulary=sheet_vocab)
 
             if not text:
+                logger.error(f"❌ Voice transcription failed for user {telegram_id}: error_key={error_key}")
                 error_messages = {
-                    "openai_not_installed": "❌ OpenAI kutubxonasi o'rnatilmagan.",
-                    "all_chunks_failed": "❌ Ovozni aniqlashda xatolik. Iltimos, qayta urinib ko'ring.",
+                    "openai_not_installed": "❌ OpenAI kutubxonasi serverda o'rnatilmagan. Admin bilan bog'laning.",
+                    "all_chunks_failed": (
+                        "❌ Ovozni aniqlashda xatolik.\n\n"
+                        "Mumkin sabablar:\n"
+                        "• Internet aloqasi muammosi\n"
+                        "• OpenAI API kaliti muammosi\n"
+                        "• Audio formati tanilmadi\n\n"
+                        "Iltimos, savolingizni yozma yuboring."
+                    ),
                     "no_speech_detected": "❌ Nutq aniqlanmadi. Iltimos, aniqroq gapiring.",
                     "empty_transcription": "❌ Nutq aniqlanmadi. Iltimos, aniqroq va balandroq gapiring.",
                 }
@@ -2527,14 +2535,14 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
                         for i, part in enumerate(parts):
                             if i == len(parts) - 1:
-                                await message.answer(part, reply_markup=build_chat_response_keyboard())
+                                await message.answer(part, parse_mode=None, reply_markup=build_chat_response_keyboard())
                             else:
-                                await message.answer(part)
+                                await message.answer(part, parse_mode=None)
                     else:
-                        await message.answer(response_text, reply_markup=build_chat_response_keyboard())
+                        await message.answer(response_text, parse_mode=None, reply_markup=build_chat_response_keyboard())
                 except Exception as send_err:
                     logger.error(f"❌ Voice response send error: {send_err}")
-                    await message.answer("❌ Javob yuborishda xatolik.", reply_markup=build_chat_response_keyboard())
+                    await message.answer("❌ Javob yuborishda xatolik.", parse_mode=None, reply_markup=build_chat_response_keyboard())
             else:
                 await message.answer(
                     "❌ Hozir faol jadval topilmadi. Iltimos, jadvalni qayta yuklang.",
@@ -2542,10 +2550,11 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 )
 
         except Exception as exc:
-            logger.exception(f"❌ Voice handler error for user {telegram_id}: {exc}")
+            logger.exception(f"❌ Voice handler CRITICAL error for user {telegram_id}: {type(exc).__name__}: {exc}")
             await message.answer(
-                "❌ Ovozli xabarni qayta ishlashda xatolik yuz berdi.\n"
+                f"❌ Ovozli xabarni qayta ishlashda xatolik: {type(exc).__name__}\n"
                 "Iltimos, savolingizni yozma yuboring.",
+                parse_mode=None,
                 reply_markup=build_chat_response_keyboard()
             )
 
@@ -3338,7 +3347,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         except Exception:
                             # Fallback: send without HTML if parsing fails
                             plain_text = response_text.replace("<b>", "").replace("</b>", "")
-                            await message.answer(plain_text, reply_markup=build_chat_response_keyboard())
+                            await message.answer(plain_text, parse_mode=None, reply_markup=build_chat_response_keyboard())
                         
                         return
                     else:
@@ -3583,21 +3592,21 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                 f"⚠️ AI kaliti sozlanmagan. Ma'lumotlar:\n{context_text[:2000]}"
                             )
                         
-                        # Send response to user
+                        # Send response to user (parse_mode=None to avoid HTML errors from AI text)
                         try:
                             if len(response_text) > 4000:
                                 parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
                                 for i, part in enumerate(parts):
                                     if i == len(parts) - 1:
-                                        await message.answer(part, reply_markup=build_chat_response_keyboard())
+                                        await message.answer(part, parse_mode=None, reply_markup=build_chat_response_keyboard())
                                     else:
-                                        await message.answer(part)
+                                        await message.answer(part, parse_mode=None)
                             else:
-                                await message.answer(response_text, reply_markup=build_chat_response_keyboard())
+                                await message.answer(response_text, parse_mode=None, reply_markup=build_chat_response_keyboard())
                         
                         except Exception as ai_error:
                             logger.error(f"❌ Response error: {ai_error}")
-                            await message.answer("❌ Javob berishda xatolik. Qayta urinib ko'ring.")
+                            await message.answer("❌ Javob berishda xatolik. Qayta urinib ko'ring.", parse_mode=None)
                         
                         return
                     
@@ -3606,6 +3615,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         await message.answer(
                             "❌ Ma'lumotlarni qayta ishlashda xatolik.\n"
                             "Iltimos, qayta urinib ko'ring.",
+                            parse_mode=None,
                             reply_markup=build_chat_response_keyboard()
                         )
                         return
@@ -3722,14 +3732,14 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                                     parts = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
                                     for i, part in enumerate(parts):
                                         if i == len(parts) - 1:
-                                            await message.answer(part, reply_markup=exit_keyboard)
+                                            await message.answer(part, parse_mode=None, reply_markup=exit_keyboard)
                                         else:
-                                            await message.answer(part)
+                                            await message.answer(part, parse_mode=None)
                                 else:
-                                    await message.answer(response_text, reply_markup=exit_keyboard)
+                                    await message.answer(response_text, parse_mode=None, reply_markup=exit_keyboard)
                             except Exception as send_err:
                                 logger.warning("AI response send failed: %s", send_err)
-                                await message.answer("❌ Javob yuborishda xatolik. Qayta urinib ko'ring.")
+                                await message.answer("❌ Javob yuborishda xatolik. Qayta urinib ko'ring.", parse_mode=None)
                         else:
                             await message.answer("❌ Tavily javob bera olmadi. Keyinroq urinib ko'ring!")
                             logger.warning(f"⚠️  Tavily returned no answer for: {user_message[:30]}")
@@ -3746,7 +3756,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 return
             except Exception as exc:
                 logger.exception(f"❌ Chat handler error: {exc}")
-                await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+                await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.", parse_mode=None)
                 return
         
         # ====== WAITING FOR NAME ======
@@ -3823,9 +3833,34 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                 await message.answer("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
             return  # IMPORTANT: Return to prevent further processing
         
-        # ====== OTHER TEXT MESSAGES (MENU HANDLING) ======
-        # Continue with existing menu handlers
-        # (This handler will now delegate to other handlers if step != waiting_first_name/last_name)
+        # ====== CATCH-ALL: Unknown step or unhandled text ======
+        # If we reach here, the session step doesn't match any handler above.
+        # This happens after bot restart (session lost), or unexpected step value.
+        logger.warning(
+            f"⚠️ Unhandled text from user {telegram_id}: step={session.step!r}, "
+            f"text={user_text[:50]!r}, excel_data={bool(session.excel_data)}, "
+            f"sheets_data={bool(session.all_sheets_data)}, folder_data={bool(session.all_folder_sheets_data)}"
+        )
+        
+        # If user has data but step is wrong, auto-fix and redirect to chat
+        if session.excel_data or session.all_sheets_data or session.all_folder_sheets_data:
+            session.step = "in_chat"
+            logger.info(f"🔄 Auto-fixed step to 'in_chat' for user {telegram_id} (had data)")
+            # Re-process the message by calling text_handler recursively
+            # But to avoid infinite loops, just tell user to resend
+            await message.answer(
+                "🔄 Sessiya yangilandi. Savolingizni qayta yuboring.",
+                reply_markup=build_chat_response_keyboard()
+            )
+        else:
+            await message.answer(
+                "👋 Assalomu alaykum!\n\n"
+                "Ma'lumot bilan ishlash uchun:\n"
+                "📊 Google Sheets havolasini yuboring\n"
+                "📁 Excel fayl yuklang\n"
+                "🌐 Yoki /start buyrug'ini yuboring",
+                reply_markup=build_main_menu()
+            )
 
     @dp.message(F.contact)
     async def contact_handler(message: Message) -> None:
@@ -4293,6 +4328,23 @@ async def main() -> None:
     except Exception as e:
         logger.error(f"Failed to authenticate bot: {e}")
         raise
+    
+    # ===== Startup Diagnostics: Log which API keys are available =====
+    _diag_keys = {
+        "GROK_API_KEY": bool(os.getenv("GROK_API_KEY")),
+        "OPENAI_API_KEY": bool(os.getenv("OPENAI_API_KEY")),
+        "TAVILY_API_KEY": bool(os.getenv("TAVILY_API_KEY")),
+        "GOOGLE_CLIENT_ID": bool(os.getenv("GOOGLE_CLIENT_ID")),
+        "GOOGLE_CLIENT_SECRET": bool(os.getenv("GOOGLE_CLIENT_SECRET")),
+        "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
+        "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
+    }
+    for _k, _v in _diag_keys.items():
+        logger.info(f"  {'✅' if _v else '❌'} {_k}: {'SET' if _v else 'NOT SET'}")
+    if not _diag_keys["GROK_API_KEY"]:
+        logger.warning("⚠️ GROK_API_KEY is NOT SET — spreadsheet Q&A will show raw data only!")
+    if not _diag_keys["OPENAI_API_KEY"]:
+        logger.warning("⚠️ OPENAI_API_KEY is NOT SET — voice transcription will NOT work!")
     
     # Register bot commands (shown at the bottom left)
     try:

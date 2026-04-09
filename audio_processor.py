@@ -325,17 +325,18 @@ async def transcribe_chunk(
 
         except Exception as exc:
             err = str(exc)
+            exc_type = type(exc).__name__
             if attempt < WHISPER_RETRIES:
                 wait = 2 ** attempt   # 1s, 2s
                 logger.warning(
-                    "  ⚠️  Chunk %d attempt %d failed: %s — retry in %ds",
-                    chunk_index + 1, attempt + 1, err[:80], wait,
+                    "  ⚠️  Chunk %d attempt %d failed [%s]: %s — retry in %ds",
+                    chunk_index + 1, attempt + 1, exc_type, err[:120], wait,
                 )
                 await asyncio.sleep(wait)
             else:
                 logger.error(
-                    "  ❌ Chunk %d failed after %d attempts: %s",
-                    chunk_index + 1, WHISPER_RETRIES + 1, err[:120],
+                    "  ❌ Chunk %d failed after %d attempts [%s]: %s",
+                    chunk_index + 1, WHISPER_RETRIES + 1, exc_type, err[:200],
                 )
                 return None
 

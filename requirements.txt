@@ -1,4 +1,4 @@
-﻿# OnBrain AI Bot - Core Requirements
+# OnBrain AI Bot - Core Requirements
 
 # Telegram Bot Framework
 aiogram>=3.13.1,<4.0.0
