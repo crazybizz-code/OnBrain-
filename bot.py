@@ -2882,6 +2882,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
     async def text_handler(message: Message) -> None:
         """Unified text message handler for registration flow and chat"""
         telegram_id = message.from_user.id
+        logger.info(f"📨 TEXT_HANDLER ENTERED for user {telegram_id}: {(message.text or '')[:60]!r}")
         
         # ========== SECURITY: Rate Limiting ==========
         if not rate_limiter.is_allowed(telegram_id):
@@ -2894,6 +2895,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
             return
         
         session = ctx.sessions.get(telegram_id)
+        logger.info(f"📨 Session for {telegram_id}: step={session.step!r}, excel={len(session.excel_data) if session.excel_data else 0}, sheets={len(session.all_sheets_data) if session.all_sheets_data else 0}, folder={len(session.all_folder_sheets_data) if session.all_folder_sheets_data else 0}")
         
         # ========== SECURITY: Input Validation ==========
         user_text = message.text.strip() if message.text else ""
@@ -3297,6 +3299,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
 
         # ====== IN CHAT MODE ======
         if session.step == "in_chat":
+            logger.info(f"✅ ENTERED in_chat block for user {telegram_id}")
             try:
                 user_message = message.text.strip()
                 
@@ -3429,6 +3432,7 @@ def register_handlers(dp: Dispatcher, ctx: AppContext) -> None:
                         # ── Use Grok AI (xAI) to answer based on spreadsheet data ──
                         
                         grok_api_key = os.getenv("GROK_API_KEY", "")
+                        logger.info(f"🔑 GROK_API_KEY present: {bool(grok_api_key)}, length: {len(grok_api_key)}")
                         
                         if grok_api_key:
                             try:
