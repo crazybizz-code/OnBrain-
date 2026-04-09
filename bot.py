@@ -143,32 +143,46 @@ def parse_excel(name: str, content: bytes) -> list:
     return rows
 
 
+def _rows_to_text(rows: list, max_rows: int = MAX_ROWS) -> str:
+    """Convert list of rows to readable text, keeping ALL cells including empty ones for alignment."""
+    lines = []
+    for i, row in enumerate(rows[:max_rows]):
+        # Keep all columns up to MAX_COLS, replace None/empty with dash
+        cells = []
+        for c in row[:MAX_COLS]:
+            val = str(c).strip() if c is not None else ""
+            cells.append(val if val else "-")
+        # Skip fully empty rows
+        if all(v == "-" for v in cells):
+            continue
+        lines.append(f"{i+1}. {' | '.join(cells)}")
+    return "\n".join(lines)
+
+
 def build_context(session: Session) -> str:
-    ctx = ""
+    parts = []
     if session.folder_data:
         for sid, sheets in session.folder_data.items():
-            ctx += f"\n=== Spreadsheet: {sid} ===\n"
+            parts.append(f"\n=== {sid} ===")
             for title, rows in sheets.items():
-                ctx += f"--- Sheet: {title} ---\n"
-                for i, row in enumerate(rows[:MAX_ROWS]):
-                    cells = [str(c).strip() for c in row[:MAX_COLS] if str(c).strip()]
-                    if cells:
-                        ctx += f"Row {i+1}: {' | '.join(cells)}\n"
+                parts.append(f"--- {title} ---")
+                parts.append(_rows_to_text(rows))
     elif session.sheets_data:
-        ctx += f"=== Spreadsheet: {session.sheet_name or 'Sheet'} ===\n"
+        name = session.sheet_name or "Sheet"
+        parts.append(f"=== {name} ===")
         for title, rows in session.sheets_data.items():
-            ctx += f"--- Sheet: {title} ---\n"
-            for i, row in enumerate(rows[:MAX_ROWS]):
-                cells = [str(c).strip() for c in row[:MAX_COLS] if str(c).strip()]
-                if cells:
-                    ctx += f"Row {i+1}: {' | '.join(cells)}\n"
+            parts.append(f"--- {title} ---")
+            parts.append(_rows_to_text(rows))
     elif session.excel_data:
-        ctx += f"=== Excel: {session.sheet_name or 'File'} ===\n"
-        for i, row in enumerate(session.excel_data[:MAX_ROWS]):
-            cells = [str(c).strip() for c in row[:MAX_COLS] if str(c).strip()]
-            if cells:
-                ctx += f"Row {i+1}: {' | '.join(cells)}\n"
-    return ctx[:MAX_CHARS]
+        name = session.sheet_name or "Excel"
+        parts.append(f"=== {name} ===")
+        parts.append(_rows_to_text(session.excel_data))
+    ctx = "\n".join(parts)
+    # If too long, keep first MAX_CHARS chars but warn
+    if len(ctx) > MAX_CHARS:
+        logger.warning(f"Context truncated: {len(ctx)} -> {MAX_CHARS} chars")
+        ctx = ctx[:MAX_CHARS]
+    return ctx
 
 
 def has_data(session: Session) -> bool:
@@ -176,19 +190,31 @@ def has_data(session: Session) -> bool:
 
 
 async def ask_grok(question: str, context: str, grok_key: str) -> str:
-    system = (
-        "Sen spreadsheet malumotlarini tahlil qiluvchi AI assistantsan.\n"
-        "QOIDALAR:\n"
-        "1. FAQAT berilgan spreadsheet malumotlari asosida javob ber.\n"
-        "2. Aniq va qisqa javob ber.\n"
-        "3. Uzbek tilida javob ber.\n"
-        "4. Ism qidirishda: -bek, -boy, -jon qoshimchalarini etibordan qoldirish mumkin. "
-        "Birinchi 3-4 harf mos kelsa ham topilgan deb hisobla.\n"
-        "5. Malumot topilmasa aniq ayt: 'Bu malumot jadvalda mavjud emas.'\n"
-        "6. Raqamlarni togri yoz: 2500000 -> 2,500,000"
+    system = """Sen jadval (Excel/Sheets) malumotlarini tahlil qiluvchi assistantsan.
+
+MUHIM QOIDALAR:
+1. Faqat quyida berilgan jadval malumotlari asosida javob ber.
+2. Ism qidirishda QATTIQ QOIDA:
+   - To'liq mos: "Yodgorbek" => "Yodgorbek" satrini qidir
+   - Qisqa variant: "Yodgor" => "Yodgor" bilan boshlanadigan BARCHA ismlarni topib ko'r (Yodgorbek, Yodgorali, Yodgor)
+   - Agar "Moxizoda" so'ralsa => "Moxizoda" degan ism bor satrni qidir, "Moxinur" EMAS
+   - Har bir ism ALOHIDA qidiriladi va har biri uchun ALOHIDA javob beriladi
+3. Ko'p shaxs so'ralganda (masalan "Moxizoda va Yodgorbeking ballari"):
+   - Har birini alohida qidir
+   - Har biri uchun topilgan yoki topilmaganini ayt
+4. "Umumiy ball" yoki "ball" so'ralganda: hamma ball ustunlarini qo'shib yig'indisini ber
+5. Malumot topilmasa: "Jadvalda [ism] topilmadi" de, boshqa ismni o'rniga qo'yma
+6. Javob o'zbek tilida, qisqa va aniq bo'lsin
+7. Raqamlarni oqilona yoz"""
+
+    user_prompt = (
+        f"JADVAL MALUMOTLARI:\n{context}\n\n"
+        f"SAVOL: {question}\n\n"
+        f"Yuqoridagi jadval malumotlariga qarab aniq javob ber."
     )
-    user_prompt = f"Jadval malumotlari:\n\n{context}\n\nSavol: {question}\n\nAniq javob ber."
-    models = ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"]
+
+    # Use grok-3-mini for better accuracy with data analysis
+    models = ["grok-3-mini", "grok-3-mini-fast", "grok-2-latest"]
     last_err = ""
     for model in models:
         try:
@@ -205,15 +231,15 @@ async def ask_grok(question: str, context: str, grok_key: str) -> str:
                             {"role": "system", "content": system},
                             {"role": "user", "content": user_prompt},
                         ],
-                        "temperature": 0.2,
-                        "max_tokens": 2000,
+                        "temperature": 0.1,
+                        "max_tokens": 3000,
                     },
-                    timeout=aiohttp.ClientTimeout(total=60),
+                    timeout=aiohttp.ClientTimeout(total=90),
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         answer = data["choices"][0]["message"]["content"]
-                        logger.info(f"Grok ({model}): {answer[:80]}")
+                        logger.info(f"Grok ({model}) ok: {answer[:100]}")
                         return answer
                     else:
                         body = await resp.text()
@@ -750,15 +776,27 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             if not rows:
                 await msg.answer("Fayl bosh yoki oqib bolmadi.")
                 return
+            # Count non-empty rows
+            non_empty = [r for r in rows if any(str(c).strip() for c in r)]
+            n_cols = max((len(r) for r in rows[:5]), default=0)
+            # Log header row for debugging
+            header = rows[0] if rows else []
+            logger.info(f"Excel uid={uid}: {len(rows)} rows, {n_cols} cols, file={doc.file_name}")
+            logger.info(f"Excel header uid={uid}: {header[:10]}")
             sess.excel_data = rows
             sess.sheets_data = {}
             sess.folder_data = {}
             sess.sheet_name = doc.file_name or "Excel"
             sess.web_search = False
             sess.step = "in_chat"
-            logger.info(f"Excel loaded uid={uid}: {len(rows)} rows from {doc.file_name}")
+            # Show first row (headers) to user
+            header_str = " | ".join(str(h) for h in header[:8] if str(h).strip())
             await msg.answer(
-                f"Excel yuklandi!\n{len(rows)} qator - {doc.file_name}\n\n"
+                f"Excel yuklandi!\n"
+                f"Fayl: {doc.file_name}\n"
+                f"Qatorlar: {len(non_empty)} ta\n"
+                f"Ustunlar: {n_cols} ta\n"
+                f"Sarlavhalar: {header_str}\n\n"
                 "Savolingizni yozing yoki ovozli yuboring:",
                 reply_markup=kb_chat(),
             )
@@ -1016,7 +1054,11 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             return
 
         context = build_context(sess)
-        logger.info(f"Context size uid={uid}: {len(context)} chars")
+        ctx_lines = context.count("\n")
+        logger.info(f"Context uid={uid}: {len(context)} chars, {ctx_lines} lines")
+
+        # Log first 500 chars of context for debugging
+        logger.info(f"Context preview uid={uid}:\n{context[:500]}")
 
         if not context.strip():
             await msg.answer("Malumotlar bosh korinmoqda.", reply_markup=kb_main())
