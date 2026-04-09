@@ -15,12 +15,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot.py .
-COPY google_drive_service.py .
-COPY uzbek_names.py .
-COPY audio_processor.py .
-COPY data_indexing_service.py .
 
-RUN mkdir -p excel_files /data
+RUN mkdir -p /data
 
 EXPOSE 8080
 

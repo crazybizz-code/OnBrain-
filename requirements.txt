@@ -1,35 +1,10 @@
-# OnBrain AI Bot - Core Requirements
-
-# Telegram Bot Framework
 aiogram>=3.13.1,<4.0.0
-
-# HTTP & Async
 aiohttp>=3.10.0,<4.0.0
-httpx>=0.27.0,<1.0.0
 requests>=2.31.0,<3.0.0
-nest-asyncio>=1.6.0,<2.0.0
-
-# Configuration
 python-dotenv>=1.0.1,<2.0.0
-
-# Google APIs
-gspread>=6.1.2,<7.0.0
 google-auth>=2.35.0,<3.0.0
 google-auth-oauthlib>=1.2.1,<2.0.0
 google-api-python-client>=2.100.0,<3.0.0
-
-# Excel/Spreadsheet
 openpyxl>=3.1.5,<4.0.0
 xlrd>=2.0.1,<3.0.0
-
-# Database (optional - used if SUPABASE_URL is set)
-supabase>=2.7.4,<3.0.0
-
-# Web Search (optional - used if TAVILY_API_KEY is set)
-tavily-python>=0.3.0,<1.0.0
-
-# AI + Voice transcription via Whisper (used if OPENAI_API_KEY is set)
 openai>=1.51.0,<2.0.0
-
-# Audio processing — OGG→WAV conversion and chunking for voice messages
-pydub>=0.25.1,<1.0.0
