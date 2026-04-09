@@ -144,19 +144,227 @@ def parse_excel(name: str, content: bytes) -> list:
 
 
 def _rows_to_text(rows: list, max_rows: int = MAX_ROWS) -> str:
-    """Convert list of rows to readable text, keeping ALL cells including empty ones for alignment."""
+    """Convert list of rows to readable text."""
     lines = []
     for i, row in enumerate(rows[:max_rows]):
-        # Keep all columns up to MAX_COLS, replace None/empty with dash
         cells = []
         for c in row[:MAX_COLS]:
             val = str(c).strip() if c is not None else ""
             cells.append(val if val else "-")
-        # Skip fully empty rows
         if all(v == "-" for v in cells):
             continue
         lines.append(f"{i+1}. {' | '.join(cells)}")
     return "\n".join(lines)
+
+
+def _get_all_rows(session: Session) -> tuple[list[list], list]:
+    """Return (all_rows, header_row) from session data."""
+    rows = []
+    if session.excel_data:
+        rows = session.excel_data
+    elif session.sheets_data:
+        for sheet_rows in session.sheets_data.values():
+            rows.extend(sheet_rows)
+    elif session.folder_data:
+        for sheets in session.folder_data.values():
+            for sheet_rows in sheets.values():
+                rows.extend(sheet_rows)
+    header = rows[0] if rows else []
+    return rows, header
+
+
+def _to_num(val: str) -> float | None:
+    """Try to parse a cell as a number."""
+    if val is None:
+        return None
+    s = str(val).strip().replace(",", ".").replace(" ", "")
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _strip_uzbek_suffix(word: str) -> str:
+    """Remove common Uzbek grammatical suffixes from a word."""
+    w = word.lower().strip()
+    # Order: longest first
+    suffixes = [
+        "larning", "lardan", "larga", "larni", "larcha",
+        "lardan", "larda", "ining", "beking", "boyning",
+        "ning", "ning", "dagi", "dagi", "dan", "gacha",
+        "bek", "boy", "jon", "xon", "oy",
+        "ga", "da", "ni", "gi", "ki",
+        "lar", "lik",
+    ]
+    for suf in suffixes:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[: len(w) - len(suf)]
+    return w
+
+
+def _search_person(rows: list, header: list, name_query: str) -> list[dict]:
+    """
+    Find rows where any cell fuzzy-matches name_query.
+    Handles Uzbek suffixes: Yodgorbekning -> Yodgorbek, Moxizodaning -> Moxizoda
+    """
+    name_q_raw = name_query.strip().lower()
+    name_q_stripped = _strip_uzbek_suffix(name_q_raw)
+    # Try both original and stripped
+    candidates = list({name_q_raw, name_q_stripped})
+
+    results = []
+    for i, row in enumerate(rows):
+        for j, cell in enumerate(row):
+            cell_str = str(cell).strip().lower()
+            matched = False
+            for cand in candidates:
+                if len(cand) < 3:
+                    continue
+                # Exact match
+                if cand == cell_str:
+                    matched = True
+                    break
+                # Cell contains candidate (e.g. full name contains "Yodgorbek")
+                if cand in cell_str:
+                    matched = True
+                    break
+                # Candidate contains cell (e.g. "yodgorbek" in "yodgorbekning")
+                if cell_str in cand and len(cell_str) >= 3:
+                    matched = True
+                    break
+                # Starts-with check for short queries
+                if len(cand) >= 4 and cell_str.startswith(cand):
+                    matched = True
+                    break
+            if matched:
+                col_name = str(header[j]).strip() if j < len(header) else f"Col{j}"
+                results.append({
+                    "row_index": i,
+                    "row": row,
+                    "matched_cell": str(cell).strip(),
+                    "matched_col": col_name,
+                })
+                break
+    return results
+
+
+def _sum_numeric_cols(row: list, header: list, skip_first_n: int = 1) -> tuple[float, list[str]]:
+    """Sum all numeric columns in a row (skip first N which are usually name/ID)."""
+    total = 0.0
+    details = []
+    for j in range(skip_first_n, len(row)):
+        val = _to_num(str(row[j]))
+        if val is not None:
+            col_name = str(header[j]).strip() if j < len(header) else f"Col{j}"
+            total += val
+            details.append(f"{col_name}={val}")
+    return total, details
+
+
+def _python_answer(question: str, session: Session) -> str | None:
+    """
+    Try to answer the question using pure Python logic.
+    Returns answer string if handled, None if should fall back to AI.
+    """
+    q = question.strip().lower()
+    rows, header = _get_all_rows(session)
+    if not rows or len(rows) < 2:
+        return None
+
+    data_rows = rows[1:]  # skip header
+
+    # Detect keywords
+    is_sum = any(w in q for w in ["umumiy", "jami", "hammasi", "yig'indi", "summa", "total"])
+    is_ball = any(w in q for w in ["ball", "baho", "ball", "score", "natija"])
+    is_count = any(w in q for w in ["nechta", "nechchi", "soni", "count", "qancha"])
+    is_avg = any(w in q for w in ["ortacha", "o'rtacha", "average", "avg"])
+    is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "yuqori"])
+    is_min = any(w in q for w in ["eng past", "minimal", "min", "past"])
+
+    # ── Simple row count ──────────────────────────────────────────────────────
+    if is_count and not any(c.isalpha() and len(c) > 3 for c in q.split() if c not in ["nechta","nechchi","soni","count","qancha","bor","jadvalda","odam","talaba","kishi"]):
+        return f"Jadvalda jami {len(data_rows)} ta qator (sarlavha qatori hisobga olinmagan) bor."
+
+    # ── Name search ───────────────────────────────────────────────────────────
+    # Extract name candidates from question (strip suffixes)
+    stop_words = {
+        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi",
+        "umumiy", "ball", "ballari", "baho", "jami", "hammasi", "ko'rsat",
+        "toping", "ayt", "qancha", "top", "nima", "qaysi", "nechta",
+        "natijasi", "hisoblang", "hisoba", "hisobi", "yig'indisi", "yigindisi",
+        "nechchi", "qildimi", "qildi", "oldi", "topdi",
+        # also skip common score/result words that get confused with names
+        "bali", "bahosi", "natija", "ball", "score", "natijalari",
+        "umumiy", "jami", "hammasi", "yig'indi", "yigindi", "summa",
+    }
+    words = [w.strip(".,!?\"'()") for w in question.split()]
+    # Strip Uzbek suffixes from each word before checking
+    name_candidates = []
+    for w in words:
+        clean = _strip_uzbek_suffix(w)
+        if len(clean) >= 3 and clean not in stop_words and not clean.isdigit():
+            name_candidates.append(clean)
+
+    # If we have name candidates and ball/sum question → Python can handle it
+    if name_candidates and (is_ball or is_sum or is_avg or is_max or is_min):
+        found_any = False
+        answer_parts = []
+
+        for name in name_candidates:
+            matches = _search_person(data_rows, header, name)
+            if not matches:
+                answer_parts.append(f"'{name}' — jadvalda topilmadi.")
+                continue
+            found_any = True
+            # Deduplicate by row_index
+            seen = set()
+            unique = []
+            for m in matches:
+                if m["row_index"] not in seen:
+                    seen.add(m["row_index"])
+                    unique.append(m)
+
+            for m in unique:
+                person_row = m["row"]
+                person_name = m["matched_cell"]
+                total, details = _sum_numeric_cols(person_row, header, skip_first_n=1)
+
+                if is_avg and details:
+                    avg = total / len(details)
+                    answer_parts.append(
+                        f"'{person_name}' ning o'rtacha bali: {avg:.2f}\n"
+                        f"(Tafsilot: {', '.join(details)})"
+                    )
+                elif is_max and details:
+                    max_val = max(_to_num(d.split("=")[1]) for d in details if "=" in d)
+                    answer_parts.append(
+                        f"'{person_name}' ning eng yuqori bali: {max_val}\n"
+                        f"(Tafsilot: {', '.join(details)})"
+                    )
+                elif is_min and details:
+                    min_val = min(_to_num(d.split("=")[1]) for d in details if "=" in d)
+                    answer_parts.append(
+                        f"'{person_name}' ning eng past bali: {min_val}\n"
+                        f"(Tafsilot: {', '.join(details)})"
+                    )
+                elif (is_sum or is_ball) and details:
+                    answer_parts.append(
+                        f"'{person_name}' ning umumiy bali: {total:.2f}\n"
+                        f"(Tafsilot: {', '.join(details)})"
+                    )
+                else:
+                    # Just show the row
+                    row_str = " | ".join(
+                        f"{str(header[k]).strip() if k < len(header) else k}: {str(person_row[k]).strip()}"
+                        for k in range(len(person_row))
+                        if str(person_row[k]).strip()
+                    )
+                    answer_parts.append(f"'{person_name}': {row_str}")
+
+        if answer_parts:
+            return "\n\n".join(answer_parts)
+
+    return None  # Fall back to AI
 
 
 def build_context(session: Session) -> str:
@@ -178,7 +386,6 @@ def build_context(session: Session) -> str:
         parts.append(f"=== {name} ===")
         parts.append(_rows_to_text(session.excel_data))
     ctx = "\n".join(parts)
-    # If too long, keep first MAX_CHARS chars but warn
     if len(ctx) > MAX_CHARS:
         logger.warning(f"Context truncated: {len(ctx)} -> {MAX_CHARS} chars")
         ctx = ctx[:MAX_CHARS]
@@ -1053,11 +1260,22 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             )
             return
 
+        # ── Try Python-based answer first (exact, reliable) ───────────────
+        try:
+            py_answer = _python_answer(question, sess)
+        except Exception as e:
+            logger.warning(f"Python answer error uid={uid}: {e}")
+            py_answer = None
+
+        if py_answer is not None:
+            logger.info(f"Python answered uid={uid}: {py_answer[:100]}")
+            await msg.answer(py_answer, parse_mode=None, reply_markup=kb_chat())
+            return
+
+        # ── Fall back to AI for complex/natural language questions ─────────
         context = build_context(sess)
         ctx_lines = context.count("\n")
         logger.info(f"Context uid={uid}: {len(context)} chars, {ctx_lines} lines")
-
-        # Log first 500 chars of context for debugging
         logger.info(f"Context preview uid={uid}:\n{context[:500]}")
 
         if not context.strip():
