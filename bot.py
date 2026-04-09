@@ -250,9 +250,18 @@ def _search_person(rows: list, header: list, name_query: str) -> list[dict]:
 
 def _sum_numeric_cols(row: list, header: list, skip_first_n: int = 1) -> tuple[float, list[str]]:
     """Sum all numeric columns in a row (skip first N which are usually name/ID)."""
+    # Auto-detect how many leading columns to skip (№, ID, name, class etc.)
+    skip = skip_first_n
+    # Look at header to find first numeric-looking column
+    for j, h in enumerate(header):
+        h_lower = str(h).strip().lower()
+        # If a header looks like a score column, start from here
+        if any(w in h_lower for w in ["ball", "baho", "score", "foiz", "natija", "bb", "sum", "jami"]):
+            skip = j
+            break
     total = 0.0
     details = []
-    for j in range(skip_first_n, len(row)):
+    for j in range(skip, len(row)):
         val = _to_num(str(row[j]))
         if val is not None:
             col_name = str(header[j]).strip() if j < len(header) else f"Col{j}"
@@ -274,9 +283,9 @@ def _python_answer(question: str, session: Session) -> str | None:
     data_rows = rows[1:]  # skip header
 
     # Detect keywords
-    is_sum = any(w in q for w in ["umumiy", "jami", "hammasi", "yig'indi", "summa", "total"])
-    is_ball = any(w in q for w in ["ball", "baho", "ball", "score", "natija"])
-    is_count = any(w in q for w in ["nechta", "nechchi", "soni", "count", "qancha"])
+    is_sum = any(w in q for w in ["umumiy", "jami", "hammasi", "yig'indi", "yigindi", "summa", "total", "nechchi", "qancha", "necchi"])
+    is_ball = any(w in q for w in ["ball", "balli", "ballari", "baho", "bahosi", "score", "natija", "natijalari", "nechchi", "necchi"])
+    is_count = any(w in q for w in ["nechta", "nechchi", "soni", "count", "qancha ta", "nechi"])
     is_avg = any(w in q for w in ["ortacha", "o'rtacha", "average", "avg"])
     is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "yuqori"])
     is_min = any(w in q for w in ["eng past", "minimal", "min", "past"])
@@ -288,14 +297,14 @@ def _python_answer(question: str, session: Session) -> str | None:
     # ── Name search ───────────────────────────────────────────────────────────
     # Extract name candidates from question (strip suffixes)
     stop_words = {
-        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi",
-        "umumiy", "ball", "ballari", "baho", "jami", "hammasi", "ko'rsat",
+        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi", "necchi",
+        "umumiy", "ball", "ballari", "balli", "balo", "baho", "jami", "hammasi", "ko'rsat",
         "toping", "ayt", "qancha", "top", "nima", "qaysi", "nechta",
         "natijasi", "hisoblang", "hisoba", "hisobi", "yig'indisi", "yigindisi",
-        "nechchi", "qildimi", "qildi", "oldi", "topdi",
-        # also skip common score/result words that get confused with names
-        "bali", "bahosi", "natija", "ball", "score", "natijalari",
-        "umumiy", "jami", "hammasi", "yig'indi", "yigindi", "summa",
+        "qildimi", "qildi", "oldi", "topdi",
+        "bahosi", "natija", "score", "natijalari",
+        "yig'indi", "yigindi", "summa", "total",
+        "sinf", "class", "nechchi",
     }
     words = [w.strip(".,!?\"'()") for w in question.split()]
     # Strip Uzbek suffixes from each word before checking
@@ -327,9 +336,29 @@ def _python_answer(question: str, session: Session) -> str | None:
             for m in unique:
                 person_row = m["row"]
                 person_name = m["matched_cell"]
+
+                # Check if there's a dedicated "Umumiy ball" column — use it directly
+                umumiy_val = None
+                umumiy_col = None
+                for j, h in enumerate(header):
+                    h_s = str(h).strip().lower()
+                    if ("umumiy" in h_s and "ball" in h_s) or h_s in ["umumiy ball", "total", "jami ball", "umumiy"]:
+                        if j < len(person_row):
+                            v = _to_num(str(person_row[j]))
+                            if v is not None:
+                                umumiy_val = v
+                                umumiy_col = str(h).strip()
+                                break
+
                 total, details = _sum_numeric_cols(person_row, header, skip_first_n=1)
 
-                if is_avg and details:
+                if umumiy_val is not None and (is_ball or is_sum) and not is_avg and not is_max and not is_min:
+                    # Show dedicated column value + details
+                    answer_parts.append(
+                        f"'{person_name}' ning {umumiy_col}: {umumiy_val:.2f}\n"
+                        f"(Tafsilot: {', '.join(details)})"
+                    )
+                elif is_avg and details:
                     avg = total / len(details)
                     answer_parts.append(
                         f"'{person_name}' ning o'rtacha bali: {avg:.2f}\n"
