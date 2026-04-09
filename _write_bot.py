@@ -1,4 +1,7 @@
-import asyncio
+"""Write clean bot.py without BOM."""
+import os
+
+CODE = r'''import asyncio
 import io
 import json
 import logging
@@ -1113,3 +1116,19 @@ if __name__ == "__main__":
             else:
                 logger.info("Restarting in 5s...")
                 time.sleep(5)
+'''
+
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot.py")
+with open(out, "w", encoding="utf-8", newline="\n") as f:
+    f.write(CODE)
+
+# verify no BOM
+with open(out, "rb") as f:
+    header = f.read(3)
+    if header == b"\xef\xbb\xbf":
+        print("ERROR: BOM detected!")
+    else:
+        print(f"OK: no BOM. First bytes: {header}")
+
+print(f"Written: {out}")
+print(f"Size: {os.path.getsize(out)} bytes")
