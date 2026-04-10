@@ -16,7 +16,6 @@ import xlrd
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
@@ -25,6 +24,7 @@ from aiogram.types import (
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -40,19 +40,393 @@ logging.basicConfig(
 )
 logger = logging.getLogger("onbrain")
 
+# ─── Constants ───────────────────────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+MAX_ROWS = 2000
+MAX_COLS = 60
+MAX_CHARS = 120_000
+_DB = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
 
-MAX_ROWS = 1000
-MAX_COLS = 50
-MAX_CHARS = 100_000
+# ─── i18n ────────────────────────────────────────────────────────────────────
+TEXTS = {
+    "uz": {
+        "welcome": (
+            "👋 Salom, {name}!\n\n"
+            "🤖 <b>OnBrain AI</b> — aqlli jadval tahlilchisi\n\n"
+            "📋 <b>Imkoniyatlar:</b>\n"
+            "  📊 Excel fayl yuklash\n"
+            "  🔗 Google Sheets ulash\n"
+            "  📁 Google Drive papka\n"
+            "  🌐 Internet qidiruv\n"
+            "  🎤 Ovozli savol\n"
+            "  🌍 3 tilda ishlash\n\n"
+            "Pastdagi menyudan tanlang 👇"
+        ),
+        "choose_lang": "🌍 Tilni tanlang / Choose language / Выберите язык:",
+        "lang_set": "✅ Til o'zgartirildi: O'zbek",
+        "btn_excel": "📊 Excel yuklash",
+        "btn_sheets": "🔗 Google Sheets",
+        "btn_folder": "📁 Drive papka",
+        "btn_search": "🌐 Internet qidiruv",
+        "btn_help": "❓ Yordam",
+        "btn_settings": "⚙️ Sozlamalar",
+        "btn_cancel": "❌ Bekor qilish",
+        "btn_continue": "💬 Savol davom",
+        "btn_voice_hint": "🎤 Ovozli savol",
+        "btn_exit": "🚪 Chiqish",
+        "btn_lang": "🌍 Til tanlash",
+        "btn_disconnect": "🔌 Uzish",
+        "ask_excel": "📎 Excel faylni yuboring (.xlsx yoki .xls):",
+        "ask_sheets": (
+            "🔗 Google Sheets havolasini yuboring:\n"
+            "<code>https://docs.google.com/spreadsheets/d/...</code>"
+        ),
+        "ask_folder": (
+            "📁 Google Drive papka havolasini yuboring:\n"
+            "<code>https://drive.google.com/drive/folders/...</code>"
+        ),
+        "loading": "⏳ Yuklanmoqda...",
+        "analyzing": "🔍 Tahlil qilinmoqda...",
+        "searching": "🌐 Internetdan qidirilmoqda...",
+        "thinking": "🤔 AI javob tayyorlamoqda...",
+        "transcribing": "🎤 Ovoz tanilmoqda...",
+        "excel_ok": (
+            "✅ <b>Excel yuklandi!</b>\n\n"
+            "📄 Fayl: <code>{name}</code>\n"
+            "📊 Qatorlar: <b>{rows}</b> ta\n"
+            "📋 Ustunlar: <b>{cols}</b> ta\n"
+            "🏷 Sarlavhalar: <code>{headers}</code>\n\n"
+            "💬 Savolingizni yozing yoki 🎤 ovozli yuboring:"
+        ),
+        "sheets_ok": (
+            "✅ <b>Google Sheets yuklandi!</b>\n\n"
+            "📊 Varaqlar: <b>{sheets}</b>\n"
+            "📋 Jami qatorlar: <b>{rows}</b>\n\n"
+            "💬 Savolingizni yozing:"
+        ),
+        "folder_ok": (
+            "✅ <b>Google Drive papka yuklandi!</b>\n\n"
+            "📁 Jadvallar: <b>{files}</b> ta\n"
+            "📋 Jami qatorlar: <b>{rows}</b>\n\n"
+            "💬 Savolingizni yozing:"
+        ),
+        "no_data": "⚠️ Avval ma'lumot yuklang: Excel, Google Sheets yoki Drive papka.",
+        "no_excel": "❌ Faqat Excel fayl (.xlsx yoki .xls) qabul qilinadi.",
+        "sheets_fail": (
+            "❌ Google Sheets yuklanmadi.\n\n"
+            "Tekshiring:\n"
+            "• Havola to'g'rimi?\n"
+            "• Fayl ommaviy (public) qilinganmi?\n"
+            "  Share → Anyone with link → Viewer"
+        ),
+        "not_found_id": (
+            "❌ Havola topilmadi.\n\n"
+            "To'g'ri format:\n"
+            "<code>https://docs.google.com/spreadsheets/d/ID/edit</code>"
+        ),
+        "folder_not_found": (
+            "❌ Papka havolasi topilmadi.\n\n"
+            "To'g'ri format:\n"
+            "<code>https://drive.google.com/drive/folders/ID</code>"
+        ),
+        "no_voice_key": "❌ Ovozli savol ishlamaydi — OPENAI_API_KEY o'rnatilmagan.",
+        "voice_fail": "❌ Ovozni aniqlashda xatolik: {err}\nMatn shaklida yuboring.",
+        "voice_detected": "🎤 Aniqlandi: <i>{text}</i>",
+        "no_search_key": "❌ Internet qidiruv ishlamaydi — TAVILY_API_KEY o'rnatilmagan.",
+        "search_result": "🌐 <b>Internet qidiruv natijasi:</b>\n\n{answer}",
+        "search_sources": "\n\n📎 <b>Manbalar:</b>",
+        "search_fail": "❌ Internet qidiruvda xatolik: {err}",
+        "cancelled": "❌ Bekor qilindi.",
+        "disconnected": "✅ Ma'lumotlar tozalandi. /start yuboring.",
+        "auth_link": "🔐 Google hisobiga kirish uchun quyidagi havolani bosing:\n{url}",
+        "auth_ok_sheets": "✅ Google hisobiga ulandi!\n🔗 Endi Google Sheets havolasini yuboring:",
+        "auth_ok_folder": "✅ Google hisobiga ulandi!\n📁 Endi Drive papka havolasini yuboring:",
+        "oauth_not_set": "❌ Google OAuth sozlanmagan.",
+        "choose_connect": "Google Sheets ulash usulini tanlang:",
+        "btn_oauth": "🔐 Google hisobi bilan",
+        "btn_public": "🔓 Ommaviy havola bilan",
+        "exited": "🚪 Chat yopildi.",
+        "help": (
+            "❓ <b>YORDAM</b>\n\n"
+            "📊 <b>Excel bilan ishlash:</b>\n"
+            "  1. «📊 Excel yuklash» tugmasini bosing\n"
+            "  2. Excel faylni yuboring\n"
+            "  3. Savol bering\n\n"
+            "🔗 <b>Google Sheets:</b>\n"
+            "  1. «🔗 Google Sheets» tugmasini bosing\n"
+            "  2. Havola yuboring (public bo'lishi shart)\n\n"
+            "🌐 <b>Internet qidiruv:</b>\n"
+            "  «🌐 Internet qidiruv» tugmasini bosing\n\n"
+            "🎤 <b>Ovozli savol:</b>\n"
+            "  Ovozli xabar yuboring — bot javob beradi\n\n"
+            "⚙️ <b>Buyruqlar:</b>\n"
+            "  /start — Bosh menyu\n"
+            "  /help — Yordam\n"
+            "  /lang — Til tanlash\n"
+            "  /disconnect — Ma'lumotlarni tozalash"
+        ),
+        "settings": "⚙️ <b>Sozlamalar</b>\n\nTil: 🇺🇿 O'zbek",
+        "web_on": "🌐 Internet qidiruv yoqildi. Savolingizni yuboring:",
+    },
+    "ru": {
+        "welcome": (
+            "👋 Привет, {name}!\n\n"
+            "🤖 <b>OnBrain AI</b> — умный анализатор таблиц\n\n"
+            "📋 <b>Возможности:</b>\n"
+            "  📊 Загрузка Excel файлов\n"
+            "  🔗 Подключение Google Sheets\n"
+            "  📁 Google Drive папка\n"
+            "  🌐 Поиск в интернете\n"
+            "  🎤 Голосовые вопросы\n"
+            "  🌍 Работа на 3 языках\n\n"
+            "Выберите из меню ниже 👇"
+        ),
+        "choose_lang": "🌍 Tilni tanlang / Choose language / Выберите язык:",
+        "lang_set": "✅ Язык изменён: Русский",
+        "btn_excel": "📊 Загрузить Excel",
+        "btn_sheets": "🔗 Google Sheets",
+        "btn_folder": "📁 Drive папка",
+        "btn_search": "🌐 Поиск в интернете",
+        "btn_help": "❓ Помощь",
+        "btn_settings": "⚙️ Настройки",
+        "btn_cancel": "❌ Отмена",
+        "btn_continue": "💬 Продолжить",
+        "btn_voice_hint": "🎤 Голосовой вопрос",
+        "btn_exit": "🚪 Выход",
+        "btn_lang": "🌍 Язык",
+        "btn_disconnect": "🔌 Отключить",
+        "ask_excel": "📎 Отправьте Excel файл (.xlsx или .xls):",
+        "ask_sheets": (
+            "🔗 Отправьте ссылку на Google Sheets:\n"
+            "<code>https://docs.google.com/spreadsheets/d/...</code>"
+        ),
+        "ask_folder": (
+            "📁 Отправьте ссылку на папку Google Drive:\n"
+            "<code>https://drive.google.com/drive/folders/...</code>"
+        ),
+        "loading": "⏳ Загружается...",
+        "analyzing": "🔍 Анализируется...",
+        "searching": "🌐 Поиск в интернете...",
+        "thinking": "🤔 ИИ готовит ответ...",
+        "transcribing": "🎤 Распознавание речи...",
+        "excel_ok": (
+            "✅ <b>Excel загружен!</b>\n\n"
+            "📄 Файл: <code>{name}</code>\n"
+            "📊 Строк: <b>{rows}</b>\n"
+            "📋 Столбцов: <b>{cols}</b>\n"
+            "🏷 Заголовки: <code>{headers}</code>\n\n"
+            "💬 Задайте вопрос или 🎤 отправьте голосовое:"
+        ),
+        "sheets_ok": (
+            "✅ <b>Google Sheets загружен!</b>\n\n"
+            "📊 Листов: <b>{sheets}</b>\n"
+            "📋 Всего строк: <b>{rows}</b>\n\n"
+            "💬 Задайте вопрос:"
+        ),
+        "folder_ok": (
+            "✅ <b>Папка Google Drive загружена!</b>\n\n"
+            "📁 Таблиц: <b>{files}</b>\n"
+            "📋 Всего строк: <b>{rows}</b>\n\n"
+            "💬 Задайте вопрос:"
+        ),
+        "no_data": "⚠️ Сначала загрузите данные: Excel, Google Sheets или Drive папку.",
+        "no_excel": "❌ Принимаются только Excel файлы (.xlsx или .xls).",
+        "sheets_fail": (
+            "❌ Google Sheets не загружен.\n\n"
+            "Проверьте:\n"
+            "• Правильная ли ссылка?\n"
+            "• Файл открыт публично?\n"
+            "  Share → Anyone with link → Viewer"
+        ),
+        "not_found_id": (
+            "❌ Ссылка не найдена.\n\n"
+            "Правильный формат:\n"
+            "<code>https://docs.google.com/spreadsheets/d/ID/edit</code>"
+        ),
+        "folder_not_found": (
+            "❌ Ссылка на папку не найдена.\n\n"
+            "Правильный формат:\n"
+            "<code>https://drive.google.com/drive/folders/ID</code>"
+        ),
+        "no_voice_key": "❌ Голосовые вопросы недоступны — OPENAI_API_KEY не установлен.",
+        "voice_fail": "❌ Ошибка распознавания: {err}\nОтправьте текстом.",
+        "voice_detected": "🎤 Распознано: <i>{text}</i>",
+        "no_search_key": "❌ Поиск недоступен — TAVILY_API_KEY не установлен.",
+        "search_result": "🌐 <b>Результат поиска:</b>\n\n{answer}",
+        "search_sources": "\n\n📎 <b>Источники:</b>",
+        "search_fail": "❌ Ошибка поиска: {err}",
+        "cancelled": "❌ Отменено.",
+        "disconnected": "✅ Данные очищены. Отправьте /start.",
+        "auth_link": "🔐 Для входа в Google нажмите ссылку:\n{url}",
+        "auth_ok_sheets": "✅ Google аккаунт подключён!\n🔗 Теперь отправьте ссылку на Google Sheets:",
+        "auth_ok_folder": "✅ Google аккаунт подключён!\n📁 Теперь отправьте ссылку на папку Drive:",
+        "oauth_not_set": "❌ Google OAuth не настроен.",
+        "choose_connect": "Выберите способ подключения Google Sheets:",
+        "btn_oauth": "🔐 Через Google аккаунт",
+        "btn_public": "🔓 По публичной ссылке",
+        "exited": "🚪 Чат закрыт.",
+        "help": (
+            "❓ <b>ПОМОЩЬ</b>\n\n"
+            "📊 <b>Работа с Excel:</b>\n"
+            "  1. Нажмите «📊 Загрузить Excel»\n"
+            "  2. Отправьте файл\n"
+            "  3. Задайте вопрос\n\n"
+            "🔗 <b>Google Sheets:</b>\n"
+            "  1. Нажмите «🔗 Google Sheets»\n"
+            "  2. Отправьте ссылку (файл должен быть public)\n\n"
+            "🌐 <b>Поиск в интернете:</b>\n"
+            "  Нажмите «🌐 Поиск в интернете»\n\n"
+            "🎤 <b>Голосовой вопрос:</b>\n"
+            "  Отправьте голосовое — бот ответит\n\n"
+            "⚙️ <b>Команды:</b>\n"
+            "  /start — Главное меню\n"
+            "  /help — Помощь\n"
+            "  /lang — Выбор языка\n"
+            "  /disconnect — Очистить данные"
+        ),
+        "settings": "⚙️ <b>Настройки</b>\n\nЯзык: 🇷🇺 Русский",
+        "web_on": "🌐 Поиск включён. Задайте вопрос:",
+    },
+    "en": {
+        "welcome": (
+            "👋 Hello, {name}!\n\n"
+            "🤖 <b>OnBrain AI</b> — Smart table analyzer\n\n"
+            "📋 <b>Features:</b>\n"
+            "  📊 Upload Excel files\n"
+            "  🔗 Connect Google Sheets\n"
+            "  📁 Google Drive folder\n"
+            "  🌐 Internet search\n"
+            "  🎤 Voice questions\n"
+            "  🌍 Works in 3 languages\n\n"
+            "Choose from the menu below 👇"
+        ),
+        "choose_lang": "🌍 Tilni tanlang / Choose language / Выберите язык:",
+        "lang_set": "✅ Language set: English",
+        "btn_excel": "📊 Upload Excel",
+        "btn_sheets": "🔗 Google Sheets",
+        "btn_folder": "📁 Drive Folder",
+        "btn_search": "🌐 Web Search",
+        "btn_help": "❓ Help",
+        "btn_settings": "⚙️ Settings",
+        "btn_cancel": "❌ Cancel",
+        "btn_continue": "💬 Continue",
+        "btn_voice_hint": "🎤 Voice Question",
+        "btn_exit": "🚪 Exit",
+        "btn_lang": "🌍 Language",
+        "btn_disconnect": "🔌 Disconnect",
+        "ask_excel": "📎 Send your Excel file (.xlsx or .xls):",
+        "ask_sheets": (
+            "🔗 Send your Google Sheets link:\n"
+            "<code>https://docs.google.com/spreadsheets/d/...</code>"
+        ),
+        "ask_folder": (
+            "📁 Send your Google Drive folder link:\n"
+            "<code>https://drive.google.com/drive/folders/...</code>"
+        ),
+        "loading": "⏳ Loading...",
+        "analyzing": "🔍 Analyzing...",
+        "searching": "🌐 Searching the web...",
+        "thinking": "🤔 AI is preparing the answer...",
+        "transcribing": "🎤 Transcribing voice...",
+        "excel_ok": (
+            "✅ <b>Excel loaded!</b>\n\n"
+            "📄 File: <code>{name}</code>\n"
+            "📊 Rows: <b>{rows}</b>\n"
+            "📋 Columns: <b>{cols}</b>\n"
+            "🏷 Headers: <code>{headers}</code>\n\n"
+            "💬 Ask your question or 🎤 send a voice message:"
+        ),
+        "sheets_ok": (
+            "✅ <b>Google Sheets loaded!</b>\n\n"
+            "📊 Sheets: <b>{sheets}</b>\n"
+            "📋 Total rows: <b>{rows}</b>\n\n"
+            "💬 Ask your question:"
+        ),
+        "folder_ok": (
+            "✅ <b>Google Drive folder loaded!</b>\n\n"
+            "📁 Spreadsheets: <b>{files}</b>\n"
+            "📋 Total rows: <b>{rows}</b>\n\n"
+            "💬 Ask your question:"
+        ),
+        "no_data": "⚠️ Please load data first: Excel, Google Sheets, or Drive folder.",
+        "no_excel": "❌ Only Excel files (.xlsx or .xls) are accepted.",
+        "sheets_fail": (
+            "❌ Google Sheets failed to load.\n\n"
+            "Check:\n"
+            "• Is the link correct?\n"
+            "• Is the file shared publicly?\n"
+            "  Share → Anyone with link → Viewer"
+        ),
+        "not_found_id": (
+            "❌ Link not found.\n\n"
+            "Correct format:\n"
+            "<code>https://docs.google.com/spreadsheets/d/ID/edit</code>"
+        ),
+        "folder_not_found": (
+            "❌ Folder link not found.\n\n"
+            "Correct format:\n"
+            "<code>https://drive.google.com/drive/folders/ID</code>"
+        ),
+        "no_voice_key": "❌ Voice questions unavailable — OPENAI_API_KEY not set.",
+        "voice_fail": "❌ Transcription error: {err}\nPlease send text instead.",
+        "voice_detected": "🎤 Detected: <i>{text}</i>",
+        "no_search_key": "❌ Web search unavailable — TAVILY_API_KEY not set.",
+        "search_result": "🌐 <b>Web search result:</b>\n\n{answer}",
+        "search_sources": "\n\n📎 <b>Sources:</b>",
+        "search_fail": "❌ Search error: {err}",
+        "cancelled": "❌ Cancelled.",
+        "disconnected": "✅ Data cleared. Send /start.",
+        "auth_link": "🔐 Click the link to sign in to Google:\n{url}",
+        "auth_ok_sheets": "✅ Google account connected!\n🔗 Now send your Google Sheets link:",
+        "auth_ok_folder": "✅ Google account connected!\n📁 Now send your Drive folder link:",
+        "oauth_not_set": "❌ Google OAuth not configured.",
+        "choose_connect": "Choose how to connect Google Sheets:",
+        "btn_oauth": "🔐 Via Google account",
+        "btn_public": "🔓 Public link",
+        "exited": "🚪 Chat closed.",
+        "help": (
+            "❓ <b>HELP</b>\n\n"
+            "📊 <b>Working with Excel:</b>\n"
+            "  1. Press «📊 Upload Excel»\n"
+            "  2. Send your file\n"
+            "  3. Ask questions\n\n"
+            "🔗 <b>Google Sheets:</b>\n"
+            "  1. Press «🔗 Google Sheets»\n"
+            "  2. Send the link (must be public)\n\n"
+            "🌐 <b>Web Search:</b>\n"
+            "  Press «🌐 Web Search»\n\n"
+            "🎤 <b>Voice questions:</b>\n"
+            "  Send a voice message — bot will answer\n\n"
+            "⚙️ <b>Commands:</b>\n"
+            "  /start — Main menu\n"
+            "  /help — Help\n"
+            "  /lang — Choose language\n"
+            "  /disconnect — Clear data"
+        ),
+        "settings": "⚙️ <b>Settings</b>\n\nLanguage: 🇬🇧 English",
+        "web_on": "🌐 Web search enabled. Ask your question:",
+    },
+}
 
 
+def t(lang: str, key: str, **kwargs) -> str:
+    text = TEXTS.get(lang, TEXTS["uz"]).get(key, TEXTS["uz"].get(key, key))
+    if kwargs:
+        try:
+            text = text.format(**kwargs)
+        except Exception:
+            pass
+    return text
+
+
+# ─── Session ─────────────────────────────────────────────────────────────────
 @dataclass
 class Session:
     step: str = "idle"
+    lang: str = "uz"
     excel_data: list = field(default_factory=list)
     sheets_data: dict = field(default_factory=dict)
     folder_data: dict = field(default_factory=dict)
@@ -62,7 +436,7 @@ class Session:
     web_search: bool = False
 
 
-_sessions: dict = {}
+_sessions: dict[int, Session] = {}
 
 
 def get_session(uid: int) -> Session:
@@ -71,20 +445,22 @@ def get_session(uid: int) -> Session:
     return _sessions[uid]
 
 
-_DB = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+def has_data(s: Session) -> bool:
+    return bool(s.excel_data or s.sheets_data or s.folder_data)
 
 
+# ─── DB ──────────────────────────────────────────────────────────────────────
 def _db_conn():
-    conn = sqlite3.connect(_DB, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    c = sqlite3.connect(_DB, check_same_thread=False)
+    c.row_factory = sqlite3.Row
+    return c
 
 
 def _init_db():
     with _db_conn() as c:
         c.execute(
             "CREATE TABLE IF NOT EXISTS tokens("
-            "uid INTEGER PRIMARY KEY, creds TEXT, updated TEXT)"
+            "uid INTEGER PRIMARY KEY, creds TEXT, lang TEXT, updated TEXT)"
         )
         c.commit()
 
@@ -106,6 +482,23 @@ def load_token(uid: int):
     return row["creds"] if row else None
 
 
+def save_lang(uid: int, lang: str):
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_conn() as c:
+        c.execute(
+            "INSERT INTO tokens(uid,lang,updated) VALUES(?,?,?) "
+            "ON CONFLICT(uid) DO UPDATE SET lang=excluded.lang, updated=excluded.updated",
+            (uid, lang, now),
+        )
+        c.commit()
+
+
+def load_lang(uid: int) -> str:
+    with _db_conn() as c:
+        row = c.execute("SELECT lang FROM tokens WHERE uid=?", (uid,)).fetchone()
+    return row["lang"] if (row and row["lang"]) else "uz"
+
+
 def load_refresh_token(uid: int):
     raw = load_token(uid)
     if not raw:
@@ -124,7 +517,72 @@ def load_refresh_token(uid: int):
 
 _oauth_states: dict = {}
 
+# ─── Keyboards ───────────────────────────────────────────────────────────────
+def kb_main(lang: str = "uz") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=t(lang, "btn_excel")), KeyboardButton(text=t(lang, "btn_sheets"))],
+            [KeyboardButton(text=t(lang, "btn_folder")), KeyboardButton(text=t(lang, "btn_search"))],
+            [KeyboardButton(text=t(lang, "btn_help")), KeyboardButton(text=t(lang, "btn_settings"))],
+        ],
+        resize_keyboard=True,
+    )
 
+
+def kb_cancel(lang: str = "uz") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=t(lang, "btn_cancel"))]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def kb_chat(lang: str = "uz") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="chat_continue"),
+                InlineKeyboardButton(text=t(lang, "btn_voice_hint"), callback_data="voice_hint"),
+            ],
+            [
+                InlineKeyboardButton(text=t(lang, "btn_search"), callback_data="web_search"),
+                InlineKeyboardButton(text=t(lang, "btn_exit"), callback_data="exit_chat"),
+            ],
+        ]
+    )
+
+
+def kb_lang() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_uz"),
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
+                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
+            ]
+        ]
+    )
+
+
+def kb_connect(lang: str = "uz") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_oauth"), callback_data="google_auth")],
+            [InlineKeyboardButton(text=t(lang, "btn_public"), callback_data="public_link")],
+        ]
+    )
+
+
+def kb_settings(lang: str = "uz") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="open_lang")],
+            [InlineKeyboardButton(text=t(lang, "btn_disconnect"), callback_data="disconnect")],
+        ]
+    )
+
+
+# ─── Excel ───────────────────────────────────────────────────────────────────
 def parse_excel(name: str, content: bytes) -> list:
     rows = []
     try:
@@ -143,317 +601,237 @@ def parse_excel(name: str, content: bytes) -> list:
     return rows
 
 
-def _rows_to_text(rows: list, max_rows: int = MAX_ROWS) -> str:
-    """Convert list of rows to readable text."""
+# ─── Data helpers ─────────────────────────────────────────────────────────────
+def _get_all_rows(s: Session) -> tuple[list, list]:
+    rows = []
+    if s.excel_data:
+        rows = s.excel_data
+    elif s.sheets_data:
+        for r in s.sheets_data.values():
+            rows.extend(r)
+    elif s.folder_data:
+        for sheets in s.folder_data.values():
+            for r in sheets.values():
+                rows.extend(r)
+    return rows, (rows[0] if rows else [])
+
+
+def _rows_to_text(rows: list) -> str:
     lines = []
-    for i, row in enumerate(rows[:max_rows]):
-        cells = []
-        for c in row[:MAX_COLS]:
-            val = str(c).strip() if c is not None else ""
-            cells.append(val if val else "-")
+    for i, row in enumerate(rows[:MAX_ROWS]):
+        cells = [str(c).strip() or "-" for c in row[:MAX_COLS]]
         if all(v == "-" for v in cells):
             continue
         lines.append(f"{i+1}. {' | '.join(cells)}")
     return "\n".join(lines)
 
 
-def _get_all_rows(session: Session) -> tuple[list[list], list]:
-    """Return (all_rows, header_row) from session data."""
-    rows = []
-    if session.excel_data:
-        rows = session.excel_data
-    elif session.sheets_data:
-        for sheet_rows in session.sheets_data.values():
-            rows.extend(sheet_rows)
-    elif session.folder_data:
-        for sheets in session.folder_data.values():
-            for sheet_rows in sheets.values():
-                rows.extend(sheet_rows)
-    header = rows[0] if rows else []
-    return rows, header
-
-
-def _to_num(val: str) -> float | None:
-    """Try to parse a cell as a number."""
-    if val is None:
-        return None
-    s = str(val).strip().replace(",", ".").replace(" ", "")
+def _to_num(val) -> float | None:
     try:
-        return float(s)
-    except ValueError:
+        return float(str(val).strip().replace(",", ".").replace(" ", ""))
+    except Exception:
         return None
 
 
-def _strip_uzbek_suffix(word: str) -> str:
-    """Remove common Uzbek grammatical suffixes from a word."""
+def _strip_suffix(word: str) -> str:
     w = word.lower().strip()
-    # Order: longest first
-    suffixes = [
-        "larning", "lardan", "larga", "larni", "larcha",
-        "lardan", "larda", "ining", "beking", "boyning",
-        "ning", "ning", "dagi", "dagi", "dan", "gacha",
-        "bek", "boy", "jon", "xon", "oy",
-        "ga", "da", "ni", "gi", "ki",
-        "lar", "lik",
-    ]
-    for suf in suffixes:
+    for suf in [
+        "larning","lardan","larga","larni","larcha","larda",
+        "beking","boyning","ining","ning","dagi","dan","gacha",
+        "bek","boy","jon","xon","oy","ga","da","ni","gi","ki","lar","lik",
+    ]:
         if w.endswith(suf) and len(w) - len(suf) >= 3:
             return w[: len(w) - len(suf)]
     return w
 
 
-def _search_person(rows: list, header: list, name_query: str) -> list[dict]:
-    """
-    Find rows where any cell fuzzy-matches name_query.
-    Handles Uzbek suffixes: Yodgorbekning -> Yodgorbek, Moxizodaning -> Moxizoda
-    """
-    name_q_raw = name_query.strip().lower()
-    name_q_stripped = _strip_uzbek_suffix(name_q_raw)
-    # Try both original and stripped
-    candidates = list({name_q_raw, name_q_stripped})
-
+def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
+    raw = name_q.strip().lower()
+    stripped = _strip_suffix(raw)
+    candidates = list({raw, stripped})
     results = []
-    for i, row in enumerate(rows):
+    for i, row in enumerate(data_rows):
         for j, cell in enumerate(row):
-            cell_str = str(cell).strip().lower()
-            matched = False
-            for cand in candidates:
-                if len(cand) < 3:
-                    continue
-                # Exact match
-                if cand == cell_str:
-                    matched = True
-                    break
-                # Cell contains candidate (e.g. full name contains "Yodgorbek")
-                if cand in cell_str:
-                    matched = True
-                    break
-                # Candidate contains cell (e.g. "yodgorbek" in "yodgorbekning")
-                if cell_str in cand and len(cell_str) >= 3:
-                    matched = True
-                    break
-                # Starts-with check for short queries
-                if len(cand) >= 4 and cell_str.startswith(cand):
-                    matched = True
-                    break
+            cs = str(cell).strip().lower()
+            matched = any(
+                (len(c) >= 3) and (c == cs or c in cs or (len(cs) >= 3 and cs in c) or (len(c) >= 4 and cs.startswith(c)))
+                for c in candidates
+            )
             if matched:
-                col_name = str(header[j]).strip() if j < len(header) else f"Col{j}"
-                results.append({
-                    "row_index": i,
-                    "row": row,
-                    "matched_cell": str(cell).strip(),
-                    "matched_col": col_name,
-                })
+                col = str(header[j]).strip() if j < len(header) else f"Col{j}"
+                results.append({"row_index": i, "row": row, "matched_cell": str(cell).strip(), "matched_col": col})
                 break
     return results
 
 
-def _sum_numeric_cols(row: list, header: list, skip_first_n: int = 1) -> tuple[float, list[str]]:
-    """Sum all numeric columns in a row (skip first N which are usually name/ID)."""
-    # Auto-detect how many leading columns to skip (№, ID, name, class etc.)
-    skip = skip_first_n
-    # Look at header to find first numeric-looking column
+def _sum_numeric(row: list, header: list) -> tuple[float, list[str]]:
+    skip = 1
     for j, h in enumerate(header):
-        h_lower = str(h).strip().lower()
-        # If a header looks like a score column, start from here
-        if any(w in h_lower for w in ["ball", "baho", "score", "foiz", "natija", "bb", "sum", "jami"]):
+        hl = str(h).strip().lower()
+        if any(w in hl for w in ["ball", "baho", "score", "foiz", "natija", "bb", "sum", "jami", "итог", "балл", "total"]):
             skip = j
             break
-    total = 0.0
-    details = []
+    total, details = 0.0, []
     for j in range(skip, len(row)):
-        val = _to_num(str(row[j]))
-        if val is not None:
-            col_name = str(header[j]).strip() if j < len(header) else f"Col{j}"
-            total += val
-            details.append(f"{col_name}={val}")
+        v = _to_num(row[j])
+        if v is not None:
+            col = str(header[j]).strip() if j < len(header) else f"Col{j}"
+            total += v
+            details.append(f"{col}={v}")
     return total, details
 
 
-def _python_answer(question: str, session: Session) -> str | None:
-    """
-    Try to answer the question using pure Python logic.
-    Returns answer string if handled, None if should fall back to AI.
-    """
+def _python_answer(question: str, s: Session) -> str | None:
     q = question.strip().lower()
-    rows, header = _get_all_rows(session)
+    rows, header = _get_all_rows(s)
     if not rows or len(rows) < 2:
         return None
 
-    data_rows = rows[1:]  # skip header
+    data_rows = rows[1:]
 
-    # Detect keywords
-    is_sum = any(w in q for w in ["umumiy", "jami", "hammasi", "yig'indi", "yigindi", "summa", "total", "nechchi", "qancha", "necchi"])
-    is_ball = any(w in q for w in ["ball", "balli", "ballari", "baho", "bahosi", "score", "natija", "natijalari", "nechchi", "necchi"])
-    is_count = any(w in q for w in ["nechta", "nechchi", "soni", "count", "qancha ta", "nechi"])
-    is_avg = any(w in q for w in ["ortacha", "o'rtacha", "average", "avg"])
-    is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "yuqori"])
-    is_min = any(w in q for w in ["eng past", "minimal", "min", "past"])
+    is_query = any(w in q for w in [
+        "ball","balli","ballari","bali","baho","bahosi","score","natija","natijalari",
+        "umumiy","jami","hammasi","summa","total","итог","балл","сумма",
+        "nechchi","necchi","qancha","сколько","how many",
+        "o'rtacha","ortacha","average","средний",
+        "eng yuqori","maksimal","max","maximum","максимальный",
+        "eng past","minimal","min","minimum","минимальный",
+    ])
 
-    # ── Simple row count ──────────────────────────────────────────────────────
-    if is_count and not any(c.isalpha() and len(c) > 3 for c in q.split() if c not in ["nechta","nechchi","soni","count","qancha","bor","jadvalda","odam","talaba","kishi"]):
-        return f"Jadvalda jami {len(data_rows)} ta qator (sarlavha qatori hisobga olinmagan) bor."
-
-    # ── Name search ───────────────────────────────────────────────────────────
-    # Extract name candidates from question (strip suffixes)
-    stop_words = {
-        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi", "necchi",
-        "umumiy", "ball", "ballari", "balli", "balo", "baho", "jami", "hammasi", "ko'rsat",
-        "toping", "ayt", "qancha", "top", "nima", "qaysi", "nechta",
-        "natijasi", "hisoblang", "hisoba", "hisobi", "yig'indisi", "yigindisi",
-        "qildimi", "qildi", "oldi", "topdi",
-        "bahosi", "natija", "score", "natijalari",
-        "yig'indi", "yigindi", "summa", "total",
-        "sinf", "class", "nechchi",
+    stop = {
+        "va","bilan","uchun","ning","ni","ga","da","dan","nechchi","necchi",
+        "umumiy","ball","balli","ballari","baho","jami","hammasi",
+        "ko'rsat","toping","ayt","qancha","top","nima","qaysi","nechta",
+        "natijasi","hisobi","yig'indisi","yigindisi","qildimi","topdi",
+        "bahosi","natija","score","natijalari","yig'indi","yigindi","summa",
+        "sinf","class","и","или","для","с","в","на","по","что","как",
+        "and","or","for","with","the","of","is","are","what","how",
     }
-    words = [w.strip(".,!?\"'()") for w in question.split()]
-    # Strip Uzbek suffixes from each word before checking
+
+    words = [w.strip(".,!?\"'()[]") for w in question.split()]
     name_candidates = []
     for w in words:
-        clean = _strip_uzbek_suffix(w)
-        if len(clean) >= 3 and clean not in stop_words and not clean.isdigit():
-            name_candidates.append(clean)
+        c = _strip_suffix(w)
+        if len(c) >= 3 and c.lower() not in stop and not c.isdigit():
+            name_candidates.append(c)
 
-    # If we have name candidates and ball/sum question → Python can handle it
-    if name_candidates and (is_ball or is_sum or is_avg or is_max or is_min):
-        found_any = False
-        answer_parts = []
+    if not name_candidates or not is_query:
+        return None
 
-        for name in name_candidates:
-            matches = _search_person(data_rows, header, name)
-            if not matches:
-                answer_parts.append(f"'{name}' — jadvalda topilmadi.")
-                continue
-            found_any = True
-            # Deduplicate by row_index
-            seen = set()
-            unique = []
-            for m in matches:
-                if m["row_index"] not in seen:
-                    seen.add(m["row_index"])
-                    unique.append(m)
+    is_avg = any(w in q for w in ["o'rtacha","ortacha","average","средний","avg"])
+    is_max = any(w in q for w in ["eng yuqori","maksimal","max","maximum","максимальный"])
+    is_min = any(w in q for w in ["eng past","minimal","min","minimum","минимальный"])
 
-            for m in unique:
-                person_row = m["row"]
-                person_name = m["matched_cell"]
+    answer_parts = []
+    found_any = False
 
-                # Check if there's a dedicated "Umumiy ball" column — use it directly
-                umumiy_val = None
-                umumiy_col = None
-                for j, h in enumerate(header):
-                    h_s = str(h).strip().lower()
-                    if ("umumiy" in h_s and "ball" in h_s) or h_s in ["umumiy ball", "total", "jami ball", "umumiy"]:
-                        if j < len(person_row):
-                            v = _to_num(str(person_row[j]))
-                            if v is not None:
-                                umumiy_val = v
-                                umumiy_col = str(h).strip()
-                                break
+    for name in name_candidates:
+        matches = _search_person(data_rows, header, name)
+        if not matches:
+            continue
+        found_any = True
+        seen, unique = set(), []
+        for m in matches:
+            if m["row_index"] not in seen:
+                seen.add(m["row_index"])
+                unique.append(m)
 
-                total, details = _sum_numeric_cols(person_row, header, skip_first_n=1)
+        for m in unique:
+            row = m["row"]
+            person = m["matched_cell"]
 
-                if umumiy_val is not None and (is_ball or is_sum) and not is_avg and not is_max and not is_min:
-                    # Show dedicated column value + details
-                    answer_parts.append(
-                        f"'{person_name}' ning {umumiy_col}: {umumiy_val:.2f}\n"
-                        f"(Tafsilot: {', '.join(details)})"
-                    )
-                elif is_avg and details:
-                    avg = total / len(details)
-                    answer_parts.append(
-                        f"'{person_name}' ning o'rtacha bali: {avg:.2f}\n"
-                        f"(Tafsilot: {', '.join(details)})"
-                    )
-                elif is_max and details:
-                    max_val = max(_to_num(d.split("=")[1]) for d in details if "=" in d)
-                    answer_parts.append(
-                        f"'{person_name}' ning eng yuqori bali: {max_val}\n"
-                        f"(Tafsilot: {', '.join(details)})"
-                    )
-                elif is_min and details:
-                    min_val = min(_to_num(d.split("=")[1]) for d in details if "=" in d)
-                    answer_parts.append(
-                        f"'{person_name}' ning eng past bali: {min_val}\n"
-                        f"(Tafsilot: {', '.join(details)})"
-                    )
-                elif (is_sum or is_ball) and details:
-                    answer_parts.append(
-                        f"'{person_name}' ning umumiy bali: {total:.2f}\n"
-                        f"(Tafsilot: {', '.join(details)})"
-                    )
-                else:
-                    # Just show the row
-                    row_str = " | ".join(
-                        f"{str(header[k]).strip() if k < len(header) else k}: {str(person_row[k]).strip()}"
-                        for k in range(len(person_row))
-                        if str(person_row[k]).strip()
-                    )
-                    answer_parts.append(f"'{person_name}': {row_str}")
+            # Check for dedicated "Umumiy ball" / "Итого" column
+            direct_val, direct_col = None, None
+            for j, h in enumerate(header):
+                hl = str(h).strip().lower()
+                if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","итого","jami ball","общий балл"]:
+                    if j < len(row):
+                        v = _to_num(row[j])
+                        if v is not None:
+                            direct_val, direct_col = v, str(h).strip()
+                            break
 
-        if answer_parts:
-            return "\n\n".join(answer_parts)
+            total, details = _sum_numeric(row, header)
 
-    return None  # Fall back to AI
+            if is_avg and details:
+                avg = total / len(details)
+                answer_parts.append(f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>\n📋 {', '.join(details)}")
+            elif is_max and details:
+                mx = max((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+                answer_parts.append(f"👤 <b>{person}</b>\n📈 Maksimal: <b>{mx}</b>\n📋 {', '.join(details)}")
+            elif is_min and details:
+                mn = min((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+                answer_parts.append(f"👤 <b>{person}</b>\n📉 Minimal: <b>{mn}</b>\n📋 {', '.join(details)}")
+            elif direct_val is not None:
+                answer_parts.append(f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>\n📋 {', '.join(details)}")
+            elif details:
+                answer_parts.append(f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>\n📋 {', '.join(details)}")
+            else:
+                row_str = " | ".join(
+                    f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
+                    for k in range(len(row)) if str(row[k]).strip()
+                )
+                answer_parts.append(f"👤 <b>{person}</b>: {row_str}")
+
+    if answer_parts:
+        return "\n\n".join(answer_parts)
+    if found_any:
+        return None
+    return None
 
 
-def build_context(session: Session) -> str:
+def build_context(s: Session) -> str:
     parts = []
-    if session.folder_data:
-        for sid, sheets in session.folder_data.items():
+    if s.folder_data:
+        for sid, sheets in s.folder_data.items():
             parts.append(f"\n=== {sid} ===")
             for title, rows in sheets.items():
-                parts.append(f"--- {title} ---")
-                parts.append(_rows_to_text(rows))
-    elif session.sheets_data:
-        name = session.sheet_name or "Sheet"
+                parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
+    elif s.sheets_data:
+        name = s.sheet_name or "Sheet"
         parts.append(f"=== {name} ===")
-        for title, rows in session.sheets_data.items():
-            parts.append(f"--- {title} ---")
-            parts.append(_rows_to_text(rows))
-    elif session.excel_data:
-        name = session.sheet_name or "Excel"
-        parts.append(f"=== {name} ===")
-        parts.append(_rows_to_text(session.excel_data))
+        for title, rows in s.sheets_data.items():
+            parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
+    elif s.excel_data:
+        parts.append(f"=== {s.sheet_name or 'Excel'} ===\n{_rows_to_text(s.excel_data)}")
     ctx = "\n".join(parts)
-    if len(ctx) > MAX_CHARS:
-        logger.warning(f"Context truncated: {len(ctx)} -> {MAX_CHARS} chars")
-        ctx = ctx[:MAX_CHARS]
-    return ctx
+    return ctx[:MAX_CHARS]
 
 
-def has_data(session: Session) -> bool:
-    return bool(session.excel_data or session.sheets_data or session.folder_data)
+# ─── Grok AI ─────────────────────────────────────────────────────────────────
+LANG_INSTRUCTION = {
+    "uz": "Javob FAQAT O'ZBEK tilida bo'lsin.",
+    "ru": "Ответ должен быть ТОЛЬКО на РУССКОМ языке.",
+    "en": "Answer ONLY in ENGLISH.",
+}
+
+GROK_SYSTEM = (
+    "Sen jadval (Excel/Sheets) ma'lumotlarini tahlil qiluvchi aqlli assistantsan.\n"
+    "QOIDALAR:\n"
+    "1. Faqat berilgan jadval ma'lumotlari asosida javob ber.\n"
+    "2. Ism qidirishda: to'liq mos topishga harakat qil, topilmasa 'topilmadi' de.\n"
+    "3. Har bir shaxs uchun alohida javob ber.\n"
+    "4. Ball so'ralganda: jadvalda 'Umumiy ball' ustuni bo'lsa — o'sha qiymatni ber.\n"
+    "5. Ma'lumot topilmasa boshqa ism bilan almashtirma.\n"
+    "6. {lang_rule}\n"
+    "7. Javob qisqa va aniq bo'lsin."
+)
+
+TRANSLATE_SYSTEM = (
+    "Sen tarjimon assistantsan. Berilgan matnni ko'rsatilgan tilga tarjima qil. "
+    "Faqat tarjimani yoz, boshqa hech narsa qo'shma."
+)
 
 
-async def ask_grok(question: str, context: str, grok_key: str) -> str:
-    # If no context — translation/general mode
-    if not context.strip():
-        system = "Sen O'zbek tilida javob beruvchi assistantsan. Barcha javoblar FAQAT O'ZBEK TILIDA bo'lishi shart. Hech qachon inglizcha yoki boshqa tilda yozma."
-        user_prompt = question
+async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz") -> str:
+    lang_rule = LANG_INSTRUCTION.get(lang, LANG_INSTRUCTION["uz"])
+    if context.strip():
+        system = GROK_SYSTEM.format(lang_rule=lang_rule)
+        user_msg = f"JADVAL:\n{context}\n\nSAVOL: {question}\n\nJavob {lang_rule}"
     else:
-        system = """Sen jadval (Excel/Sheets) malumotlarini tahlil qiluvchi assistantsan.
+        system = TRANSLATE_SYSTEM
+        user_msg = question
 
-MUHIM QOIDALAR:
-1. Faqat quyida berilgan jadval malumotlari asosida javob ber.
-2. Ism qidirishda QATTIQ QOIDA:
-   - To'liq mos: "Yodgorbek" => "Yodgorbek" satrini qidir
-   - Qisqa variant: "Yodgor" => "Yodgor" bilan boshlanadigan BARCHA ismlarni topib ko'r (Yodgorbek, Yodgorali, Yodgor)
-   - Agar "Moxizoda" so'ralsa => "Moxizoda" degan ism bor satrni qidir, "Moxinur" EMAS
-   - Har bir ism ALOHIDA qidiriladi va har biri uchun ALOHIDA javob beriladi
-3. Ko'p shaxs so'ralganda (masalan "Moxizoda va Yodgorbeking ballari"):
-   - Har birini alohida qidir
-   - Har biri uchun topilgan yoki topilmaganini ayt
-4. "Umumiy ball" yoki "ball" so'ralganda: hamma ball ustunlarini qo'shib yig'indisini ber
-5. Malumot topilmasa: "Jadvalda [ism] topilmadi" de, boshqa ismni o'rniga qo'yma
-6. !!!! BARCHA JAVOBLAR FAQAT O'ZBEK TILIDA bo'lishi SHART. Hech qachon inglizcha, ruscha yoki boshqa tilda yozma !!!!
-7. Raqamlarni oqilona yoz"""
-        user_prompt = (
-            f"JADVAL MALUMOTLARI:\n{context}\n\n"
-            f"SAVOL: {question}\n\n"
-            f"Yuqoridagi jadval malumotlariga qarab aniq javob ber. Javob FAQAT O'ZBEK TILIDA bo'lsin."
-        )
-
-    # Use grok-3-mini for better accuracy with data analysis
     models = ["grok-3-mini", "grok-3-mini-fast", "grok-2-latest"]
     last_err = ""
     for model in models:
@@ -461,15 +839,12 @@ MUHIM QOIDALAR:
             async with aiohttp.ClientSession() as http:
                 async with http.post(
                     "https://api.x.ai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {grok_key}",
-                        "Content-Type": "application/json",
-                    },
+                    headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
                     json={
                         "model": model,
                         "messages": [
                             {"role": "system", "content": system},
-                            {"role": "user", "content": user_prompt},
+                            {"role": "user", "content": user_msg},
                         ],
                         "temperature": 0.1,
                         "max_tokens": 3000,
@@ -479,59 +854,77 @@ MUHIM QOIDALAR:
                     if resp.status == 200:
                         data = await resp.json()
                         answer = data["choices"][0]["message"]["content"]
-                        logger.info(f"Grok ({model}) ok: {answer[:100]}")
+                        logger.info(f"Grok({model}): {answer[:80]}")
                         return answer
-                    else:
-                        body = await resp.text()
-                        last_err = f"{model}: HTTP {resp.status} -- {body[:120]}"
-                        logger.warning(f"Grok failed: {last_err}")
+                    last_err = f"{model}: HTTP {resp.status}"
+                    logger.warning(last_err)
         except Exception as e:
             last_err = f"{model}: {e}"
-            logger.warning(f"Grok exception: {last_err}")
-    return f"AI xizmatida xatolik: {last_err[:100]}"
+            logger.warning(last_err)
+    return f"❌ AI xatolik: {last_err[:80]}"
 
 
-async def do_web_search(query: str, tavily_key: str, grok_key: str = "") -> str:
+# ─── Web search ──────────────────────────────────────────────────────────────
+async def do_web_search(query: str, tavily_key: str, grok_key: str = "", lang: str = "uz") -> str:
     try:
         resp = await asyncio.to_thread(
             requests.post,
             "https://api.tavily.com/search",
-            json={
-                "api_key": tavily_key,
-                "query": query,
-                "include_answer": True,
-                "max_results": 5,
-            },
-            timeout=15,
+            json={"api_key": tavily_key, "query": query, "include_answer": True, "max_results": 5},
+            timeout=20,
         )
-        if resp.status_code == 200:
-            data = resp.json()
-            raw_answer = data.get("answer", "")
-            sources = data.get("results", [])
+        if resp.status_code != 200:
+            return t(lang, "search_fail", err=f"HTTP {resp.status_code}")
+        data = resp.json()
+        raw = data.get("answer", "")
+        sources = data.get("results", [])
 
-            # Translate to Uzbek via Grok if answer is not Uzbek
-            if raw_answer and grok_key:
-                try:
-                    translated = await ask_grok(
-                        f"Quyidagi matnni o'zbek tiliga tarjima qil. Faqat tarjimani ber, boshqa hech narsa yozma:\n\n{raw_answer}",
-                        "",
-                        grok_key,
-                    )
-                    uz_answer = translated.strip()
-                except Exception:
-                    uz_answer = raw_answer
-            else:
-                uz_answer = raw_answer or "Natija topilmadi."
+        # Translate to user's language via Grok
+        if raw and grok_key:
+            lang_names = {"uz": "O'zbek", "ru": "Ruscha", "en": "English"}
+            prompt = f"Quyidagi matnni {lang_names.get(lang, 'Uzbek')} tiliga tarjima qil. Faqat tarjimani yoz:\n\n{raw}"
+            try:
+                raw = await ask_grok(prompt, "", grok_key, lang)
+            except Exception:
+                pass
 
-            result = f"Internet qidiruv natijasi:\n\n{uz_answer}"
-            if sources:
-                result += "\n\nManbalar:\n"
-                for i, s in enumerate(sources[:3], 1):
-                    result += f"{i}. {s.get('title', '')}\n"
-            return result
-        return f"Qidiruv xatolik: HTTP {resp.status_code}"
+        result = t(lang, "search_result", answer=raw or "—")
+        if sources:
+            result += t(lang, "search_sources")
+            for i, s in enumerate(sources[:3], 1):
+                result += f"\n{i}. {s.get('title','')}"
+        return result
     except Exception as e:
-        return f"Internet qidiruv xatolik: {e}"
+        return t(lang, "search_fail", err=str(e)[:80])
+
+
+# ─── Voice ───────────────────────────────────────────────────────────────────
+async def transcribe_voice(ogg: bytes, openai_key: str) -> tuple[str | None, str]:
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=openai_key)
+        buf = io.BytesIO(ogg)
+        buf.name = "voice.ogg"
+        tr = await client.audio.transcriptions.create(model="whisper-1", file=buf, temperature=0)
+        text = tr.text.strip()
+        return (text, "") if text else (None, "No speech detected")
+    except ImportError:
+        return None, "openai not installed"
+    except Exception as e:
+        return None, str(e)[:80]
+
+
+# ─── Sheets / Drive ──────────────────────────────────────────────────────────
+def _parse_csv(text: str) -> list:
+    import csv
+    rows = []
+    try:
+        for row in csv.reader(io.StringIO(text)):
+            if any(c.strip() for c in row):
+                rows.append(row)
+    except Exception:
+        pass
+    return rows
 
 
 def _extract_sheet_id(url: str):
@@ -543,46 +936,25 @@ def _extract_sheet_id(url: str):
 
 
 def _extract_folder_id(url: str):
-    for p in [
-        r"drive/folders/([a-zA-Z0-9\-_]+)",
-        r"open\?id=([a-zA-Z0-9\-_]+)",
-        r"id=([a-zA-Z0-9\-_]+)",
-    ]:
+    for p in [r"drive/folders/([a-zA-Z0-9\-_]+)", r"open\?id=([a-zA-Z0-9\-_]+)", r"id=([a-zA-Z0-9\-_]+)"]:
         m = re.search(p, url)
         if m:
             return m.group(1)
     return None
 
 
-def _parse_csv(text: str) -> list:
-    import csv
-    rows = []
-    try:
-        reader = csv.reader(io.StringIO(text))
-        for row in reader:
-            if any(c.strip() for c in row):
-                rows.append(row)
-    except Exception:
-        pass
-    return rows
-
-
 async def fetch_sheet_public(sheet_id: str) -> dict:
-    result = {}
     try:
-        csv_url = (
-            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-        )
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
         async with aiohttp.ClientSession() as http:
-            async with http.get(csv_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with http.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
                 if resp.status == 200:
-                    text = await resp.text()
-                    rows = _parse_csv(text)
+                    rows = _parse_csv(await resp.text())
                     if rows:
-                        result["Sheet1"] = rows
+                        return {"Sheet1": rows}
     except Exception as e:
-        logger.error(f"fetch_sheet_public error: {e}")
-    return result
+        logger.error(f"fetch_sheet_public: {e}")
+    return {}
 
 
 async def fetch_sheet_with_creds(sheet_id: str, creds_json: str) -> dict:
@@ -595,17 +967,15 @@ async def fetch_sheet_with_creds(sheet_id: str, creds_json: str) -> dict:
             title = tab["properties"]["title"]
             try:
                 vals = svc.spreadsheets().values().get(
-                    spreadsheetId=sheet_id,
-                    range=title,
-                    valueRenderOption="FORMATTED_VALUE",
+                    spreadsheetId=sheet_id, range=title, valueRenderOption="FORMATTED_VALUE"
                 ).execute()
                 rows = vals.get("values", [])
                 if rows:
                     result[title] = rows
             except Exception as e:
-                logger.warning(f"Tab '{title}' error: {e}")
+                logger.warning(f"Tab '{title}': {e}")
     except Exception as e:
-        logger.error(f"fetch_sheet_with_creds error: {e}")
+        logger.error(f"fetch_sheet_with_creds: {e}")
     return result
 
 
@@ -613,120 +983,41 @@ async def fetch_folder_sheets(folder_id: str, creds_json: str) -> dict:
     result = {}
     try:
         creds = Credentials.from_authorized_user_info(json.loads(creds_json), scopes=SCOPES)
-        drive_svc = build("drive", "v3", credentials=creds)
+        drive = build("drive", "v3", credentials=creds)
         sheets_svc = build("sheets", "v4", credentials=creds)
-        items = []
-        page_token = None
+        items, token = [], None
         while True:
-            query = (
-                f"'{folder_id}' in parents and "
-                "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
-            )
-            resp = drive_svc.files().list(
-                q=query,
-                fields="nextPageToken,files(id,name)",
-                pageSize=50,
-                pageToken=page_token,
-            ).execute()
-            items.extend(resp.get("files", []))
-            page_token = resp.get("nextPageToken")
-            if not page_token:
+            q = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+            r = drive.files().list(q=q, fields="nextPageToken,files(id,name)", pageSize=50, pageToken=token).execute()
+            items.extend(r.get("files", []))
+            token = r.get("nextPageToken")
+            if not token:
                 break
-        logger.info(f"Folder {folder_id}: {len(items)} spreadsheets")
         for item in items[:20]:
-            sid = item["id"]
-            sname = item["name"]
             try:
-                meta = sheets_svc.spreadsheets().get(spreadsheetId=sid).execute()
-                sheets_data = {}
+                meta = sheets_svc.spreadsheets().get(spreadsheetId=item["id"]).execute()
+                sd = {}
                 for tab in meta.get("sheets", [])[:10]:
                     title = tab["properties"]["title"]
                     try:
                         vals = sheets_svc.spreadsheets().values().get(
-                            spreadsheetId=sid,
-                            range=title,
-                            valueRenderOption="FORMATTED_VALUE",
+                            spreadsheetId=item["id"], range=title, valueRenderOption="FORMATTED_VALUE"
                         ).execute()
                         rows = vals.get("values", [])
                         if rows:
-                            sheets_data[title] = rows
-                    except Exception as e:
-                        logger.warning(f"Tab error: {e}")
-                if sheets_data:
-                    result[f"{sname}::{sid}"] = sheets_data
+                            sd[title] = rows
+                    except Exception:
+                        pass
+                if sd:
+                    result[f"{item['name']}::{item['id']}"] = sd
             except Exception as e:
-                logger.warning(f"Spreadsheet error: {e}")
+                logger.warning(f"Spreadsheet {item['id']}: {e}")
     except Exception as e:
-        logger.error(f"fetch_folder_sheets error: {e}")
+        logger.error(f"fetch_folder_sheets: {e}")
     return result
 
 
-async def transcribe_voice(ogg_bytes: bytes, openai_key: str):
-    try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=openai_key)
-        audio_file = io.BytesIO(ogg_bytes)
-        audio_file.name = "voice.ogg"
-        transcript = await client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            language="uz",
-            temperature=0,
-        )
-        text = transcript.text.strip()
-        return (text, "") if text else (None, "Nutq aniqlanmadi")
-    except ImportError:
-        return None, "OpenAI kutubxonasi ornatilmagan"
-    except Exception as e:
-        logger.error(f"Transcription error: {e}")
-        return None, f"Xatolik: {str(e)[:80]}"
-
-
-def kb_main():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Google Sheets"), KeyboardButton(text="Excel yuklash")],
-            [KeyboardButton(text="Internet qidiruv"), KeyboardButton(text="Yordam")],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def kb_chat():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Savol berish davom", callback_data="chat_continue"),
-                InlineKeyboardButton(text="Ovozli savol", callback_data="voice_hint"),
-            ],
-            [InlineKeyboardButton(text="Internet qidiruv", callback_data="web_search")],
-            [InlineKeyboardButton(text="Chatdan chiqish", callback_data="exit_chat")],
-        ]
-    )
-
-
-def kb_cancel():
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Bekor qilish")]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
-
-
-def kb_connect():
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Google hisobiga ulash", callback_data="google_auth")],
-            [
-                InlineKeyboardButton(
-                    text="Ommaviy link bilan (OAuth siz)",
-                    callback_data="public_link",
-                )
-            ],
-        ]
-    )
-
-
+# ─── OAuth server ─────────────────────────────────────────────────────────────
 class OAuthServer:
     def __init__(self, bot: Bot, config):
         self.bot = bot
@@ -735,33 +1026,28 @@ class OAuthServer:
 
     async def start(self):
         app = web.Application()
-        app.router.add_get("/", self._handle_oauth)
+        app.router.add_get("/", self._oauth)
         app.router.add_get("/health", self._health)
         self._runner = web.AppRunner(app)
         await self._runner.setup()
-        site = web.TCPSite(self._runner, self.config.host, self.config.port)
-        await site.start()
-        logger.info(f"HTTP server started on port {self.config.port}")
+        await web.TCPSite(self._runner, self.config.host, self.config.port).start()
+        logger.info(f"HTTP server on port {self.config.port}")
 
     async def stop(self):
         if self._runner:
             await self._runner.cleanup()
 
-    async def _health(self, request):
+    async def _health(self, req):
         return web.Response(text="OK")
 
-    async def _handle_oauth(self, request):
-        code = request.query.get("code")
-        state = request.query.get("state")
+    async def _oauth(self, req):
+        code = req.query.get("code")
+        state = req.query.get("state")
         if not code or not state or state not in _oauth_states:
-            return web.Response(
-                text="<h2>Xatolik: notogri OAuth sorov</h2>",
-                content_type="text/html",
-            )
+            return web.Response(text="<h2>Invalid OAuth request</h2>", content_type="text/html")
         info = _oauth_states.pop(state)
-        uid = info["uid"]
-        mode = info["mode"]
-        flow = info["flow"]
+        uid, mode, flow = info["uid"], info["mode"], info["flow"]
+        lang = info.get("lang", "uz")
         try:
             flow.fetch_token(code=code)
             creds_json = flow.credentials.to_json()
@@ -770,28 +1056,18 @@ class OAuthServer:
             sess.google_creds_json = creds_json
             if mode == "sheets":
                 sess.step = "waiting_sheet"
-                await self.bot.send_message(
-                    uid,
-                    "Google hisobiga ulandi!\nEndi Google Sheets havolasini yuboring:",
-                    reply_markup=kb_cancel(),
-                )
-            elif mode == "folder":
+                await self.bot.send_message(uid, t(lang, "auth_ok_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
+            else:
                 sess.step = "waiting_folder"
-                await self.bot.send_message(
-                    uid,
-                    "Google hisobiga ulandi!\nEndi Google Drive papka havolasini yuboring:",
-                    reply_markup=kb_cancel(),
-                )
-            return web.Response(
-                text="<h2>Muvaffaqiyatli ulandi! Botga qayting.</h2>",
-                content_type="text/html",
-            )
+                await self.bot.send_message(uid, t(lang, "auth_ok_folder"), reply_markup=kb_cancel(lang), parse_mode="HTML")
+            return web.Response(text="<h2>✅ Connected! Go back to the bot.</h2>", content_type="text/html")
         except Exception as e:
-            logger.error(f"OAuth error: {e}")
-            await self.bot.send_message(uid, f"OAuth xatolik: {e}")
-            return web.Response(text=f"<h2>Xatolik: {e}</h2>", content_type="text/html")
+            logger.error(f"OAuth: {e}")
+            await self.bot.send_message(uid, f"❌ OAuth error: {e}")
+            return web.Response(text=f"<h2>Error: {e}</h2>", content_type="text/html")
 
 
+# ─── Config ──────────────────────────────────────────────────────────────────
 @dataclass
 class Config:
     bot_token: str
@@ -814,10 +1090,7 @@ class Config:
         domain = os.getenv("APP_DOMAIN", "").strip()
         redirect = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
         if not redirect:
-            if domain and domain != "localhost":
-                redirect = f"https://{domain}/"
-            else:
-                redirect = f"http://localhost:{port}/"
+            redirect = f"https://{domain}/" if (domain and domain != "localhost") else f"http://localhost:{port}/"
         return cls(
             bot_token=bot_token,
             grok_key=os.getenv("GROK_API_KEY", "").strip(),
@@ -831,69 +1104,55 @@ class Config:
         )
 
 
+# ─── Handlers ────────────────────────────────────────────────────────────────
 def register(dp: Dispatcher, config: Config, bot: Bot):
 
     def make_flow():
         return Flow.from_client_config(
-            {
-                "web": {
-                    "client_id": config.google_client_id,
-                    "client_secret": config.google_client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [config.redirect_uri],
-                }
-            },
+            {"web": {
+                "client_id": config.google_client_id,
+                "client_secret": config.google_client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [config.redirect_uri],
+            }},
             scopes=SCOPES,
             redirect_uri=config.redirect_uri,
         )
 
+    # ── /start ────────────────────────────────────────────────────────────────
     @dp.message(CommandStart())
     async def cmd_start(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
         sess.step = "idle"
         sess.web_search = False
+        sess.lang = load_lang(uid)
         if not sess.google_creds_json:
             creds = load_refresh_token(uid)
             if creds:
                 sess.google_creds_json = creds
-        name = msg.from_user.first_name or "Foydalanuvchi"
-        await msg.answer(
-            f"Salom, {name}!\n\n"
-            "OnBrain AI Bot - jadval malumotlari bilan ishlash uchun\n\n"
-            "Nima qilish mumkin:\n"
-            "- Google Sheets ulash\n"
-            "- Excel fayl yuklash\n"
-            "- Internet qidiruv\n"
-            "- Ovozli savol berish\n\n"
-            "Pastdagi tugmalardan birini tanlang:",
-            reply_markup=kb_main(),
-        )
+        name = msg.from_user.first_name or "User"
+        await msg.answer(t(sess.lang, "welcome", name=name), reply_markup=kb_main(sess.lang), parse_mode="HTML")
 
+    # ── /help ─────────────────────────────────────────────────────────────────
     @dp.message(Command("help"))
     async def cmd_help(msg: Message):
-        await msg.answer(
-            "YORDAM\n\n"
-            "Excel/Sheets bilan ishlash:\n"
-            "1. Excel yuklash -> Excel faylni yuboring\n"
-            "2. Google Sheets -> havolani yuboring\n"
-            "3. Savol bering (matn yoki ovoz)\n\n"
-            "Internet qidiruv:\n"
-            "Internet qidiruv tugmasini bosing -> savol yuboring\n\n"
-            "Ovozli savol:\n"
-            "Ovozli xabar yuboring - bot transcribe qilib javob beradi\n\n"
-            "Buyruqlar:\n"
-            "/start - bosh menyu\n"
-            "/help - yordam\n"
-            "/disconnect - Googledan chiqish",
-            reply_markup=kb_main(),
-        )
+        sess = get_session(msg.from_user.id)
+        await msg.answer(t(sess.lang, "help"), reply_markup=kb_main(sess.lang), parse_mode="HTML")
 
+    # ── /lang ─────────────────────────────────────────────────────────────────
+    @dp.message(Command("lang"))
+    async def cmd_lang(msg: Message):
+        sess = get_session(msg.from_user.id)
+        await msg.answer(t(sess.lang, "choose_lang"), reply_markup=kb_lang())
+
+    # ── /disconnect ───────────────────────────────────────────────────────────
     @dp.message(Command("disconnect"))
     async def cmd_disconnect(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
+        lang = sess.lang
         sess.step = "idle"
         sess.google_creds_json = ""
         sess.sheets_data = {}
@@ -906,195 +1165,198 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 c.commit()
         except Exception:
             pass
-        await msg.answer("Malumotlar tozalandi. /start yuboring.", reply_markup=kb_main())
+        await msg.answer(t(lang, "disconnected"), reply_markup=kb_main(lang))
 
+    # ── Callbacks ─────────────────────────────────────────────────────────────
     @dp.callback_query()
-    async def handle_callback(cb: CallbackQuery):
+    async def handle_cb(cb: CallbackQuery):
         uid = cb.from_user.id
         sess = get_session(uid)
-        data = cb.data
+        lang = sess.lang
+        d = cb.data
         await cb.answer()
 
-        if data == "chat_continue":
+        if d.startswith("lang_"):
+            new_lang = d[5:]
+            if new_lang in ("uz", "ru", "en"):
+                sess.lang = new_lang
+                save_lang(uid, new_lang)
+                await cb.message.answer(t(new_lang, "lang_set"), reply_markup=kb_main(new_lang))
+
+        elif d == "open_lang":
+            await cb.message.answer(t(lang, "choose_lang"), reply_markup=kb_lang())
+
+        elif d == "disconnect":
+            await cmd_disconnect(cb.message)
+
+        elif d == "chat_continue":
             sess.web_search = False
-            await cb.message.answer("Savolingizni yuboring:", reply_markup=kb_cancel())
+            await cb.message.answer("💬", reply_markup=kb_cancel(lang))
 
-        elif data == "voice_hint":
-            await cb.message.answer(
-                "Ovozli xabar yuboring - savol sifatida qabul qilinadi."
-            )
+        elif d == "voice_hint":
+            icons = {"uz": "🎤 Ovozli xabar yuboring.", "ru": "🎤 Отправьте голосовое сообщение.", "en": "🎤 Send a voice message."}
+            await cb.message.answer(icons.get(lang, "🎤 Send voice."))
 
-        elif data == "web_search":
+        elif d == "web_search":
+            if not config.tavily_key:
+                await cb.message.answer(t(lang, "no_search_key"))
+                return
             sess.web_search = True
             sess.step = "in_chat"
-            await cb.message.answer(
-                "Internet qidiruv yoqildi. Savolingizni yuboring:",
-                reply_markup=kb_cancel(),
-            )
+            await cb.message.answer(t(lang, "web_on"), reply_markup=kb_cancel(lang))
 
-        elif data == "exit_chat":
+        elif d == "exit_chat":
             sess.step = "idle"
             sess.web_search = False
-            await cb.message.answer("Chat yopildi.", reply_markup=kb_main())
+            await cb.message.answer(t(lang, "exited"), reply_markup=kb_main(lang))
 
-        elif data == "google_auth":
+        elif d == "google_auth":
             if not config.google_client_id:
-                await cb.message.answer("Google OAuth sozlanmagan.")
+                await cb.message.answer(t(lang, "oauth_not_set"))
                 return
             import secrets as _sec
             flow = make_flow()
-            auth_url, _ = flow.authorization_url(
-                access_type="offline", prompt="consent"
-            )
+            auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
             state = _sec.token_urlsafe(16)
-            _oauth_states[state] = {"uid": uid, "mode": "sheets", "flow": flow}
-            await cb.message.answer(
-                f"Google hisobiga kirish uchun:\n{auth_url}"
-            )
+            _oauth_states[state] = {"uid": uid, "mode": "sheets", "flow": flow, "lang": lang}
+            await cb.message.answer(t(lang, "auth_link", url=auth_url), parse_mode="HTML")
 
-        elif data == "public_link":
+        elif d == "public_link":
             sess.step = "waiting_sheet"
-            await cb.message.answer(
-                "Google Sheets havolasini yuboring\n"
-                "(fayl ommaviy bolishi kerak - 'Anyone with link can view')",
-                reply_markup=kb_cancel(),
-            )
+            await cb.message.answer(t(lang, "ask_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
 
-    @dp.message(F.text == "Google Sheets")
+    # ── Button: Excel ─────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_excel") for l in ("uz","ru","en")}))
+    async def btn_excel(msg: Message):
+        sess = get_session(msg.from_user.id)
+        sess.step = "waiting_excel"
+        await msg.answer(t(sess.lang, "ask_excel"), reply_markup=kb_cancel(sess.lang))
+
+    # ── Button: Sheets ────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_sheets") for l in ("uz","ru","en")}))
     async def btn_sheets(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
+        lang = sess.lang
         if sess.google_creds_json:
             sess.step = "waiting_sheet"
-            await msg.answer(
-                "Google Sheets havolasini yuboring:\nhttps://docs.google.com/spreadsheets/d/...",
-                reply_markup=kb_cancel(),
-            )
+            await msg.answer(t(lang, "ask_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
         else:
-            await msg.answer(
-                "Google Sheets ulash\n\nQuyidagilardan birini tanlang:",
-                reply_markup=kb_connect(),
-            )
+            await msg.answer(t(lang, "choose_connect"), reply_markup=kb_connect(lang))
 
-    @dp.message(F.text == "Excel yuklash")
-    async def btn_excel(msg: Message):
+    # ── Button: Folder ────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_folder") for l in ("uz","ru","en")}))
+    async def btn_folder(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
-        sess.step = "waiting_excel"
-        await msg.answer(
-            "Excel faylni yuboring (.xlsx yoki .xls):", reply_markup=kb_cancel()
-        )
+        lang = sess.lang
+        if not sess.google_creds_json:
+            await msg.answer(t(lang, "choose_connect"), reply_markup=kb_connect(lang))
+            return
+        sess.step = "waiting_folder"
+        await msg.answer(t(lang, "ask_folder"), reply_markup=kb_cancel(lang), parse_mode="HTML")
 
-    @dp.message(F.text == "Internet qidiruv")
-    async def btn_websearch(msg: Message):
-        uid = msg.from_user.id
-        sess = get_session(uid)
+    # ── Button: Search ────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_search") for l in ("uz","ru","en")}))
+    async def btn_search(msg: Message):
+        sess = get_session(msg.from_user.id)
+        lang = sess.lang
         if not config.tavily_key:
-            await msg.answer("Internet qidiruv sozlanmagan (TAVILY_API_KEY yoq).")
+            await msg.answer(t(lang, "no_search_key"), reply_markup=kb_main(lang))
             return
         sess.web_search = True
         sess.step = "in_chat"
-        await msg.answer(
-            "Internet qidiruv yoqildi. Savolingizni yuboring:", reply_markup=kb_cancel()
-        )
+        await msg.answer(t(lang, "web_on"), reply_markup=kb_cancel(lang))
 
-    @dp.message(F.text == "Yordam")
+    # ── Button: Help ──────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_help") for l in ("uz","ru","en")}))
     async def btn_help(msg: Message):
-        await cmd_help(msg)
+        sess = get_session(msg.from_user.id)
+        await msg.answer(t(sess.lang, "help"), reply_markup=kb_main(sess.lang), parse_mode="HTML")
 
-    @dp.message(F.text == "Bekor qilish")
+    # ── Button: Settings ──────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_settings") for l in ("uz","ru","en")}))
+    async def btn_settings(msg: Message):
+        sess = get_session(msg.from_user.id)
+        lang = sess.lang
+        await msg.answer(t(lang, "settings"), reply_markup=kb_settings(lang), parse_mode="HTML")
+
+    # ── Button: Cancel ────────────────────────────────────────────────────────
+    @dp.message(F.text.in_({t(l, "btn_cancel") for l in ("uz","ru","en")}))
     async def btn_cancel(msg: Message):
-        uid = msg.from_user.id
-        sess = get_session(uid)
+        sess = get_session(msg.from_user.id)
         sess.step = "idle"
         sess.web_search = False
-        await msg.answer("Bekor qilindi.", reply_markup=kb_main())
+        await msg.answer(t(sess.lang, "cancelled"), reply_markup=kb_main(sess.lang))
 
+    # ── Document (Excel) ──────────────────────────────────────────────────────
     @dp.message(F.document)
     async def handle_doc(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
+        lang = sess.lang
         doc = msg.document
         fname = (doc.file_name or "file").lower()
         if not fname.endswith((".xlsx", ".xls", ".xlsm")):
-            await msg.answer(
-                "Faqat Excel fayl (.xlsx yoki .xls) qabul qilinadi.",
-                reply_markup=kb_main() if not has_data(sess) else kb_chat(),
-            )
+            await msg.answer(t(lang, "no_excel"), reply_markup=kb_main(lang) if not has_data(sess) else kb_chat(lang), parse_mode="HTML")
             return
-        await msg.answer("Excel yuklanmoqda...")
+        loading = await msg.answer(t(lang, "loading"))
         try:
             tfile = await msg.bot.get_file(doc.file_id)
             buf = io.BytesIO()
             await msg.bot.download_file(tfile.file_path, destination=buf)
             rows = parse_excel(doc.file_name or "file.xlsx", buf.getvalue())
             if not rows:
-                await msg.answer("Fayl bosh yoki oqib bolmadi.")
+                await loading.edit_text("❌ Fayl bo'sh yoki o'qib bo'lmadi.")
                 return
-            # Count non-empty rows
             non_empty = [r for r in rows if any(str(c).strip() for c in r)]
             n_cols = max((len(r) for r in rows[:5]), default=0)
-            # Log header row for debugging
             header = rows[0] if rows else []
-            logger.info(f"Excel uid={uid}: {len(rows)} rows, {n_cols} cols, file={doc.file_name}")
-            logger.info(f"Excel header uid={uid}: {header[:10]}")
+            header_str = " | ".join(str(h) for h in header[:8] if str(h).strip())
             sess.excel_data = rows
             sess.sheets_data = {}
             sess.folder_data = {}
             sess.sheet_name = doc.file_name or "Excel"
             sess.web_search = False
             sess.step = "in_chat"
-            # Show first row (headers) to user
-            header_str = " | ".join(str(h) for h in header[:8] if str(h).strip())
-            await msg.answer(
-                f"Excel yuklandi!\n"
-                f"Fayl: {doc.file_name}\n"
-                f"Qatorlar: {len(non_empty)} ta\n"
-                f"Ustunlar: {n_cols} ta\n"
-                f"Sarlavhalar: {header_str}\n\n"
-                "Savolingizni yozing yoki ovozli yuboring:",
-                reply_markup=kb_chat(),
+            logger.info(f"Excel uid={uid}: {len(rows)} rows, file={doc.file_name}")
+            await loading.edit_text(
+                t(lang, "excel_ok", name=doc.file_name, rows=len(non_empty), cols=n_cols, headers=header_str),
+                parse_mode="HTML",
             )
+            await msg.answer("👇", reply_markup=kb_chat(lang))
         except Exception as e:
-            logger.error(f"Excel error uid={uid}: {e}")
-            await msg.answer(f"Excel oqushda xatolik: {e}", reply_markup=kb_main())
+            logger.error(f"Excel uid={uid}: {e}")
+            await loading.edit_text(f"❌ Xatolik: {e}")
 
+    # ── Voice ─────────────────────────────────────────────────────────────────
     @dp.message(F.voice)
     async def handle_voice(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
+        lang = sess.lang
         if not config.openai_key:
-            await msg.answer(
-                "Ovozli savol ishlamaydi - OPENAI_API_KEY ornatilmagan.\n"
-                "Savolingizni matn shaklida yuboring.",
-                reply_markup=kb_chat() if has_data(sess) else kb_main(),
-            )
+            await msg.answer(t(lang, "no_voice_key"), reply_markup=kb_chat(lang) if has_data(sess) else kb_main(lang))
             return
         if not has_data(sess) and not sess.web_search:
-            await msg.answer(
-                "Avval malumot yuklang (Excel yoki Google Sheets).",
-                reply_markup=kb_main(),
-            )
+            await msg.answer(t(lang, "no_data"), reply_markup=kb_main(lang))
             return
-        await msg.bot.send_chat_action(msg.chat.id, "typing")
+        status = await msg.answer(t(lang, "transcribing"))
         try:
             tfile = await msg.bot.get_file(msg.voice.file_id)
             buf = io.BytesIO()
             await msg.bot.download_file(tfile.file_path, destination=buf)
-            ogg_bytes = buf.getvalue()
+            text, err = await transcribe_voice(buf.getvalue(), config.openai_key)
         except Exception as e:
-            await msg.answer(f"Audio yuklashda xatolik: {e}")
+            await status.edit_text(f"❌ Audio error: {e}")
             return
-        await msg.answer("Ovoz aniqlanayapti...")
-        text, err = await transcribe_voice(ogg_bytes, config.openai_key)
         if not text:
-            await msg.answer(
-                f"Ovozni aniqlashda xatolik: {err}\nSavolingizni matn shaklida yuboring."
-            )
+            await status.edit_text(t(lang, "voice_fail", err=err))
             return
-        await msg.answer(f"Aniqlandi: {text}")
+        await status.edit_text(t(lang, "voice_detected", text=text), parse_mode="HTML")
         await _process_question(msg, sess, text)
 
+    # ── Text ──────────────────────────────────────────────────────────────────
     @dp.message(F.text)
     async def handle_text(msg: Message):
         uid = msg.from_user.id
@@ -1102,35 +1364,20 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         if not text:
             return
         sess = get_session(uid)
-        logger.info(
-            f"TEXT uid={uid} step={sess.step!r} web={sess.web_search} "
-            f"excel={len(sess.excel_data)} sheets={len(sess.sheets_data)} "
-            f"folder={len(sess.folder_data)} | {text[:60]!r}"
-        )
+        lang = sess.lang
+        logger.info(f"TEXT uid={uid} step={sess.step!r} | {text[:60]!r}")
 
-        # waiting_sheet step
+        # ── waiting_sheet
         if sess.step == "waiting_sheet":
             sheet_id = _extract_sheet_id(text)
             if not sheet_id:
-                await msg.answer(
-                    "Google Sheets havolasi topilmadi.\n\n"
-                    "Misol:\nhttps://docs.google.com/spreadsheets/d/1ABC.../edit",
-                    reply_markup=kb_cancel(),
-                )
+                await msg.answer(t(lang, "not_found_id"), reply_markup=kb_cancel(lang), parse_mode="HTML")
                 return
-            await msg.answer("Google Sheets yuklanmoqda...")
+            status = await msg.answer(t(lang, "loading"))
             try:
-                if sess.google_creds_json:
-                    data = await fetch_sheet_with_creds(sheet_id, sess.google_creds_json)
-                else:
-                    data = await fetch_sheet_public(sheet_id)
+                data = await fetch_sheet_with_creds(sheet_id, sess.google_creds_json) if sess.google_creds_json else await fetch_sheet_public(sheet_id)
                 if not data:
-                    await msg.answer(
-                        "Google Sheets yuklanmadi.\n"
-                        "Sabab: Fayl yopiq yoki ID notogri.\n"
-                        "Share -> Anyone with link -> Viewer qiling.",
-                        reply_markup=kb_cancel(),
-                    )
+                    await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                     return
                 total = sum(len(r) for r in data.values())
                 sess.sheets_data = data
@@ -1140,84 +1387,59 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 sess.sheet_name = text[:50]
                 sess.web_search = False
                 sess.step = "in_chat"
-                info = "\n".join(f"  {t}: {len(r)} qator" for t, r in data.items())
-                await msg.answer(
-                    f"Google Sheets yuklandi!\n\n{info}\nJami: {total} qator\n\n"
-                    "Savolingizni yozing yoki ovozli yuboring:",
-                    reply_markup=kb_chat(),
+                await status.edit_text(
+                    t(lang, "sheets_ok", sheets=len(data), rows=total),
+                    parse_mode="HTML",
                 )
+                await msg.answer("👇", reply_markup=kb_chat(lang))
             except Exception as e:
-                logger.error(f"Sheets error uid={uid}: {e}")
-                await msg.answer(f"Xatolik: {e}", reply_markup=kb_cancel())
+                await status.edit_text(f"❌ {e}")
             return
 
-        # waiting_folder step
+        # ── waiting_folder
         if sess.step == "waiting_folder":
             folder_id = _extract_folder_id(text)
             if not folder_id:
-                await msg.answer(
-                    "Google Drive papka havolasi topilmadi.\n\n"
-                    "Misol:\nhttps://drive.google.com/drive/folders/1ABC...",
-                    reply_markup=kb_cancel(),
-                )
+                await msg.answer(t(lang, "folder_not_found"), reply_markup=kb_cancel(lang), parse_mode="HTML")
                 return
             if not sess.google_creds_json:
-                await msg.answer(
-                    "Google Drive uchun avval hisobingizga ulaning:",
-                    reply_markup=kb_connect(),
-                )
+                await msg.answer(t(lang, "choose_connect"), reply_markup=kb_connect(lang))
                 return
-            await msg.answer("Google Drive papkasi yuklanmoqda...")
+            status = await msg.answer(t(lang, "loading"))
             try:
                 data = await fetch_folder_sheets(folder_id, sess.google_creds_json)
                 if not data:
-                    await msg.answer(
-                        "Papkada spreadsheet topilmadi yoki ruxsat yoq.",
-                        reply_markup=kb_cancel(),
-                    )
+                    await status.edit_text("❌ Papkada spreadsheet topilmadi yoki ruxsat yo'q.")
                     return
-                total_rows = sum(
-                    len(rows) for sheets in data.values() for rows in sheets.values()
-                )
+                total_rows = sum(len(rows) for sheets in data.values() for rows in sheets.values())
                 sess.folder_data = data
                 sess.sheets_data = {}
                 sess.excel_data = []
                 sess.web_search = False
                 sess.step = "in_chat"
-                info = "\n".join(
-                    f"  {n.split('::')[0]}: {len(s)} sheet"
-                    for n, s in list(data.items())[:10]
+                await status.edit_text(
+                    t(lang, "folder_ok", files=len(data), rows=total_rows),
+                    parse_mode="HTML",
                 )
-                await msg.answer(
-                    f"Google Drive papkasi yuklandi!\n\n{info}\n"
-                    f"{len(data)} jadval, {total_rows} qator\n\n"
-                    "Savolingizni yozing yoki ovozli yuboring:",
-                    reply_markup=kb_chat(),
-                )
+                await msg.answer("👇", reply_markup=kb_chat(lang))
             except Exception as e:
-                logger.error(f"Folder error uid={uid}: {e}")
-                await msg.answer(f"Xatolik: {e}", reply_markup=kb_cancel())
+                await status.edit_text(f"❌ {e}")
             return
 
-        # in_chat or has data
+        # ── in_chat or has data
         if sess.step == "in_chat" or has_data(sess) or sess.web_search:
             if sess.step != "in_chat":
                 sess.step = "in_chat"
             await _process_question(msg, sess, text)
             return
 
-        # Google Sheets link sent from idle
-        if "docs.google.com/spreadsheets" in text or re.search(
-            r"spreadsheets/d/[a-zA-Z0-9\-_]+", text
-        ):
+        # ── Sheets link from idle
+        if "docs.google.com/spreadsheets" in text or re.search(r"spreadsheets/d/[a-zA-Z0-9\-_]+", text):
             sheet_id = _extract_sheet_id(text)
             if sheet_id:
-                await msg.answer("Google Sheets yuklanmoqda...")
+                status = await msg.answer(t(lang, "loading"))
                 try:
-                    if sess.google_creds_json:
-                        data = await fetch_sheet_with_creds(sheet_id, sess.google_creds_json)
-                    else:
-                        data = await fetch_sheet_public(sheet_id)
+                    data = await fetch_sheet_public(sheet_id) if not sess.google_creds_json else await fetch_sheet_with_creds(sheet_id, sess.google_creds_json)
                     if data:
                         total = sum(len(r) for r in data.values())
                         sess.sheets_data = data
@@ -1226,156 +1448,101 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                         sess.sheet_id = sheet_id
                         sess.web_search = False
                         sess.step = "in_chat"
-                        await msg.answer(
-                            f"Google Sheets yuklandi ({total} qator).\nSavolingizni yuboring:",
-                            reply_markup=kb_chat(),
-                        )
+                        await status.edit_text(t(lang, "sheets_ok", sheets=len(data), rows=total), parse_mode="HTML")
+                        await msg.answer("👇", reply_markup=kb_chat(lang))
                     else:
-                        await msg.answer(
-                            "Sheets yuklanmadi. Faylni ommaviy qiling.",
-                            reply_markup=kb_cancel(),
-                        )
+                        await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                 except Exception as e:
-                    await msg.answer(f"Xatolik: {e}")
+                    await status.edit_text(f"❌ {e}")
             return
 
-        # Google Drive folder link from idle
-        if "drive.google.com" in text and (
-            "folders" in text or "open?id" in text
-        ):
-            if sess.google_creds_json:
-                folder_id = _extract_folder_id(text)
-                if folder_id:
-                    sess.step = "waiting_folder"
-                    await msg.answer("Yuklanmoqda...")
-                    try:
-                        data = await fetch_folder_sheets(folder_id, sess.google_creds_json)
-                        if data:
-                            total_rows = sum(
-                                len(r) for s in data.values() for r in s.values()
-                            )
-                            sess.folder_data = data
-                            sess.sheets_data = {}
-                            sess.excel_data = []
-                            sess.step = "in_chat"
-                            await msg.answer(
-                                f"Papka yuklandi! {len(data)} jadval, {total_rows} qator.\nSavol bering:",
-                                reply_markup=kb_chat(),
-                            )
-                        else:
-                            await msg.answer(
-                                "Papkada malumot topilmadi.", reply_markup=kb_main()
-                            )
-                    except Exception as e:
-                        await msg.answer(f"Xatolik: {e}")
-            else:
-                await msg.answer(
-                    "Google Drive uchun avval hisobingizga ulaning:",
-                    reply_markup=kb_connect(),
-                )
-            return
+        # ── Default
+        await msg.answer(t(lang, "no_data"), reply_markup=kb_main(lang))
 
-        # Default
-        await msg.answer(
-            "Nima qilish kerak?\n\n"
-            "- Excel yuklash tugmasini bosing\n"
-            "- Google Sheets tugmasini bosing\n"
-            "- Internet qidiruv tugmasini bosing\n\n"
-            "Yoki /start buyrug'ini yuboring.",
-            reply_markup=kb_main(),
-        )
-
+    # ── Q&A engine ────────────────────────────────────────────────────────────
     async def _process_question(msg: Message, sess: Session, question: str):
         uid = msg.from_user.id
-        logger.info(
-            f"Q&A uid={uid} web={sess.web_search} has_data={has_data(sess)} q={question[:60]!r}"
-        )
+        lang = sess.lang
+        logger.info(f"Q uid={uid} web={sess.web_search} data={has_data(sess)} q={question[:60]!r}")
         await msg.bot.send_chat_action(msg.chat.id, "typing")
 
+        # Web-only search
         if sess.web_search and not has_data(sess):
             if not config.tavily_key:
-                await msg.answer("Internet qidiruv sozlanmagan.", reply_markup=kb_main())
+                await msg.answer(t(lang, "no_search_key"), reply_markup=kb_main(lang))
                 return
-            await msg.answer("Internetdan qidirilmoqda...")
-            result = await do_web_search(question, config.tavily_key, config.grok_key)
-            await msg.answer(result, parse_mode=None, reply_markup=kb_chat())
+            status = await msg.answer(t(lang, "searching"))
+            result = await do_web_search(question, config.tavily_key, config.grok_key, lang)
+            await status.edit_text(result, parse_mode="HTML")
+            await msg.answer("👇", reply_markup=kb_chat(lang))
             return
 
         if not has_data(sess):
-            await msg.answer(
-                "Malumot topilmadi. Avval Excel yuklang yoki Google Sheets ulang.",
-                reply_markup=kb_main(),
-            )
+            await msg.answer(t(lang, "no_data"), reply_markup=kb_main(lang))
             return
 
-        # ── Try Python-based answer first (exact, reliable) ───────────────
+        # 1. Try Python exact answer
         try:
-            py_answer = _python_answer(question, sess)
+            py_ans = _python_answer(question, sess)
         except Exception as e:
-            logger.warning(f"Python answer error uid={uid}: {e}")
-            py_answer = None
+            logger.warning(f"python_answer error: {e}")
+            py_ans = None
 
-        if py_answer is not None:
-            logger.info(f"Python answered uid={uid}: {py_answer[:100]}")
-            await msg.answer(py_answer, parse_mode=None, reply_markup=kb_chat())
+        if py_ans is not None:
+            logger.info(f"Python answered uid={uid}")
+            await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
             return
 
-        # ── Fall back to AI for complex/natural language questions ─────────
-        context = build_context(sess)
-        ctx_lines = context.count("\n")
-        logger.info(f"Context uid={uid}: {len(context)} chars, {ctx_lines} lines")
-        logger.info(f"Context preview uid={uid}:\n{context[:500]}")
-
-        if not context.strip():
-            await msg.answer("Malumotlar bosh korinmoqda.", reply_markup=kb_main())
-            return
-
+        # 2. AI answer
         if not config.grok_key:
-            await msg.answer(
-                f"AI sozlanmagan (GROK_API_KEY yoq).\n\nMalumotlar:\n{context[:1000]}",
-                parse_mode=None,
-                reply_markup=kb_chat(),
-            )
+            ctx = build_context(sess)
+            await msg.answer(f"⚠️ AI sozlanmagan.\n\n{ctx[:2000]}", parse_mode=None, reply_markup=kb_chat(lang))
             return
 
-        await msg.answer("AI tahlil qilyapti...")
-        answer = await ask_grok(question, context, config.grok_key)
+        status = await msg.answer(t(lang, "thinking"))
+        ctx = build_context(sess)
+        logger.info(f"Context uid={uid}: {len(ctx)} chars")
 
+        if not ctx.strip():
+            await status.edit_text(t(lang, "no_data"))
+            return
+
+        answer = await ask_grok(question, ctx, config.grok_key, lang)
+
+        # Optionally also web search
         if sess.web_search and config.tavily_key:
-            web_result = await do_web_search(question, config.tavily_key, config.grok_key)
-            answer = f"{answer}\n\n{web_result}"
+            web_res = await do_web_search(question, config.tavily_key, config.grok_key, lang)
+            answer = f"{answer}\n\n{web_res}"
 
         if len(answer) > 4000:
-            parts = [answer[i : i + 4000] for i in range(0, len(answer), 4000)]
+            parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
+            await status.delete()
             for i, part in enumerate(parts):
-                kb = kb_chat() if i == len(parts) - 1 else None
-                await msg.answer(part, parse_mode=None, reply_markup=kb)
+                kb = kb_chat(lang) if i == len(parts) - 1 else None
+                await msg.answer(part, parse_mode="HTML", reply_markup=kb)
         else:
-            await msg.answer(answer, parse_mode=None, reply_markup=kb_chat())
+            await status.edit_text(answer, parse_mode="HTML")
+            await msg.answer("👇", reply_markup=kb_chat(lang))
 
 
+# ─── Main ─────────────────────────────────────────────────────────────────────
 async def main():
     config = Config.from_env()
     logger.info("=" * 55)
     logger.info("OnBrain AI Bot starting...")
-    logger.info(f"  GROK_API_KEY  : {'SET len=' + str(len(config.grok_key)) if config.grok_key else 'NOT SET'}")
-    logger.info(f"  OPENAI_API_KEY: {'SET' if config.openai_key else 'NOT SET'}")
-    logger.info(f"  TAVILY_API_KEY: {'SET' if config.tavily_key else 'NOT SET'}")
-    logger.info(f"  GOOGLE_CLIENT : {'SET' if config.google_client_id else 'NOT SET'}")
-    logger.info(f"  Port          : {config.port}")
-    logger.info(f"  Redirect URI  : {config.redirect_uri}")
+    logger.info(f"  GROK     : {'SET' if config.grok_key else 'NOT SET'}")
+    logger.info(f"  OPENAI   : {'SET' if config.openai_key else 'NOT SET'}")
+    logger.info(f"  TAVILY   : {'SET' if config.tavily_key else 'NOT SET'}")
+    logger.info(f"  GOOGLE   : {'SET' if config.google_client_id else 'NOT SET'}")
+    logger.info(f"  PORT     : {config.port}")
     logger.info("=" * 55)
 
     _init_db()
-
-    bot = Bot(
-        token=config.bot_token,
-        default=DefaultBotProperties(parse_mode=None),
-    )
+    bot = Bot(token=config.bot_token, default=DefaultBotProperties(parse_mode=None))
 
     try:
         me = await bot.get_me()
-        logger.info(f"Bot: @{me.username} (id={me.id})")
+        logger.info(f"Bot: @{me.username}")
     except Exception as e:
         logger.error(f"Bot auth failed: {e}")
         raise
@@ -1384,15 +1551,24 @@ async def main():
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
         pass
-    await asyncio.sleep(3)
+    await asyncio.sleep(2)
+
+    # Set bot commands
+    from aiogram.types import BotCommand
+    await bot.set_my_commands([
+        BotCommand(command="start", description="🏠 Bosh menyu"),
+        BotCommand(command="help", description="❓ Yordam"),
+        BotCommand(command="lang", description="🌍 Til tanlash"),
+        BotCommand(command="disconnect", description="🔌 Ma'lumotlarni tozalash"),
+    ])
 
     dp = Dispatcher()
     register(dp, config, bot)
 
-    oauth_server = OAuthServer(bot, config)
-    await oauth_server.start()
+    oauth = OAuthServer(bot, config)
+    await oauth.start()
 
-    logger.info("Starting polling...")
+    logger.info("Polling started...")
     try:
         await dp.start_polling(
             bot,
@@ -1401,7 +1577,7 @@ async def main():
             long_poll_timeout=30.0,
         )
     finally:
-        await oauth_server.stop()
+        await oauth.stop()
         await bot.session.close()
 
 
@@ -1414,10 +1590,7 @@ if __name__ == "__main__":
             logger.info("Stopped.")
             break
         except Exception as e:
-            logger.error(f"Bot crashed ({type(e).__name__}): {e}")
-            if "conflict" in str(e).lower():
-                logger.info("Conflict - waiting 15s...")
-                time.sleep(15)
-            else:
-                logger.info("Restarting in 5s...")
-                time.sleep(5)
+            logger.error(f"Crash ({type(e).__name__}): {e}")
+            wait = 15 if "conflict" in str(e).lower() else 5
+            logger.info(f"Restart in {wait}s...")
+            time.sleep(wait)
