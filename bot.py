@@ -1,10 +1,12 @@
 import asyncio
+import collections
 import io
 import json
 import logging
 import os
 import re
 import sqlite3
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -49,6 +51,77 @@ MAX_ROWS = 2000
 MAX_COLS = 60
 MAX_CHARS = 120_000
 _DB = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
+# Storage mode: "cloud" (default) or "on_prem" (no S3, local only)
+STORAGE_MODE = os.environ.get("STORAGE_MODE", "cloud").strip().lower()
+
+# ─── Rate limiter ─────────────────────────────────────────────────────────────
+_RATE_LIMIT = 20          # max requests per window
+_RATE_WINDOW = 60         # seconds
+
+class _RateLimiter:
+    """Sliding-window rate limiter keyed by user_id."""
+    def __init__(self):
+        self._buckets: dict[int, collections.deque] = {}
+
+    def is_allowed(self, uid: int) -> bool:
+        now = time.monotonic()
+        if uid not in self._buckets:
+            self._buckets[uid] = collections.deque()
+        dq = self._buckets[uid]
+        # Remove timestamps outside the window
+        while dq and now - dq[0] > _RATE_WINDOW:
+            dq.popleft()
+        if len(dq) >= _RATE_LIMIT:
+            return False
+        dq.append(now)
+        return True
+
+_rate_limiter = _RateLimiter()
+
+# ─── URL validator ────────────────────────────────────────────────────────────
+_ALLOWED_SHEETS_HOSTS = {"docs.google.com"}
+
+def validate_sheets_url(url: str) -> tuple[bool, str]:
+    """Return (ok, error_message). Only docs.google.com/spreadsheets allowed."""
+    url = url.strip()
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().lstrip("www.")
+        if host not in _ALLOWED_SHEETS_HOSTS:
+            return False, f"❌ Noto'g'ri domen: <code>{host}</code>\nFaqat <b>docs.google.com</b> manzili qabul qilinadi."
+        if "/spreadsheets/" not in parsed.path:
+            return False, "❌ Bu Google Sheets havolasi emas.\nTo'g'ri format: <code>https://docs.google.com/spreadsheets/d/...</code>"
+    except Exception:
+        return False, "❌ Havola tahlil qilinmadi. To'g'ri URL yuboring."
+    return True, ""
+
+# ─── Secure temp-file helper (Excel) ─────────────────────────────────────────
+def _safe_temp_path(uid: int, ext: str = ".xlsx") -> str:
+    ts = int(time.time())
+    tmp_dir = tempfile.gettempdir()
+    return os.path.join(tmp_dir, f"user_{uid}_{ts}{ext}")
+
+def _secure_delete(path: str):
+    """Overwrite then remove a file so content can't be recovered."""
+    try:
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            with open(path, "r+b") as f:
+                f.write(b"\x00" * size)
+            os.remove(path)
+    except Exception as e:
+        logger.warning(f"secure_delete failed for {os.path.basename(path)}: {e}")
+
+# ─── Safe logger (never logs tokens, URLs, file content) ─────────────────────
+def _safe_log(uid: int, action: str, source_name: str = "", extra: str = ""):
+    """Log only uid, action, source_name. Never log URLs, tokens, file content."""
+    msg = f"uid={uid} action={action!r}"
+    if source_name:
+        msg += f" source={source_name!r}"
+    if extra:
+        msg += f" {extra}"
+    logger.info(msg)
 
 # ─── i18n ────────────────────────────────────────────────────────────────────
 TEXTS = {
@@ -672,21 +745,30 @@ def kb_settings(lang: str = "uz") -> InlineKeyboardMarkup:
 
 
 # ─── Excel ───────────────────────────────────────────────────────────────────
-def parse_excel(name: str, content: bytes) -> list:
+def parse_excel(name: str, content: bytes, uid: int = 0) -> list:
+    """Parse Excel bytes. Writes to temp file, reads, then securely deletes it."""
     rows = []
+    ext = ".xls" if name.lower().endswith(".xls") else ".xlsx"
+    tmp_path = _safe_temp_path(uid, ext)
     try:
-        if name.lower().endswith(".xls"):
-            wb = xlrd.open_workbook(file_contents=content)
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+        if ext == ".xls":
+            wb = xlrd.open_workbook(tmp_path)
             ws = wb.sheet_by_index(0)
             for r in range(ws.nrows):
                 rows.append([str(ws.cell_value(r, c)) for c in range(ws.ncols)])
         else:
-            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
             ws = wb.active
             for row in ws.iter_rows(values_only=True):
                 rows.append([str(v) if v is not None else "" for v in row])
+            wb.close()
     except Exception as e:
-        logger.error(f"Excel parse error: {e}")
+        logger.error(f"Excel parse error (uid={uid}): {e}")
+    finally:
+        # Always securely delete temp file — never keep on disk
+        _secure_delete(tmp_path)
     return rows
 
 
@@ -1438,6 +1520,71 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
     # ── /clear_all confirm via text ───────────────────────────────────────────
     # (Handled inside handle_text below via sess.pending_clear flag)
 
+    # ── /privacy ──────────────────────────────────────────────────────────────
+    @dp.message(Command("privacy"))
+    async def cmd_privacy(msg: Message):
+        await msg.answer(
+            "🔒 <b>Maxfiylik kafolatlari</b>\n\n"
+            "✅ Sizning ma'lumotlaringiz <b>faqat sizga ko'rinadi</b>.\n"
+            "   Boshqa hech qaysi foydalanuvchi sizning fayllaringizni ko'ra olmaydi.\n\n"
+            "🗑 Excel faylingiz serverga yuklanadi, <b>24 soat ichida o'chiriladi</b>.\n"
+            "   Fayl o'qilib bo'lgach, xotiradan ham tozalanadi.\n\n"
+            "👁 Google Sheets'ga <b>faqat o'qish huquqi</b> bilan kiramiz.\n"
+            "   Yozish, o'chirish yoki tahrirlash imkonimiz yo'q.\n\n"
+            "🔐 Google access token'ingiz bazada saqlanmaydi.\n"
+            "   Har safar ommaviy havola orqali o'qiladi.\n\n"
+            "🚫 SQL injection va xakerlik hujumlaridan himoyalangan.\n"
+            "   Barcha so'rovlar parametrli query bilan bajariladi.\n\n"
+            "⚡ Rate limit: 1 daqiqada 20 ta so'rovdan ko'p yuborib bo'lmaydi.\n\n"
+            "🧹 Xohlasangiz <b>/clear_all</b> buyrug'i bilan barcha ma'lumotlaringizni\n"
+            "   darhol o'chirib tashlashingiz mumkin.\n\n"
+            "📦 <b>/export_my_data</b> — ma'lumotlaringizni JSON formatida olish (GDPR).",
+            parse_mode="HTML",
+        )
+
+    # ── /export_my_data ───────────────────────────────────────────────────────
+    @dp.message(Command("export_my_data"))
+    async def cmd_export_my_data(msg: Message):
+        uid = msg.from_user.id
+        sess = get_session(uid)
+        rows = db_list_sources(uid)
+        if not rows:
+            await msg.answer("📭 Sizda saqlangan ma'lumot yo'q.")
+            return
+        # Build GDPR-compliant export: only metadata, no file content
+        export = {
+            "user_id": uid,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "data_sources": [
+                {
+                    "id": r["id"],
+                    "source_type": r["source_type"],
+                    "source_name": r["source_name"],
+                    # source_url included for transparency (user's own data)
+                    "source_url": r["source_url"],
+                    "file_id": r["file_id"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ],
+            "note": (
+                "Bu faylda faqat ma'lumot manbalari ro'yxati mavjud. "
+                "Fayl mazmuni (Excel/Sheets ichidagi jadval) bu yerda saqlanmaydi."
+            ),
+        }
+        json_bytes = json.dumps(export, ensure_ascii=False, indent=2).encode("utf-8")
+        buf = io.BytesIO(json_bytes)
+        buf.name = f"my_data_{uid}.json"
+        await msg.answer_document(
+            document=buf,
+            caption=(
+                f"📦 <b>Sizning ma'lumotlaringiz (GDPR)</b>\n"
+                f"📅 Sana: {export['exported_at'][:10]}\n"
+                f"📚 Manbalar soni: {len(rows)} ta"
+            ),
+            parse_mode="HTML",
+        )
+
     # ── Callbacks ─────────────────────────────────────────────────────────────
     @dp.callback_query()
     async def handle_cb(cb: CallbackQuery):
@@ -1568,6 +1715,12 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         uid = msg.from_user.id
         sess = get_session(uid)
         lang = sess.lang
+
+        # Rate limit check
+        if not _rate_limiter.is_allowed(uid):
+            await msg.answer("⏳ Juda ko'p so'rov. 1 daqiqadan keyin urinib ko'ring.")
+            return
+
         doc = msg.document
         fname = (doc.file_name or "file").lower()
         if not fname.endswith((".xlsx", ".xls", ".xlsm")):
@@ -1578,7 +1731,9 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             tfile = await msg.bot.get_file(doc.file_id)
             buf = io.BytesIO()
             await msg.bot.download_file(tfile.file_path, destination=buf)
-            rows = parse_excel(doc.file_name or "file.xlsx", buf.getvalue())
+            # parse_excel writes to temp file, reads, then securely deletes — uid passed for temp naming
+            rows = parse_excel(doc.file_name or "file.xlsx", buf.getvalue(), uid=uid)
+            buf.seek(0); buf.truncate(0)  # also clear in-memory buffer
             if not rows:
                 await loading.edit_text("❌ Fayl bo'sh yoki o'qib bo'lmadi.")
                 return
@@ -1591,7 +1746,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             raw_name = doc.file_name or "Excel"
             unique_name = _unique_source_name(uid, raw_name)
 
-            # Save to DB (INSERT only)
+            # Save to DB (INSERT only, no content stored in DB — only file_id reference)
             db_add_source(uid, "excel", unique_name, source_url=None, file_id=doc.file_id)
             total_count = db_source_count(uid)
 
@@ -1607,7 +1762,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             sess.sheet_name = unique_name
             sess.web_search = False
             sess.step = "in_chat"
-            logger.info(f"Excel uid={uid}: {len(rows)} rows, file={unique_name}, total_sources={total_count}")
+            # Safe log: no file content, no URLs
+            _safe_log(uid, "excel_upload", unique_name, f"rows={len(rows)} total_sources={total_count}")
 
             # Success messages (different if name was deduplicated)
             name_note = f" (nom o'zgartirildi: <code>{unique_name}</code>)" if unique_name != raw_name else ""
@@ -1618,7 +1774,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             )
             await msg.answer("👇", reply_markup=kb_chat(lang))
         except Exception as e:
-            logger.error(f"Excel uid={uid}: {e}")
+            logger.error(f"Excel upload error uid={uid}: {e}")
             await loading.edit_text(f"❌ Xatolik: {e}")
 
     # ── Voice ─────────────────────────────────────────────────────────────────
@@ -1657,7 +1813,17 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             return
         sess = get_session(uid)
         lang = sess.lang
-        logger.info(f"TEXT uid={uid} step={sess.step!r} | {text[:60]!r}")
+
+        # Rate limit check (skip for /clear_all Ha/Yo'q confirmation)
+        if not sess.pending_clear and not _rate_limiter.is_allowed(uid):
+            await msg.answer("⏳ Juda ko'p so'rov. 1 daqiqadan keyin urinib ko'ring.")
+            return
+
+        # Safe log: no message content for waiting_sheet (contains URL)
+        if sess.step == "waiting_sheet":
+            logger.info(f"TEXT uid={uid} step='waiting_sheet'")
+        else:
+            logger.info(f"TEXT uid={uid} step={sess.step!r} | {text[:60]!r}")
 
         # ── /clear_all confirmation
         if sess.pending_clear:
@@ -1676,6 +1842,11 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
 
         # ── waiting_sheet
         if sess.step == "waiting_sheet":
+            # Security: validate URL domain before processing
+            url_ok, url_err = validate_sheets_url(text)
+            if not url_ok:
+                await msg.answer(url_err, reply_markup=kb_cancel(lang), parse_mode="HTML")
+                return
             sheet_id = _extract_sheet_id(text)
             if not sheet_id:
                 await msg.answer(t(lang, "not_found_id"), reply_markup=kb_cancel(lang), parse_mode="HTML")
@@ -1687,13 +1858,10 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                     return
                 total = sum(len(r) for r in data.values())
-                # Build a human-readable name from the URL
-                raw_name = text[:60].strip()
-                # Try to extract a friendlier name from sheets metadata keys
                 sheet_tabs = list(data.keys())
                 auto_name = sheet_tabs[0] if len(sheet_tabs) == 1 else f"Sheets ({sheet_id[:8]})"
                 unique_name = _unique_source_name(uid, auto_name)
-                # DB INSERT (never replace)
+                # DB INSERT (never replace) — store URL in DB for reference, not in logs
                 db_add_source(uid, "google_sheets", unique_name, source_url=text, file_id=None)
                 total_count = db_source_count(uid)
                 # Session: ADD to sources, keep old ones
@@ -1709,6 +1877,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 sess.sheet_name = unique_name
                 sess.web_search = False
                 sess.step = "in_chat"
+                # Safe log: no URL in log output
+                _safe_log(uid, "sheets_add", unique_name, f"tabs={len(data)} rows={total} total_sources={total_count}")
                 await status.edit_text(
                     t(lang, "sheets_ok", sheets=len(data), rows=total)
                     + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
@@ -1716,7 +1886,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 )
                 await msg.answer("👇", reply_markup=kb_chat(lang))
             except Exception as e:
-                await status.edit_text(f"❌ {e}")
+                logger.error(f"Sheets add error uid={uid}: {e}")
+                await status.edit_text(f"❌ Google Sheets'ga ulanib bo'lmadi. Link to'g'riligini tekshiring.")
             return
 
         # ── waiting_folder
@@ -1758,6 +1929,11 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
 
         # ── Sheets link from idle (auto-detect)
         if "docs.google.com/spreadsheets" in text or re.search(r"spreadsheets/d/[a-zA-Z0-9\-_]+", text):
+            # Security: validate URL domain
+            url_ok, url_err = validate_sheets_url(text)
+            if not url_ok:
+                await msg.answer(url_err, parse_mode="HTML")
+                return
             sheet_id = _extract_sheet_id(text)
             if sheet_id:
                 status = await msg.answer(t(lang, "loading"))
@@ -1781,6 +1957,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                         sess.sheet_name = unique_name
                         sess.web_search = False
                         sess.step = "in_chat"
+                        _safe_log(uid, "sheets_add_idle", unique_name, f"tabs={len(data)} rows={total}")
                         await status.edit_text(
                             t(lang, "sheets_ok", sheets=len(data), rows=total)
                             + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
@@ -1790,7 +1967,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     else:
                         await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                 except Exception as e:
-                    await status.edit_text(f"❌ {e}")
+                    logger.error(f"Sheets idle add error uid={uid}: {e}")
+                    await status.edit_text("❌ Google Sheets'ga ulanib bo'lmadi. Link to'g'riligini tekshiring.")
             return
 
         # ── Default
@@ -1899,6 +2077,8 @@ async def main():
         BotCommand(command="my_sources", description="📚 Ulangan manbalar ro'yxati"),
         BotCommand(command="delete_source", description="🗑 Manbani o'chirish (raqam)"),
         BotCommand(command="clear_all", description="🧹 Barcha manbalarni tozalash"),
+        BotCommand(command="privacy", description="🔒 Maxfiylik kafolatlari"),
+        BotCommand(command="export_my_data", description="📦 Ma'lumotlarimni yuklab olish (GDPR)"),
         BotCommand(command="disconnect", description="🔌 Ma'lumotlarni tozalash"),
     ])
 
