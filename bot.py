@@ -649,18 +649,58 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
     raw = name_q.strip().lower()
     stripped = _strip_suffix(raw)
     candidates = list({raw, stripped})
+
+    # Find name columns (F.I.O, FIO, Ism, Name, ФИО etc.)
+    name_col_indices = []
+    for j, h in enumerate(header):
+        hl = str(h).strip().lower()
+        if any(w in hl for w in ["f.i.o", "fio", "ism", "name", "ф.и.о", "фио", "имя", "familiya", "fish"]):
+            name_col_indices.append(j)
+    # If no dedicated name column found, search all columns
+    search_all = len(name_col_indices) == 0
+
     results = []
     for i, row in enumerate(data_rows):
-        for j, cell in enumerate(row):
-            cs = str(cell).strip().lower()
-            matched = any(
-                (len(c) >= 3) and (c == cs or c in cs or (len(cs) >= 3 and cs in c) or (len(c) >= 4 and cs.startswith(c)))
-                for c in candidates
-            )
-            if matched:
-                col = str(header[j]).strip() if j < len(header) else f"Col{j}"
-                results.append({"row_index": i, "row": row, "matched_cell": str(cell).strip(), "matched_col": col})
+        cols_to_check = range(len(row)) if search_all else name_col_indices
+        matched_j = None
+        matched_cell = None
+        for j in cols_to_check:
+            if j >= len(row):
+                continue
+            cs = str(row[j]).strip().lower()
+            if not cs or len(cs) < 2:
+                continue
+            for c in candidates:
+                if len(c) < 3:
+                    continue
+                # Exact full match
+                if c == cs:
+                    matched_j = j
+                    matched_cell = str(row[j]).strip()
+                    break
+                # Cell contains candidate as a whole word (space-bounded)
+                # For F.I.O columns: "Familiya Ism Otaismi" format — only match
+                # position 0 (familiya) or 1 (ism), NOT position 2+ (otaismi/suffix).
+                # This prevents "KUMUSHOY YODGORBEK QIZI" from matching "Yodgorbek".
+                words_in_cell = cs.split()
+                if c in words_in_cell:
+                    pos = words_in_cell.index(c)
+                    is_name_col = j in name_col_indices
+                    # In name columns: allow only positions 0 (familiya) or 1 (ism)
+                    if not is_name_col or pos <= 1:
+                        matched_j = j
+                        matched_cell = str(row[j]).strip()
+                        break
+                # Cell starts with candidate (first name search)
+                if cs.startswith(c) and (len(cs) == len(c) or cs[len(c)] in (" ", "")):
+                    matched_j = j
+                    matched_cell = str(row[j]).strip()
+                    break
+            if matched_j is not None:
                 break
+        if matched_j is not None:
+            col = str(header[matched_j]).strip() if matched_j < len(header) else f"Col{matched_j}"
+            results.append({"row_index": i, "row": row, "matched_cell": matched_cell, "matched_col": col})
     return results
 
 
@@ -1191,7 +1231,9 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
 
         elif d == "chat_continue":
             sess.web_search = False
-            await cb.message.answer("💬", reply_markup=kb_cancel(lang))
+            sess.step = "in_chat"
+            hints = {"uz": "💬 Savolingizni yozing:", "ru": "💬 Задайте вопрос:", "en": "💬 Ask your question:"}
+            await cb.message.answer(hints.get(lang, "💬 Ask your question:"))
 
         elif d == "voice_hint":
             icons = {"uz": "🎤 Ovozli xabar yuboring.", "ru": "🎤 Отправьте голосовое сообщение.", "en": "🎤 Send a voice message."}
