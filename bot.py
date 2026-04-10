@@ -162,10 +162,16 @@ TEXTS = {
             "  «🌐 Internet qidiruv» tugmasini bosing\n\n"
             "🎤 <b>Ovozli savol:</b>\n"
             "  Ovozli xabar yuboring — bot javob beradi\n\n"
+            "📚 <b>Ko'p manba:</b>\n"
+            "  Bir nechta Excel va Sheets ulash mumkin.\n"
+            "  Bot hammasidan bir vaqtda qidiradi!\n\n"
             "⚙️ <b>Buyruqlar:</b>\n"
             "  /start — Bosh menyu\n"
             "  /help — Yordam\n"
             "  /lang — Til tanlash\n"
+            "  /my_sources — Ulangan manbalar\n"
+            "  /delete_source 2 — 2-manbani o'chirish\n"
+            "  /clear_all — Hammasini tozalash\n"
             "  /disconnect — Ma'lumotlarni tozalash"
         ),
         "settings": "⚙️ <b>Sozlamalar</b>\n\nTil: 🇺🇿 O'zbek",
@@ -427,6 +433,7 @@ def t(lang: str, key: str, **kwargs) -> str:
 class Session:
     step: str = "idle"
     lang: str = "uz"
+    # Legacy single-source fields (kept for compatibility, used as active/temporary)
     excel_data: list = field(default_factory=list)
     sheets_data: dict = field(default_factory=dict)
     folder_data: dict = field(default_factory=dict)
@@ -434,6 +441,10 @@ class Session:
     sheet_id: str = ""
     google_creds_json: str = ""
     web_search: bool = False
+    # Multi-source: each item: {id, source_type, source_name, source_url, file_id, data, header_rows}
+    sources: list = field(default_factory=list)
+    # For /clear_all confirmation
+    pending_clear: bool = False
 
 
 _sessions: dict[int, Session] = {}
@@ -446,7 +457,7 @@ def get_session(uid: int) -> Session:
 
 
 def has_data(s: Session) -> bool:
-    return bool(s.excel_data or s.sheets_data or s.folder_data)
+    return bool(s.sources or s.excel_data or s.sheets_data or s.folder_data)
 
 
 # ─── DB ──────────────────────────────────────────────────────────────────────
@@ -462,7 +473,85 @@ def _init_db():
             "CREATE TABLE IF NOT EXISTS tokens("
             "uid INTEGER PRIMARY KEY, creds TEXT, lang TEXT, updated TEXT)"
         )
+        c.execute(
+            "CREATE TABLE IF NOT EXISTS data_sources("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "user_id INTEGER NOT NULL,"
+            "source_type TEXT NOT NULL,"
+            "source_name TEXT NOT NULL,"
+            "source_url TEXT,"
+            "file_id TEXT,"
+            "created_at TEXT DEFAULT (datetime('now')))"
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_ds_user ON data_sources(user_id)")
         c.commit()
+
+
+# ─── Multi-source DB helpers ──────────────────────────────────────────────────
+def _unique_source_name(uid: int, name: str) -> str:
+    """Return 'name' if unique for user, otherwise 'name (2)', 'name (3)', ..."""
+    with _db_conn() as c:
+        rows = c.execute(
+            "SELECT source_name FROM data_sources WHERE user_id=?", (uid,)
+        ).fetchall()
+    existing = {r["source_name"] for r in rows}
+    if name not in existing:
+        return name
+    n = 2
+    base, ext = name, ""
+    if "." in name:
+        base, ext = name.rsplit(".", 1)
+        ext = "." + ext
+    while True:
+        candidate = f"{base} ({n}){ext}"
+        if candidate not in existing:
+            return candidate
+        n += 1
+
+
+def db_add_source(uid: int, source_type: str, source_name: str,
+                  source_url: str | None = None, file_id: str | None = None) -> int:
+    """INSERT a new source row, return its id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_conn() as c:
+        cur = c.execute(
+            "INSERT INTO data_sources(user_id,source_type,source_name,source_url,file_id,created_at) "
+            "VALUES(?,?,?,?,?,?)",
+            (uid, source_type, source_name, source_url, file_id, now),
+        )
+        c.commit()
+        return cur.lastrowid
+
+
+def db_list_sources(uid: int) -> list:
+    """Return all sources for user as list of sqlite3.Row."""
+    with _db_conn() as c:
+        return c.execute(
+            "SELECT * FROM data_sources WHERE user_id=? ORDER BY id", (uid,)
+        ).fetchall()
+
+
+def db_delete_source(uid: int, row_number: int) -> str | None:
+    """Delete source by 1-based list position. Returns deleted name or None."""
+    rows = db_list_sources(uid)
+    if row_number < 1 or row_number > len(rows):
+        return None
+    target = rows[row_number - 1]
+    with _db_conn() as c:
+        c.execute("DELETE FROM data_sources WHERE id=?", (target["id"],))
+        c.commit()
+    return target["source_name"]
+
+
+def db_clear_all_sources(uid: int):
+    with _db_conn() as c:
+        c.execute("DELETE FROM data_sources WHERE user_id=?", (uid,))
+        c.commit()
+
+
+def db_source_count(uid: int) -> int:
+    rows = db_list_sources(uid)
+    return len(rows)
 
 
 def save_token(uid: int, creds_json: str):
@@ -603,17 +692,43 @@ def parse_excel(name: str, content: bytes) -> list:
 
 # ─── Data helpers ─────────────────────────────────────────────────────────────
 def _get_all_rows(s: Session) -> tuple[list, list]:
+    """Legacy: return merged rows from all sources (for context building)."""
     rows = []
-    if s.excel_data:
-        rows = s.excel_data
-    elif s.sheets_data:
-        for r in s.sheets_data.values():
-            rows.extend(r)
-    elif s.folder_data:
-        for sheets in s.folder_data.values():
-            for r in sheets.values():
+    # Multi-source: merge all
+    for src in s.sources:
+        data = src.get("data")
+        if isinstance(data, list) and data:
+            rows.extend(data)
+        elif isinstance(data, dict):
+            for r in data.values():
+                if isinstance(r, list):
+                    rows.extend(r)
+    # Fallback legacy fields
+    if not rows:
+        if s.excel_data:
+            rows = s.excel_data
+        elif s.sheets_data:
+            for r in s.sheets_data.values():
                 rows.extend(r)
+        elif s.folder_data:
+            for sheets in s.folder_data.values():
+                for r in sheets.values():
+                    rows.extend(r)
     return rows, (rows[0] if rows else [])
+
+
+def _get_source_rows(src: dict) -> tuple[list, list]:
+    """Get (all_rows, header) from a single source dict."""
+    data = src.get("data")
+    rows = []
+    if isinstance(data, list) and data:
+        rows = data
+    elif isinstance(data, dict):
+        for r in data.values():
+            if isinstance(r, list):
+                rows.extend(r)
+    header = rows[0] if rows else []
+    return rows, header
 
 
 def _rows_to_text(rows: list) -> str:
@@ -723,11 +838,23 @@ def _sum_numeric(row: list, header: list) -> tuple[float, list[str]]:
 
 def _python_answer(question: str, s: Session) -> str | None:
     q = question.strip().lower()
-    rows, header = _get_all_rows(s)
-    if not rows or len(rows) < 2:
-        return None
 
-    data_rows = rows[1:]
+    # Collect all (rows, header, source_label) from all sources
+    source_datasets: list[tuple[list, list, str]] = []
+
+    if s.sources:
+        for src in s.sources:
+            rows, header = _get_source_rows(src)
+            if rows and len(rows) >= 2:
+                source_datasets.append((rows, header, src.get("source_name", "Manba")))
+    # Fallback legacy
+    if not source_datasets:
+        rows, header = _get_all_rows(s)
+        if rows and len(rows) >= 2:
+            source_datasets.append((rows, header, s.sheet_name or "Ma'lumot"))
+
+    if not source_datasets:
+        return None
 
     is_query = any(w in q for w in [
         "ball","balli","ballari","bali","baho","bahosi","score","natija","natijalari",
@@ -765,53 +892,57 @@ def _python_answer(question: str, s: Session) -> str | None:
     answer_parts = []
     found_any = False
 
-    for name in name_candidates:
-        matches = _search_person(data_rows, header, name)
-        if not matches:
-            continue
-        found_any = True
-        seen, unique = set(), []
-        for m in matches:
-            if m["row_index"] not in seen:
-                seen.add(m["row_index"])
-                unique.append(m)
+    for (rows, header, src_label) in source_datasets:
+        data_rows = rows[1:]
+        for name in name_candidates:
+            matches = _search_person(data_rows, header, name)
+            if not matches:
+                continue
+            found_any = True
+            seen, unique = set(), []
+            for m in matches:
+                if m["row_index"] not in seen:
+                    seen.add(m["row_index"])
+                    unique.append(m)
 
-        for m in unique:
-            row = m["row"]
-            person = m["matched_cell"]
+            for m in unique:
+                row = m["row"]
+                person = m["matched_cell"]
 
-            # Check for dedicated "Umumiy ball" / "Итого" column
-            direct_val, direct_col = None, None
-            for j, h in enumerate(header):
-                hl = str(h).strip().lower()
-                if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","итого","jami ball","общий балл"]:
-                    if j < len(row):
-                        v = _to_num(row[j])
-                        if v is not None:
-                            direct_val, direct_col = v, str(h).strip()
-                            break
+                # Check for dedicated "Umumiy ball" / "Итого" column
+                direct_val, direct_col = None, None
+                for j, h in enumerate(header):
+                    hl = str(h).strip().lower()
+                    if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","итого","jami ball","общий балл"]:
+                        if j < len(row):
+                            v = _to_num(row[j])
+                            if v is not None:
+                                direct_val, direct_col = v, str(h).strip()
+                                break
 
-            total, details = _sum_numeric(row, header)
+                total, details = _sum_numeric(row, header)
+                # Source tag
+                src_tag = f"\n📂 <i>Manba: {src_label}</i>"
 
-            if is_avg and details:
-                avg = total / len(details)
-                answer_parts.append(f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>\n📋 {', '.join(details)}")
-            elif is_max and details:
-                mx = max((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
-                answer_parts.append(f"👤 <b>{person}</b>\n📈 Maksimal: <b>{mx}</b>\n📋 {', '.join(details)}")
-            elif is_min and details:
-                mn = min((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
-                answer_parts.append(f"👤 <b>{person}</b>\n📉 Minimal: <b>{mn}</b>\n📋 {', '.join(details)}")
-            elif direct_val is not None:
-                answer_parts.append(f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>\n📋 {', '.join(details)}")
-            elif details:
-                answer_parts.append(f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>\n📋 {', '.join(details)}")
-            else:
-                row_str = " | ".join(
-                    f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
-                    for k in range(len(row)) if str(row[k]).strip()
-                )
-                answer_parts.append(f"👤 <b>{person}</b>: {row_str}")
+                if is_avg and details:
+                    avg = total / len(details)
+                    answer_parts.append(f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
+                elif is_max and details:
+                    mx = max((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+                    answer_parts.append(f"👤 <b>{person}</b>\n📈 Maksimal: <b>{mx}</b>\n📋 {', '.join(details)}{src_tag}")
+                elif is_min and details:
+                    mn = min((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+                    answer_parts.append(f"👤 <b>{person}</b>\n📉 Minimal: <b>{mn}</b>\n📋 {', '.join(details)}{src_tag}")
+                elif direct_val is not None:
+                    answer_parts.append(f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
+                elif details:
+                    answer_parts.append(f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
+                else:
+                    row_str = " | ".join(
+                        f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
+                        for k in range(len(row)) if str(row[k]).strip()
+                    )
+                    answer_parts.append(f"👤 <b>{person}</b>: {row_str}{src_tag}")
 
     if answer_parts:
         return "\n\n".join(answer_parts)
@@ -822,18 +953,33 @@ def _python_answer(question: str, s: Session) -> str | None:
 
 def build_context(s: Session) -> str:
     parts = []
-    if s.folder_data:
-        for sid, sheets in s.folder_data.items():
-            parts.append(f"\n=== {sid} ===")
-            for title, rows in sheets.items():
+    # Multi-source
+    if s.sources:
+        for src in s.sources:
+            label = src.get("source_name", "Manba")
+            stype = src.get("source_type", "")
+            data = src.get("data")
+            parts.append(f"\n=== {label} [{stype}] ===")
+            if isinstance(data, list) and data:
+                parts.append(_rows_to_text(data))
+            elif isinstance(data, dict):
+                for title, rows in data.items():
+                    if isinstance(rows, list) and rows:
+                        parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
+    # Fallback legacy
+    if not parts:
+        if s.folder_data:
+            for sid, sheets in s.folder_data.items():
+                parts.append(f"\n=== {sid} ===")
+                for title, rows in sheets.items():
+                    parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
+        elif s.sheets_data:
+            name = s.sheet_name or "Sheet"
+            parts.append(f"=== {name} ===")
+            for title, rows in s.sheets_data.items():
                 parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
-    elif s.sheets_data:
-        name = s.sheet_name or "Sheet"
-        parts.append(f"=== {name} ===")
-        for title, rows in s.sheets_data.items():
-            parts.append(f"--- {title} ---\n{_rows_to_text(rows)}")
-    elif s.excel_data:
-        parts.append(f"=== {s.sheet_name or 'Excel'} ===\n{_rows_to_text(s.excel_data)}")
+        elif s.excel_data:
+            parts.append(f"=== {s.sheet_name or 'Excel'} ===\n{_rows_to_text(s.excel_data)}")
     ctx = "\n".join(parts)
     return ctx[:MAX_CHARS]
 
@@ -1172,8 +1318,13 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             creds = load_refresh_token(uid)
             if creds:
                 sess.google_creds_json = creds
+        # Show source count if any
+        source_count = db_source_count(uid)
         name = msg.from_user.first_name or "User"
-        await msg.answer(t(sess.lang, "welcome", name=name), reply_markup=kb_main(sess.lang), parse_mode="HTML")
+        welcome = t(sess.lang, "welcome", name=name)
+        if source_count > 0:
+            welcome += f"\n\n📚 Sizda <b>{source_count}</b> ta ulangan manba bor. /my_sources"
+        await msg.answer(welcome, reply_markup=kb_main(sess.lang), parse_mode="HTML")
 
     # ── /help ─────────────────────────────────────────────────────────────────
     @dp.message(Command("help"))
@@ -1198,6 +1349,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         sess.sheets_data = {}
         sess.folder_data = {}
         sess.excel_data = []
+        sess.sources = []
         sess.web_search = False
         try:
             with _db_conn() as c:
@@ -1206,6 +1358,85 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         except Exception:
             pass
         await msg.answer(t(lang, "disconnected"), reply_markup=kb_main(lang))
+
+    # ── /my_sources ───────────────────────────────────────────────────────────
+    @dp.message(Command("my_sources"))
+    async def cmd_my_sources(msg: Message):
+        uid = msg.from_user.id
+        sess = get_session(uid)
+        lang = sess.lang
+        rows = db_list_sources(uid)
+        if not rows:
+            await msg.answer(
+                "📭 Sizda hali ulangan ma'lumot yo'q.\n"
+                "Google Sheets link yoki Excel fayl yuboring.",
+                reply_markup=kb_main(lang),
+            )
+            return
+        icons = {"excel": "📊", "google_sheets": "🔗", "drive_folder": "📁"}
+        lines = ["📚 <b>Sizda ulangan manbalar:</b>\n"]
+        for i, row in enumerate(rows, 1):
+            icon = icons.get(row["source_type"], "📄")
+            stype_label = {"excel": "Excel", "google_sheets": "Google Sheets", "drive_folder": "Drive"}.get(row["source_type"], row["source_type"])
+            date_str = (row["created_at"] or "")[:10]
+            lines.append(f"{i}. {icon} <b>{row['source_name']}</b> [{stype_label}] — {date_str}")
+        lines.append(
+            "\n💡 O'chirish: /delete_source <i>raqam</i>\n"
+            "💡 Hammasini tozalash: /clear_all"
+        )
+        await msg.answer("\n".join(lines), parse_mode="HTML")
+
+    # ── /delete_source ────────────────────────────────────────────────────────
+    @dp.message(Command("delete_source"))
+    async def cmd_delete_source(msg: Message):
+        uid = msg.from_user.id
+        sess = get_session(uid)
+        lang = sess.lang
+        args = (msg.text or "").strip().split(maxsplit=1)
+        if len(args) < 2 or not args[1].isdigit():
+            await msg.answer(
+                "❌ Noto'g'ri format.\n"
+                "To'g'ri: <code>/delete_source 2</code>\n"
+                "Raqamni ko'rish: /my_sources",
+                parse_mode="HTML",
+            )
+            return
+        num = int(args[1])
+        deleted = db_delete_source(uid, num)
+        if deleted is None:
+            count = db_source_count(uid)
+            await msg.answer(
+                f"❌ {num}-raqamli manba topilmadi. "
+                f"Sizda {count} ta manba bor. /my_sources ni ko'ring."
+            )
+            return
+        # Also remove from session sources
+        sess.sources = [s for s in sess.sources if s.get("source_name") != deleted]
+        remaining = db_source_count(uid)
+        await msg.answer(
+            f"🗑 <b>{deleted}</b> o'chirildi.\n📚 Qolgan manbalar: <b>{remaining}</b> ta",
+            parse_mode="HTML",
+        )
+
+    # ── /clear_all ────────────────────────────────────────────────────────────
+    @dp.message(Command("clear_all"))
+    async def cmd_clear_all(msg: Message):
+        uid = msg.from_user.id
+        sess = get_session(uid)
+        lang = sess.lang
+        count = db_source_count(uid)
+        if count == 0:
+            await msg.answer("📭 Manbalar allaqachon bo'sh.")
+            return
+        sess.pending_clear = True
+        await msg.answer(
+            f"⚠️ Barcha <b>{count}</b> ta manbani o'chirib tashlaysizmi?\n\n"
+            "Tasdiqlash uchun yozing: <code>Ha</code>\nBekor qilish: <code>Yo'q</code>",
+            parse_mode="HTML",
+        )
+
+    # ── /clear_all confirm via text ───────────────────────────────────────────
+    # (Handled inside handle_text below via sess.pending_clear flag)
 
     # ── Callbacks ─────────────────────────────────────────────────────────────
     @dp.callback_query()
@@ -1355,15 +1586,34 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             n_cols = max((len(r) for r in rows[:5]), default=0)
             header = rows[0] if rows else []
             header_str = " | ".join(str(h) for h in header[:8] if str(h).strip())
+
+            # Unique name to avoid duplicates
+            raw_name = doc.file_name or "Excel"
+            unique_name = _unique_source_name(uid, raw_name)
+
+            # Save to DB (INSERT only)
+            db_add_source(uid, "excel", unique_name, source_url=None, file_id=doc.file_id)
+            total_count = db_source_count(uid)
+
+            # Add to session sources (keep old sources!)
+            sess.sources.append({
+                "source_type": "excel",
+                "source_name": unique_name,
+                "file_id": doc.file_id,
+                "data": rows,
+            })
+            # Also update legacy field for backward compat
             sess.excel_data = rows
-            sess.sheets_data = {}
-            sess.folder_data = {}
-            sess.sheet_name = doc.file_name or "Excel"
+            sess.sheet_name = unique_name
             sess.web_search = False
             sess.step = "in_chat"
-            logger.info(f"Excel uid={uid}: {len(rows)} rows, file={doc.file_name}")
+            logger.info(f"Excel uid={uid}: {len(rows)} rows, file={unique_name}, total_sources={total_count}")
+
+            # Success messages (different if name was deduplicated)
+            name_note = f" (nom o'zgartirildi: <code>{unique_name}</code>)" if unique_name != raw_name else ""
             await loading.edit_text(
-                t(lang, "excel_ok", name=doc.file_name, rows=len(non_empty), cols=n_cols, headers=header_str),
+                t(lang, "excel_ok", name=unique_name, rows=len(non_empty), cols=n_cols, headers=header_str)
+                + f"\n\n✅ Qo'shildi{name_note}\n📚 Jami manbalar: <b>{total_count}</b> ta",
                 parse_mode="HTML",
             )
             await msg.answer("👇", reply_markup=kb_chat(lang))
@@ -1409,6 +1659,21 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         lang = sess.lang
         logger.info(f"TEXT uid={uid} step={sess.step!r} | {text[:60]!r}")
 
+        # ── /clear_all confirmation
+        if sess.pending_clear:
+            sess.pending_clear = False
+            if text.strip().lower() in ("ha", "да", "yes"):
+                db_clear_all_sources(uid)
+                sess.sources = []
+                sess.excel_data = []
+                sess.sheets_data = {}
+                sess.folder_data = {}
+                sess.step = "idle"
+                await msg.answer("✅ Barcha manbalar o'chirildi.", reply_markup=kb_main(lang))
+            else:
+                await msg.answer("❌ Bekor qilindi.", reply_markup=kb_main(lang) if not has_data(sess) else kb_chat(lang))
+            return
+
         # ── waiting_sheet
         if sess.step == "waiting_sheet":
             sheet_id = _extract_sheet_id(text)
@@ -1422,15 +1687,31 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                     return
                 total = sum(len(r) for r in data.values())
+                # Build a human-readable name from the URL
+                raw_name = text[:60].strip()
+                # Try to extract a friendlier name from sheets metadata keys
+                sheet_tabs = list(data.keys())
+                auto_name = sheet_tabs[0] if len(sheet_tabs) == 1 else f"Sheets ({sheet_id[:8]})"
+                unique_name = _unique_source_name(uid, auto_name)
+                # DB INSERT (never replace)
+                db_add_source(uid, "google_sheets", unique_name, source_url=text, file_id=None)
+                total_count = db_source_count(uid)
+                # Session: ADD to sources, keep old ones
+                sess.sources.append({
+                    "source_type": "google_sheets",
+                    "source_name": unique_name,
+                    "source_url": text,
+                    "data": data,
+                })
+                # Legacy compat
                 sess.sheets_data = data
-                sess.folder_data = {}
-                sess.excel_data = []
                 sess.sheet_id = sheet_id
-                sess.sheet_name = text[:50]
+                sess.sheet_name = unique_name
                 sess.web_search = False
                 sess.step = "in_chat"
                 await status.edit_text(
-                    t(lang, "sheets_ok", sheets=len(data), rows=total),
+                    t(lang, "sheets_ok", sheets=len(data), rows=total)
+                    + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
                     parse_mode="HTML",
                 )
                 await msg.answer("👇", reply_markup=kb_chat(lang))
@@ -1475,7 +1756,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await _process_question(msg, sess, text)
             return
 
-        # ── Sheets link from idle
+        # ── Sheets link from idle (auto-detect)
         if "docs.google.com/spreadsheets" in text or re.search(r"spreadsheets/d/[a-zA-Z0-9\-_]+", text):
             sheet_id = _extract_sheet_id(text)
             if sheet_id:
@@ -1484,13 +1765,27 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     data = await fetch_sheet_public(sheet_id) if not sess.google_creds_json else await fetch_sheet_with_creds(sheet_id, sess.google_creds_json)
                     if data:
                         total = sum(len(r) for r in data.values())
+                        sheet_tabs = list(data.keys())
+                        auto_name = sheet_tabs[0] if len(sheet_tabs) == 1 else f"Sheets ({sheet_id[:8]})"
+                        unique_name = _unique_source_name(uid, auto_name)
+                        db_add_source(uid, "google_sheets", unique_name, source_url=text, file_id=None)
+                        total_count = db_source_count(uid)
+                        sess.sources.append({
+                            "source_type": "google_sheets",
+                            "source_name": unique_name,
+                            "source_url": text,
+                            "data": data,
+                        })
                         sess.sheets_data = data
-                        sess.folder_data = {}
-                        sess.excel_data = []
                         sess.sheet_id = sheet_id
+                        sess.sheet_name = unique_name
                         sess.web_search = False
                         sess.step = "in_chat"
-                        await status.edit_text(t(lang, "sheets_ok", sheets=len(data), rows=total), parse_mode="HTML")
+                        await status.edit_text(
+                            t(lang, "sheets_ok", sheets=len(data), rows=total)
+                            + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
+                            parse_mode="HTML",
+                        )
                         await msg.answer("👇", reply_markup=kb_chat(lang))
                     else:
                         await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
@@ -1601,6 +1896,9 @@ async def main():
         BotCommand(command="start", description="🏠 Bosh menyu"),
         BotCommand(command="help", description="❓ Yordam"),
         BotCommand(command="lang", description="🌍 Til tanlash"),
+        BotCommand(command="my_sources", description="📚 Ulangan manbalar ro'yxati"),
+        BotCommand(command="delete_source", description="🗑 Manbani o'chirish (raqam)"),
+        BotCommand(command="clear_all", description="🧹 Barcha manbalarni tozalash"),
         BotCommand(command="disconnect", description="🔌 Ma'lumotlarni tozalash"),
     ])
 
