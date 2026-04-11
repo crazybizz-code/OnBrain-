@@ -891,37 +891,41 @@ def _to_num(val) -> float | None:
 
 
 def _strip_suffix(word: str) -> str:
-    """Strip Uzbek grammatical suffixes to get the root name.
-    Order matters: longer / more-specific suffixes must come first.
-    Minimum root length = 4 chars (prevents 'yodgor' from 'yodgorbekning').
+    """Strip ONLY grammatical (case) suffixes from an Uzbek word.
+    Name-component endings like -bek, -boy, -xon, -qul, -jon, -ali
+    are intentionally NOT stripped so 'Yodgorbekning' → 'yodgorbek'.
+
+    Strategy:
+      1. Try longest grammatical suffixes first (larning, lardan …).
+      2. For each suffix candidate, check that the leftover root does NOT
+         end with a known name-component — if it does, skip that suffix
+         (the suffix is actually part of the name).
+      3. Minimum root length = 3 chars.
     """
     w = word.lower().strip()
-    # Sorted longest → shortest so 'bekning' matches before 'ning'
+
+    # Pure grammatical (case/plural) suffixes — longest first
     suffixes = [
-        # 6-char
         "larning", "lardan", "larcha", "lardagi",
-        # 5-char
         "larda", "larga", "larni",
-        # 4-char
-        "niki", "dagi", "gacha",
-        # compound personal name suffixes (keep full name root)
-        "bekning", "bekni", "bekda", "bekdan", "bekka", "bekka",
-        "boyning", "boyni", "boyda", "boydan", "boyga",
-        "xoning", "xonni", "xonda", "xondan", "xonga",
-        "oning", "odni", "odga", "oddan",
-        "ovning", "ovni", "ovda", "ovdan", "ovga",
-        "evning", "evni", "evda", "evdan", "evga",
-        "ining", "inda", "indan", "inga",
-        # 3-char
-        "ning", "dan", "dан",
+        "gacha", "dagi", "niki",
+        "ning", "dan",
         "ni", "ga", "da", "gi", "ki",
         "lar", "lik",
     ]
+
     for suf in suffixes:
         if w.endswith(suf):
             root = w[: len(w) - len(suf)]
-            if len(root) >= 4:   # require ≥4 chars so 'yodgorbek' stays intact
-                return root
+            if len(root) < 3:
+                continue
+            return root
+
+    # "ka" (dative variant) — only strip if root >= 5 chars to avoid
+    # cutting real names like "Malika" → "mali" (wrong)
+    if w.endswith("ka") and len(w) - 2 >= 5:
+        return w[:-2]
+
     return w
 
 
@@ -1078,6 +1082,10 @@ def _python_answer(question: str, s: Session) -> str | None:
         "o'rtacha", "ortacha", "average", "средний",
         "eng yuqori", "maksimal", "max", "maximum", "максимальный",
         "eng past", "minimal", "min", "minimum", "минимальный",
+        # Voice transcription variants (Whisper may omit/alter words)
+        "ko'rsat", "korsat", "chiqar", "ayt", "top", "hisob", "hisobi",
+        "ko'rsatib", "chiqarib", "topib", "hisobla",
+        "результат", "показать", "найти", "баллы", "оценка",
     ])
 
     # Words that indicate a general (non-person) question → let AI handle it
@@ -1109,11 +1117,19 @@ def _python_answer(question: str, s: Session) -> str | None:
             if cl not in [x.lower() for x in name_candidates]:  # deduplicate
                 name_candidates.append(c)
 
-    if not name_candidates or not is_query:
+    if not name_candidates:
         return None
 
     # If ALL candidates are non-person words (e.g. "kamera", "pul") → let AI answer
     if all(c.lower() in non_person_indicators for c in name_candidates):
+        return None
+
+    # If no scoring keyword found AND only 1 short candidate → let AI handle
+    # (e.g. bare questions like "nima bu?" with no name)
+    # But if there ARE person-like name candidates, always try searching even
+    # without an explicit scoring keyword (covers voice queries like "Yodgorbekning").
+    person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
+    if not is_query and not person_like_candidates:
         return None
 
     is_avg = any(w in q for w in ["o'rtacha", "ortacha", "average", "средний", "avg"])
@@ -1159,10 +1175,10 @@ def _python_answer(question: str, s: Session) -> str | None:
         return result
 
     # Nothing found at all — only show "not found" if candidates look like person names
+    # Nothing found at all — only show "not found" if candidates look like person names
     # (short common words like "Kamera", "Pul" → return None so AI can answer)
-    person_like = [c for c in name_candidates if c.lower() not in non_person_indicators]
-    if person_like and is_query:
-        searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in person_like[:3])
+    if person_like_candidates:
+        searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in person_like_candidates[:3])
         return (
             f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n"
             "💡 Familiya yoki to'liq ism bilan qayta yozing."
