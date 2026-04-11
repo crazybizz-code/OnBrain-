@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from supabase import create_client, Client as SupabaseClient
+
 import aiohttp
 import openpyxl
 import requests
@@ -53,6 +55,48 @@ MAX_CHARS = 120_000
 _DB = os.environ.get("SQLITE_TOKEN_DB", "google_tokens.db")
 # Storage mode: "cloud" (default) or "on_prem" (no S3, local only)
 STORAGE_MODE = os.environ.get("STORAGE_MODE", "cloud").strip().lower()
+
+# ─── Supabase ─────────────────────────────────────────────────────────────────
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+_SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+_supa: SupabaseClient | None = None
+if _SUPABASE_URL and _SUPABASE_KEY:
+    try:
+        _supa = create_client(_SUPABASE_URL, _SUPABASE_KEY)
+        logging.getLogger("onbrain").info("Supabase connected ✅")
+    except Exception as _e:
+        logging.getLogger("onbrain").warning(f"Supabase init failed: {_e}")
+
+
+def supa_upsert_user(uid: int, telegram_username: str, full_name: str, phone: str, lang: str):
+    """Insert or update user in Supabase 'users' table."""
+    if not _supa:
+        return
+    try:
+        _supa.table("users").upsert({
+            "telegram_id": uid,
+            "telegram_username": telegram_username,
+            "full_name": full_name,
+            "phone": phone,
+            "lang": lang,
+            "registered_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="telegram_id").execute()
+    except Exception as e:
+        logging.getLogger("onbrain").warning(f"Supabase upsert error uid={uid}: {e}")
+
+
+def supa_is_registered(uid: int) -> bool:
+    """Check if user has completed registration (has phone in Supabase)."""
+    if not _supa:
+        return True   # if Supabase not configured, skip registration gate
+    try:
+        res = _supa.table("users").select("phone").eq("telegram_id", uid).execute()
+        if res.data:
+            return bool(res.data[0].get("phone"))
+    except Exception as e:
+        logging.getLogger("onbrain").warning(f"Supabase check error uid={uid}: {e}")
+    return False
+
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
 _RATE_LIMIT = 20          # max requests per window
@@ -518,6 +562,8 @@ class Session:
     sources: list = field(default_factory=list)
     # For /clear_all confirmation
     pending_clear: bool = False
+    # Registration flow
+    reg_full_name: str = ""    # temp: stores name during registration
 
 
 _sessions: dict[int, Session] = {}
@@ -741,6 +787,20 @@ def kb_settings(lang: str = "uz") -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=t(lang, "btn_lang"), callback_data="open_lang")],
             [InlineKeyboardButton(text=t(lang, "btn_disconnect"), callback_data="disconnect")],
         ]
+    )
+
+
+def kb_phone(lang: str = "uz") -> ReplyKeyboardMarkup:
+    """Keyboard with a single 'share contact' button — used during registration."""
+    labels = {
+        "uz": "📱 Telefon raqamni ulashish",
+        "ru": "📱 Поделиться номером",
+        "en": "📱 Share phone number",
+    }
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=labels.get(lang, labels["uz"]), request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
     )
 
 
@@ -1470,14 +1530,32 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
     async def cmd_start(msg: Message):
         uid = msg.from_user.id
         sess = get_session(uid)
-        sess.step = "idle"
         sess.web_search = False
         sess.lang = load_lang(uid)
         if not sess.google_creds_json:
             creds = load_refresh_token(uid)
             if creds:
                 sess.google_creds_json = creds
-        # Show source count if any
+
+        # ── Registration gate: if not registered → start reg flow
+        if not supa_is_registered(uid):
+            sess.step = "reg_lang"
+            await msg.answer(
+                "🌍 Xush kelibsiz! Iltimos, tilni tanlang:\n"
+                "Добро пожаловать! Выберите язык:\n"
+                "Welcome! Please choose language:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="reglang_uz"),
+                        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="reglang_ru"),
+                        InlineKeyboardButton(text="🇬🇧 English", callback_data="reglang_en"),
+                    ]
+                ]),
+            )
+            return
+
+        # ── Already registered: normal welcome
+        sess.step = "idle"
         source_count = db_source_count(uid)
         name = msg.from_user.first_name or "User"
         welcome = t(sess.lang, "welcome", name=name)
@@ -1722,6 +1800,22 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             sess.step = "waiting_sheet"
             await cb.message.answer(t(lang, "ask_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
 
+        elif d.startswith("reglang_"):
+            new_lang = d[8:]
+            if new_lang not in ("uz", "ru", "en"):
+                await cb.answer()
+                return
+            sess.lang = new_lang
+            save_lang(uid, new_lang)
+            sess.step = "reg_name"
+            prompts = {
+                "uz": "👤 Ism va familiyangizni kiriting:\n<i>Masalan: Abdullayev Jasur Hamidovich</i>",
+                "ru": "👤 Введите ваше имя и фамилию:\n<i>Например: Иванов Иван Иванович</i>",
+                "en": "👤 Enter your full name:\n<i>Example: John Smith</i>",
+            }
+            await cb.message.answer(prompts[new_lang], reply_markup=ReplyKeyboardRemove(), parse_mode="HTML")
+            await cb.answer()
+
     # ── Button: Excel ─────────────────────────────────────────────────────────
     @dp.message(F.text.in_({t(l, "btn_excel") for l in ("uz","ru","en")}))
     async def btn_excel(msg: Message):
@@ -1881,6 +1975,37 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         await status.edit_text(t(lang, "voice_detected", text=text), parse_mode="HTML")
         await _process_question(msg, sess, text)
 
+    # ── Contact (phone share during registration) ──────────────────────────────
+    @dp.message(F.contact)
+    async def handle_contact(msg: Message):
+        uid = msg.from_user.id
+        sess = get_session(uid)
+        lang = sess.lang
+        if sess.step != "reg_phone":
+            return
+        phone = msg.contact.phone_number
+        tg_username = msg.from_user.username or ""
+        supa_upsert_user(uid, tg_username, sess.reg_full_name, phone, lang)
+        save_lang(uid, lang)
+        saved_name = sess.reg_full_name
+        sess.step = "idle"
+        sess.reg_full_name = ""
+        first = saved_name.split()[0] if saved_name else (msg.from_user.first_name or "")
+        source_count = db_source_count(uid)
+        welcome_text = t(lang, "welcome", name=first)
+        if source_count > 0:
+            welcome_text += f"\n\n📚 Sizda <b>{source_count}</b> ta ulangan manba bor. /my_sources"
+        success_msgs = {
+            "uz": "✅ <b>Ro'yxatdan o'tdingiz!</b>",
+            "ru": "✅ <b>Регистрация завершена!</b>",
+            "en": "✅ <b>Registration complete!</b>",
+        }
+        await msg.answer(
+            success_msgs.get(lang, success_msgs["uz"]) + "\n\n" + welcome_text,
+            reply_markup=kb_main(lang),
+            parse_mode="HTML",
+        )
+
     # ── Text ──────────────────────────────────────────────────────────────────
     @dp.message(F.text)
     async def handle_text(msg: Message):
@@ -1901,6 +2026,37 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             logger.info(f"TEXT uid={uid} step='waiting_sheet'")
         else:
             logger.info(f"TEXT uid={uid} step={sess.step!r} | {text[:60]!r}")
+
+        # ── registration steps
+        if sess.step == "reg_name":
+            name_input = text.strip()
+            if len(name_input) < 3:
+                err_msgs = {
+                    "uz": "❌ Ism kamida 3 ta harf bo'lishi kerak. Qayta yozing:",
+                    "ru": "❌ Минимум 3 символа. Повторите:",
+                    "en": "❌ Min 3 characters. Try again:",
+                }
+                await msg.answer(err_msgs.get(lang, err_msgs["uz"]))
+                return
+            sess.reg_full_name = name_input
+            sess.step = "reg_phone"
+            phone_prompts = {
+                "uz": "📱 Telefon raqamingizni ulashing:\n(Pastdagi tugmani bosing)",
+                "ru": "📱 Поделитесь номером телефона:\n(Нажмите кнопку ниже)",
+                "en": "📱 Share your phone number:\n(Press the button below)",
+            }
+            await msg.answer(phone_prompts.get(lang, phone_prompts["uz"]), reply_markup=kb_phone(lang))
+            return
+
+        if sess.step == "reg_phone":
+            # User sent text instead of contact — remind them
+            remind = {
+                "uz": "📱 Iltimos, kontaktni ulashish tugmasini bosing.",
+                "ru": "📱 Нажмите кнопку, чтобы поделиться контактом.",
+                "en": "📱 Please use the button to share your contact.",
+            }
+            await msg.answer(remind.get(lang, remind["uz"]), reply_markup=kb_phone(lang))
+            return
 
         # ── /clear_all confirmation
         if sess.pending_clear:
