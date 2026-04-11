@@ -921,17 +921,67 @@ def _sum_numeric(row: list, header: list) -> tuple[float, list[str]]:
     return total, details
 
 
+def _format_person_answer(person: str, row: list, header: list, src_label: str,
+                           is_avg: bool, is_max: bool, is_min: bool) -> str:
+    """Build a clean answer line for one person. Shows only what was asked."""
+    src_tag = f"\n📂 <i>Manba: {src_label}</i>"
+
+    # Find dedicated "Umumiy ball" column first
+    direct_val, direct_col = None, None
+    for j, h in enumerate(header):
+        hl = str(h).strip().lower()
+        if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball", "total", "итого", "jami ball", "общий балл"]:
+            if j < len(row):
+                v = _to_num(row[j])
+                if v is not None:
+                    direct_val, direct_col = v, str(h).strip()
+                    break
+
+    total, details = _sum_numeric(row, header)
+
+    if is_avg and details:
+        avg = total / len(details)
+        return f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>{src_tag}"
+    elif is_max and details:
+        mx = max((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+        return f"👤 <b>{person}</b>\n📈 Maksimal: <b>{mx}</b>{src_tag}"
+    elif is_min and details:
+        mn = min((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
+        return f"👤 <b>{person}</b>\n📉 Minimal: <b>{mn}</b>{src_tag}"
+    elif direct_val is not None:
+        # Has dedicated score column — show it cleanly, skip noisy details
+        return f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>{src_tag}"
+    elif details:
+        return f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>{src_tag}"
+    else:
+        # No numeric data — show all non-empty cells
+        row_str = " | ".join(
+            f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
+            for k in range(len(row)) if str(row[k]).strip()
+        )
+        return f"👤 <b>{person}</b>: {row_str}{src_tag}"
+
+
 def _python_answer(question: str, s: Session) -> str | None:
     q = question.strip().lower()
 
-    # Collect all (rows, header, source_label) from all sources
+    # ── Collect source datasets (each sheet-tab as separate dataset for Sheets)
     source_datasets: list[tuple[list, list, str]] = []
 
     if s.sources:
         for src in s.sources:
-            rows, header = _get_source_rows(src)
-            if rows and len(rows) >= 2:
-                source_datasets.append((rows, header, src.get("source_name", "Manba")))
+            data = src.get("data")
+            src_name = src.get("source_name", "Manba")
+            if isinstance(data, list) and len(data) >= 2:
+                # Excel — flat list of rows
+                source_datasets.append((data, data[0], src_name))
+            elif isinstance(data, dict):
+                # Google Sheets — dict of {tab_name: [rows]}
+                for tab_name, tab_rows in data.items():
+                    if isinstance(tab_rows, list) and len(tab_rows) >= 2:
+                        label = f"{src_name} › {tab_name}" if len(data) > 1 else src_name
+                        source_datasets.append((tab_rows, tab_rows[0], label))
+
     # Fallback legacy
     if not source_datasets:
         rows, header = _get_all_rows(s)
@@ -942,102 +992,83 @@ def _python_answer(question: str, s: Session) -> str | None:
         return None
 
     is_query = any(w in q for w in [
-        "ball","balli","ballari","bali","baho","bahosi","score","natija","natijalari",
-        "umumiy","jami","hammasi","summa","total","итог","балл","сумма",
-        "nechchi","necchi","qancha","сколько","how many",
-        "o'rtacha","ortacha","average","средний",
-        "eng yuqori","maksimal","max","maximum","максимальный",
-        "eng past","minimal","min","minimum","минимальный",
+        "ball", "balli", "ballari", "bali", "baho", "bahosi", "score", "natija", "natijalari",
+        "umumiy", "jami", "hammasi", "summa", "total", "итог", "балл", "сумма",
+        "nechchi", "necchi", "qancha", "сколько", "how many",
+        "o'rtacha", "ortacha", "average", "средний",
+        "eng yuqori", "maksimal", "max", "maximum", "максимальный",
+        "eng past", "minimal", "min", "minimum", "минимальный",
     ])
 
     stop = {
-        "va","bilan","uchun","ning","ni","ga","da","dan","nechchi","necchi",
-        "umumiy","ball","balli","ballari","baho","jami","hammasi",
-        "ko'rsat","toping","ayt","qancha","top","nima","qaysi","nechta",
-        "natijasi","hisobi","yig'indisi","yigindisi","qildimi","topdi",
-        "bahosi","natija","score","natijalari","yig'indi","yigindi","summa",
-        "sinf","class","и","или","для","с","в","на","по","что","как",
-        "and","or","for","with","the","of","is","are","what","how",
+        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi", "necchi",
+        "umumiy", "ball", "balli", "ballari", "baho", "jami", "hammasi",
+        "ko'rsat", "toping", "ayt", "qancha", "top", "nima", "qaysi", "nechta",
+        "natijasi", "hisobi", "yig'indisi", "yigindisi", "qildimi", "topdi",
+        "bahosi", "natija", "score", "natijalari", "yig'indi", "yigindi", "summa",
+        "sinf", "class", "и", "или", "для", "с", "в", "на", "по", "что", "как",
+        "and", "or", "for", "with", "the", "of", "is", "are", "what", "how",
     }
 
     words = [w.strip(".,!?\"'()[]") for w in question.split()]
-    name_candidates = []
+    name_candidates: list[str] = []
     for w in words:
         c = _strip_suffix(w)
-        if len(c) >= 3 and c.lower() not in stop and not c.isdigit():
-            name_candidates.append(c)
+        cl = c.lower()
+        if len(c) >= 3 and cl not in stop and not c.isdigit():
+            if cl not in [x.lower() for x in name_candidates]:  # deduplicate
+                name_candidates.append(c)
 
     if not name_candidates or not is_query:
         return None
 
-    is_avg = any(w in q for w in ["o'rtacha","ortacha","average","средний","avg"])
-    is_max = any(w in q for w in ["eng yuqori","maksimal","max","maximum","максимальный"])
-    is_min = any(w in q for w in ["eng past","minimal","min","minimum","минимальный"])
+    is_avg = any(w in q for w in ["o'rtacha", "ortacha", "average", "средний", "avg"])
+    is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "maximum", "максимальный"])
+    is_min = any(w in q for w in ["eng past", "minimal", "min", "minimum", "минимальный"])
 
-    answer_parts = []
-    found_any = False
+    # ── If multiple name candidates (e.g. "Muhammad va Moxizoda"):
+    # Search each candidate separately, then collect unique row_index per source.
+    # A row must match AT LEAST ONE candidate (OR semantics — each person separately).
+    # Deduplication: same row_index from same source shown only once.
 
-    for (rows, header, src_label) in source_datasets:
-        data_rows = rows[1:]
-        for name in name_candidates:
+    answer_parts: list[str] = []
+    not_found_names: list[str] = []
+    global_seen: set[tuple[int, str]] = set()  # (row_index, src_label)
+
+    for name in name_candidates:
+        found_this_name = False
+        for (rows, header, src_label) in source_datasets:
+            data_rows = rows[1:]
             matches = _search_person(data_rows, header, name)
-            if not matches:
-                continue
-            found_any = True
-            seen, unique = set(), []
             for m in matches:
-                if m["row_index"] not in seen:
-                    seen.add(m["row_index"])
-                    unique.append(m)
-
-            for m in unique:
-                row = m["row"]
-                person = m["matched_cell"]
-
-                # Check for dedicated "Umumiy ball" / "Итого" column
-                direct_val, direct_col = None, None
-                for j, h in enumerate(header):
-                    hl = str(h).strip().lower()
-                    if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","итого","jami ball","общий балл"]:
-                        if j < len(row):
-                            v = _to_num(row[j])
-                            if v is not None:
-                                direct_val, direct_col = v, str(h).strip()
-                                break
-
-                total, details = _sum_numeric(row, header)
-                # Source tag
-                src_tag = f"\n📂 <i>Manba: {src_label}</i>"
-
-                if is_avg and details:
-                    avg = total / len(details)
-                    answer_parts.append(f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
-                elif is_max and details:
-                    mx = max((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
-                    answer_parts.append(f"👤 <b>{person}</b>\n📈 Maksimal: <b>{mx}</b>\n📋 {', '.join(details)}{src_tag}")
-                elif is_min and details:
-                    mn = min((_to_num(d.split("=")[1]) or 0) for d in details if "=" in d)
-                    answer_parts.append(f"👤 <b>{person}</b>\n📉 Minimal: <b>{mn}</b>\n📋 {', '.join(details)}{src_tag}")
-                elif direct_val is not None:
-                    answer_parts.append(f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
-                elif details:
-                    answer_parts.append(f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>\n📋 {', '.join(details)}{src_tag}")
-                else:
-                    row_str = " | ".join(
-                        f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
-                        for k in range(len(row)) if str(row[k]).strip()
+                key = (m["row_index"], src_label)
+                if key in global_seen:
+                    continue
+                global_seen.add(key)
+                found_this_name = True
+                answer_parts.append(
+                    _format_person_answer(
+                        m["matched_cell"], m["row"], header, src_label,
+                        is_avg, is_max, is_min,
                     )
-                    answer_parts.append(f"👤 <b>{person}</b>: {row_str}{src_tag}")
+                )
+        if not found_this_name:
+            not_found_names.append(name)
 
     if answer_parts:
-        return "\n\n".join(answer_parts)
-    if found_any:
-        return None
-    # Name candidates exist + this is a score/ball query → "not found" instead of falling through to AI
-    # This prevents AI from hallucinating a different person's score
+        result = "\n\n".join(answer_parts)
+        if not_found_names:
+            missing = ", ".join(f"<b>{n.capitalize()}</b>" for n in not_found_names)
+            result += f"\n\n❌ Topilmadi: {missing}"
+        return result
+
+    # Nothing found at all
     if name_candidates and is_query:
         searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in name_candidates[:3])
-        return f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n💡 Ism yozilishini tekshiring (masalan: familiya yoki to'liq ism bilan yozing)."
+        return (
+            f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n"
+            "💡 Familiya yoki to'liq ism bilan qayta yozing."
+        )
     return None
 
 
