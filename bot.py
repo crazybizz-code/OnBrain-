@@ -834,7 +834,10 @@ def _strip_suffix(word: str) -> str:
     w = word.lower().strip()
     for suf in [
         "larning","lardan","larga","larni","larcha","larda",
-        "beking","boyning","ining","ning","dagi","dan","gacha",
+        "bekning","boyning","oning","ovning","evning","ining","ning",
+        "bekni","boyni","odni","ovni","evni","ini",
+        "bekda","bekdan","bekka","boyda","boydan","boyga",
+        "dagi","dan","gacha",
         "bek","boy","jon","xon","oy","ga","da","ni","gi","ki","lar","lik",
     ]:
         if w.endswith(suf) and len(w) - len(suf) >= 3:
@@ -1030,6 +1033,11 @@ def _python_answer(question: str, s: Session) -> str | None:
         return "\n\n".join(answer_parts)
     if found_any:
         return None
+    # Name candidates exist + this is a score/ball query → "not found" instead of falling through to AI
+    # This prevents AI from hallucinating a different person's score
+    if name_candidates and is_query:
+        searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in name_candidates[:3])
+        return f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n💡 Ism yozilishini tekshiring (masalan: familiya yoki to'liq ism bilan yozing)."
     return None
 
 
