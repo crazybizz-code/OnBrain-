@@ -1937,13 +1937,15 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             db_add_source(uid, "excel", unique_name, source_url=None, file_id=doc.file_id)
             total_count = db_source_count(uid)
 
-            # Add to session sources (keep old sources!)
-            sess.sources.append({
-                "source_type": "excel",
-                "source_name": unique_name,
-                "file_id": doc.file_id,
-                "data": rows,
-            })
+            # Add to session sources — skip if same file_id already loaded
+            already_loaded = any(s.get("file_id") == doc.file_id for s in sess.sources)
+            if not already_loaded:
+                sess.sources.append({
+                    "source_type": "excel",
+                    "source_name": unique_name,
+                    "file_id": doc.file_id,
+                    "data": rows,
+                })
             # Also update legacy field for backward compat
             sess.excel_data = rows
             sess.sheet_name = unique_name
@@ -2113,13 +2115,22 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 # DB INSERT (never replace) — store URL in DB for reference, not in logs
                 db_add_source(uid, "google_sheets", unique_name, source_url=text, file_id=None)
                 total_count = db_source_count(uid)
-                # Session: ADD to sources, keep old ones
-                sess.sources.append({
-                    "source_type": "google_sheets",
-                    "source_name": unique_name,
-                    "source_url": text,
-                    "data": data,
-                })
+                # Session: ADD only if same sheet_id not already loaded
+                already_loaded = any(s.get("sheet_id") == sheet_id for s in sess.sources)
+                if not already_loaded:
+                    sess.sources.append({
+                        "source_type": "google_sheets",
+                        "source_name": unique_name,
+                        "source_url": text,
+                        "sheet_id": sheet_id,
+                        "data": data,
+                    })
+                else:
+                    # Update existing source data (refresh)
+                    for s in sess.sources:
+                        if s.get("sheet_id") == sheet_id:
+                            s["data"] = data
+                            break
                 # Legacy compat
                 sess.sheets_data = data
                 sess.sheet_id = sheet_id
