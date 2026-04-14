@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import collections
 import io
 import json
@@ -1169,14 +1169,16 @@ def _python_answer(question: str, s: Session) -> str | None:
 
     if answer_parts:
         result = "\n\n".join(answer_parts)
-        if not_found_names:
+        if not_found_names and not s.web_search:
             missing = ", ".join(f"<b>{n.capitalize()}</b>" for n in not_found_names)
             result += f"\n\n❌ Topilmadi: {missing}"
         return result
 
     # Nothing found at all — only show "not found" if candidates look like person names
-    # Nothing found at all — only show "not found" if candidates look like person names
     # (short common words like "Kamera", "Pul" → return None so AI can answer)
+    # If web_search is ON → always return None so AI/web can handle non-person queries
+    if s.web_search:
+        return None
     if person_like_candidates:
         searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in person_like_candidates[:3])
         return (
