@@ -1136,36 +1136,73 @@ def _python_answer(question: str, s: Session) -> str | None:
     is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "maximum", "максимальный"])
     is_min = any(w in q for w in ["eng past", "minimal", "min", "minimum", "минимальный"])
 
-    # ── If multiple name candidates (e.g. "Muhammad va Moxizoda"):
-    # Search each candidate separately, then collect unique row_index per source.
-    # A row must match AT LEAST ONE candidate (OR semantics — each person separately).
-    # Deduplication: same row_index from same source shown only once.
+    # ── Search strategy:
+    # If person_like_candidates has 2+ parts (e.g. ["Mirzayev", "Hasanboy"]),
+    # first try AND search (row must contain ALL parts → exact person match).
+    # If AND search finds nothing, fall back to OR search per candidate.
+    # This prevents "Mirzayev Akbarshox" from matching when user asks "Mirzayev Hasanboy".
 
     answer_parts: list[str] = []
     not_found_names: list[str] = []
     global_seen: set[tuple[int, str]] = set()  # (row_index, src_label)
 
-    for name in name_candidates:
-        found_this_name = False
+    def _matches_all_parts(row: list, header: list, parts: list[str]) -> bool:
+        """Return True if the row's name column(s) contain ALL given parts."""
+        name_col_indices = []
+        for j, h in enumerate(header):
+            hl = str(h).strip().lower()
+            if any(w in hl for w in ["f.i.o", "fio", "ism", "name", "ф.и.о", "фио", "имя", "familiya", "fish"]):
+                name_col_indices.append(j)
+        cols = name_col_indices if name_col_indices else range(len(row))
+        cell_text = " ".join(str(row[j]).strip().lower() for j in cols if j < len(row))
+        return all(p.lower() in cell_text for p in parts)
+
+    # Try AND search first when multiple person-like candidates
+    and_search_done = False
+    if len(person_like_candidates) >= 2:
+        and_search_done = True
         for (rows, header, src_label) in source_datasets:
             data_rows = rows[1:]
-            matches = _search_person(data_rows, header, name)
-            for m in matches:
+            # Get matches for first candidate, then filter by remaining parts
+            first_matches = _search_person(data_rows, header, person_like_candidates[0])
+            for m in first_matches:
+                if not _matches_all_parts(m["row"], header, person_like_candidates[1:]):
+                    continue
                 key = (m["row_index"], src_label)
                 if key in global_seen:
                     continue
                 global_seen.add(key)
-                found_this_name = True
                 answer_parts.append(
                     _format_person_answer(
                         m["matched_cell"], m["row"], header, src_label,
                         is_avg, is_max, is_min,
                     )
                 )
-        if not found_this_name:
-            # Only add to "not found" if this looks like a real person name
-            if name.lower() not in non_person_indicators:
-                not_found_names.append(name)
+
+    # If AND search found results → return them
+    # If AND search found nothing → fall back to OR (each candidate separately)
+    if not answer_parts:
+        for name in name_candidates:
+            found_this_name = False
+            for (rows, header, src_label) in source_datasets:
+                data_rows = rows[1:]
+                matches = _search_person(data_rows, header, name)
+                for m in matches:
+                    key = (m["row_index"], src_label)
+                    if key in global_seen:
+                        continue
+                    global_seen.add(key)
+                    found_this_name = True
+                    answer_parts.append(
+                        _format_person_answer(
+                            m["matched_cell"], m["row"], header, src_label,
+                            is_avg, is_max, is_min,
+                        )
+                    )
+            if not found_this_name:
+                # Only add to "not found" if this looks like a real person name
+                if name.lower() not in non_person_indicators:
+                    not_found_names.append(name)
 
     if answer_parts:
         result = "\n\n".join(answer_parts)
@@ -2270,7 +2307,15 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
             return
 
-        # 2. AI answer
+        # 2. Web search mode — skip AI+jadval, only show Tavily result
+        if sess.web_search and config.tavily_key:
+            status = await msg.answer(t(lang, "searching"))
+            web_res = await do_web_search(question, config.tavily_key, config.grok_key, lang)
+            await status.edit_text(web_res, parse_mode="HTML")
+            await msg.answer("👇", reply_markup=kb_chat(lang))
+            return
+
+        # 3. AI answer (no web search)
         if not config.grok_key:
             ctx = build_context(sess)
             await msg.answer(f"⚠️ AI sozlanmagan.\n\n{ctx[:2000]}", parse_mode=None, reply_markup=kb_chat(lang))
@@ -2285,11 +2330,6 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             return
 
         answer = await ask_grok(question, ctx, config.grok_key, lang)
-
-        # Optionally also web search
-        if sess.web_search and config.tavily_key:
-            web_res = await do_web_search(question, config.tavily_key, config.grok_key, lang)
-            answer = f"{answer}\n\n{web_res}"
 
         if len(answer) > 4000:
             parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
