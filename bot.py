@@ -590,8 +590,13 @@ def _init_db():
     with _db_conn() as c:
         c.execute(
             "CREATE TABLE IF NOT EXISTS tokens("
-            "uid INTEGER PRIMARY KEY, creds TEXT, lang TEXT, updated TEXT)"
+            "uid INTEGER PRIMARY KEY, creds TEXT, lang TEXT, updated TEXT, is_registered INTEGER DEFAULT 0)"
         )
+        # Add is_registered column if upgrading from old schema
+        try:
+            c.execute("ALTER TABLE tokens ADD COLUMN is_registered INTEGER DEFAULT 0")
+        except Exception:
+            pass
         c.execute(
             "CREATE TABLE IF NOT EXISTS data_sources("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -604,6 +609,25 @@ def _init_db():
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_ds_user ON data_sources(user_id)")
         c.commit()
+
+
+def save_registered(uid: int):
+    """Mark user as registered in local SQLite (persistent across restarts)."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_conn() as c:
+        c.execute(
+            "INSERT INTO tokens(uid, is_registered, updated) VALUES(?,1,?) "
+            "ON CONFLICT(uid) DO UPDATE SET is_registered=1, updated=excluded.updated",
+            (uid, now),
+        )
+        c.commit()
+
+
+def is_registered_local(uid: int) -> bool:
+    """Check local SQLite registration flag — fast, no network call."""
+    with _db_conn() as c:
+        row = c.execute("SELECT is_registered FROM tokens WHERE uid=?", (uid,)).fetchone()
+    return bool(row and row["is_registered"])
 
 
 # ─── Multi-source DB helpers ──────────────────────────────────────────────────
@@ -1211,12 +1235,14 @@ def _python_answer(question: str, s: Session) -> str | None:
             result += f"\n\n❌ Topilmadi: {missing}"
         return result
 
-    # Nothing found at all — only show "not found" if candidates look like person names
-    # (short common words like "Kamera", "Pul" → return None so AI can answer)
-    # If web_search is ON → always return None so AI/web can handle non-person queries
+    # Nothing found at all
+    # If web_search is ON → return None so Tavily handles it
     if s.web_search:
         return None
-    if person_like_candidates:
+    # Only show "topilmadi" if query clearly looked like a person+score search
+    # (is_query=True means user asked for ball/nechchi/qancha etc.)
+    # If is_query=False — could be a general question → let AI answer
+    if person_like_candidates and is_query:
         searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in person_like_candidates[:3])
         return (
             f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n"
@@ -1539,6 +1565,7 @@ class Config:
     redirect_uri: str
     host: str
     port: int
+    drive_service_email: str  # service account email for Drive folder sharing
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -1561,6 +1588,7 @@ class Config:
             redirect_uri=redirect,
             host="0.0.0.0",
             port=port,
+            drive_service_email=os.getenv("DRIVE_SERVICE_EMAIL", "").strip(),
         )
 
 
@@ -1592,8 +1620,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             if creds:
                 sess.google_creds_json = creds
 
-        # ── Registration gate: if not registered → start reg flow
-        if not supa_is_registered(uid):
+        # ── Registration gate: check local SQLite first (fast), then Supabase
+        if not is_registered_local(uid) and not supa_is_registered(uid):
             sess.step = "reg_lang"
             await msg.answer(
                 "🌍 Xush kelibsiz! Iltimos, tilni tanlang:\n"
@@ -1881,14 +1909,11 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
     # ── Button: Sheets ────────────────────────────────────────────────────────
     @dp.message(F.text.in_({t(l, "btn_sheets") for l in ("uz","ru","en")}))
     async def btn_sheets(msg: Message):
-        uid = msg.from_user.id
-        sess = get_session(uid)
+        sess = get_session(msg.from_user.id)
         lang = sess.lang
-        if sess.google_creds_json:
-            sess.step = "waiting_sheet"
-            await msg.answer(t(lang, "ask_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
-        else:
-            await msg.answer(t(lang, "choose_connect"), reply_markup=kb_connect(lang))
+        # Always use public link (Google OAuth disabled for now)
+        sess.step = "waiting_sheet"
+        await msg.answer(t(lang, "ask_sheets"), reply_markup=kb_cancel(lang), parse_mode="HTML")
 
     # ── Button: Folder ────────────────────────────────────────────────────────
     @dp.message(F.text.in_({t(l, "btn_folder") for l in ("uz","ru","en")}))
@@ -1896,11 +1921,42 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         uid = msg.from_user.id
         sess = get_session(uid)
         lang = sess.lang
-        if not sess.google_creds_json:
-            await msg.answer(t(lang, "choose_connect"), reply_markup=kb_connect(lang))
+        service_email = config.drive_service_email
+        if not service_email:
+            await msg.answer(
+                "⚠️ Google Drive integratsiyasi hozircha sozlanmagan.",
+                reply_markup=kb_main(lang),
+            )
             return
+        # Show service email instructions, then ask for folder link
+        instructions = {
+            "uz": (
+                f"📁 <b>Google Drive papkani ulash:</b>\n\n"
+                f"1. Google Drive da papkangizni oching\n"
+                f"2. Papkaga o'ng tugma bosing → <b>Ulashish</b>\n"
+                f"3. Quyidagi emailga kirish bering:\n"
+                f"<code>{service_email}</code>\n\n"
+                f"4. Papka havolasini (link) yuboring 👇"
+            ),
+            "ru": (
+                f"📁 <b>Подключение папки Google Drive:</b>\n\n"
+                f"1. Откройте папку в Google Drive\n"
+                f"2. Правая кнопка → <b>Поделиться</b>\n"
+                f"3. Дайте доступ этому email:\n"
+                f"<code>{service_email}</code>\n\n"
+                f"4. Отправьте ссылку на папку 👇"
+            ),
+            "en": (
+                f"📁 <b>Connect Google Drive folder:</b>\n\n"
+                f"1. Open your folder in Google Drive\n"
+                f"2. Right-click → <b>Share</b>\n"
+                f"3. Grant access to this email:\n"
+                f"<code>{service_email}</code>\n\n"
+                f"4. Send the folder link 👇"
+            ),
+        }
         sess.step = "waiting_folder"
-        await msg.answer(t(lang, "ask_folder"), reply_markup=kb_cancel(lang), parse_mode="HTML")
+        await msg.answer(instructions.get(lang, instructions["uz"]), reply_markup=kb_cancel(lang), parse_mode="HTML")
 
     # ── Button: Search ────────────────────────────────────────────────────────
     @dp.message(F.text.in_({t(l, "btn_search") for l in ("uz","ru","en")}))
@@ -2043,6 +2099,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         phone = msg.contact.phone_number
         tg_username = msg.from_user.username or ""
         supa_upsert_user(uid, tg_username, sess.reg_full_name, phone, lang)
+        save_registered(uid)   # ← local SQLite flag, persistent across restarts
         save_lang(uid, lang)
         saved_name = sess.reg_full_name
         sess.step = "idle"
