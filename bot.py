@@ -2306,6 +2306,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                             "source_type": "google_sheets",
                             "source_name": unique_name,
                             "source_url": text,
+                            "sheet_id": sheet_id,
                             "data": data,
                         })
                         sess.sheets_data = data
@@ -2336,6 +2337,20 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         lang = sess.lang
         logger.info(f"Q uid={uid} web={sess.web_search} data={has_data(sess)} q={question[:60]!r}")
         await msg.bot.send_chat_action(msg.chat.id, "typing")
+
+        # ── Refresh Google Sheets sources (live data — re-fetch on every question)
+        for src in sess.sources:
+            if src.get("source_type") == "google_sheets":
+                sheet_url = src.get("source_url", "")
+                sid = src.get("sheet_id") or _extract_sheet_id(sheet_url)
+                if sid:
+                    try:
+                        fresh = await fetch_sheet_public(sid)
+                        if fresh:
+                            src["data"] = fresh
+                            logger.info(f"Sheets refreshed sid={sid[:8]} uid={uid}")
+                    except Exception as _e:
+                        logger.warning(f"Sheets refresh failed sid={sid[:8]}: {_e}")
 
         # Web-only search
         if sess.web_search and not has_data(sess):
