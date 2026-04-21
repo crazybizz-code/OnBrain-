@@ -1062,12 +1062,21 @@ def _format_person_answer(person: str, row: list, header: list, src_label: str,
     elif details:
         return f"👤 <b>{person}</b>\n🏆 Jami: <b>{total:.2f}</b>{src_tag}"
     else:
-        # No numeric data — show all non-empty cells
-        row_str = " | ".join(
-            f"{str(header[k]).strip() if k < len(header) else k}: {str(row[k]).strip()}"
-            for k in range(len(row)) if str(row[k]).strip()
-        )
-        return f"👤 <b>{person}</b>: {row_str}{src_tag}"
+        # No numeric data — show non-empty cells, skip the matched cell itself (already shown as person name)
+        parts = []
+        person_lower = person.strip().lower()
+        for k in range(len(row)):
+            cell_val = str(row[k]).strip()
+            if not cell_val:
+                continue
+            # Skip the cell that was already shown as the matched name
+            if cell_val.lower() == person_lower:
+                continue
+            col_name = str(header[k]).strip() if k < len(header) else f"Col{k}"
+            parts.append(f"<b>{col_name}:</b> {cell_val}")
+        if parts:
+            return f"� <b>{person}</b>\n" + "\n".join(parts) + src_tag
+        return f"🔍 <b>{person}</b>{src_tag}"
 
 
 def _python_answer(question: str, s: Session) -> str | None:
