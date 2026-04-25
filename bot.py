@@ -774,10 +774,9 @@ def kb_chat(lang: str = "uz") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="chat_continue"),
-                InlineKeyboardButton(text=t(lang, "btn_voice_hint"), callback_data="voice_hint"),
+                InlineKeyboardButton(text=t(lang, "btn_search"), callback_data="web_search"),
             ],
             [
-                InlineKeyboardButton(text=t(lang, "btn_search"), callback_data="web_search"),
                 InlineKeyboardButton(text=t(lang, "btn_exit"), callback_data="exit_chat"),
             ],
         ]
@@ -2071,31 +2070,17 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await loading.edit_text(f"❌ Xatolik: {e}")
 
     # ── Voice ─────────────────────────────────────────────────────────────────
+    # TODO: voice feature temporarily disabled — better version coming soon
     @dp.message(F.voice)
     async def handle_voice(msg: Message):
-        uid = msg.from_user.id
-        sess = get_session(uid)
+        sess = get_session(msg.from_user.id)
         lang = sess.lang
-        if not config.openai_key:
-            await msg.answer(t(lang, "no_voice_key"), reply_markup=kb_chat(lang) if has_data(sess) else kb_main(lang))
-            return
-        if not has_data(sess) and not sess.web_search:
-            await msg.answer(t(lang, "no_data"), reply_markup=kb_main(lang))
-            return
-        status = await msg.answer(t(lang, "transcribing"))
-        try:
-            tfile = await msg.bot.get_file(msg.voice.file_id)
-            buf = io.BytesIO()
-            await msg.bot.download_file(tfile.file_path, destination=buf)
-            text, err = await transcribe_voice(buf.getvalue(), config.openai_key)
-        except Exception as e:
-            await status.edit_text(f"❌ Audio error: {e}")
-            return
-        if not text:
-            await status.edit_text(t(lang, "voice_fail", err=err))
-            return
-        await status.edit_text(t(lang, "voice_detected", text=text), parse_mode="HTML")
-        await _process_question(msg, sess, text)
+        msgs = {
+            "uz": "🎙 Ovozli so'rov vaqtincha o'chirilgan. Iltimos, yozma savol yuboring.",
+            "ru": "🎙 Голосовые запросы временно отключены. Пожалуйста, напишите вопрос.",
+            "en": "🎙 Voice queries are temporarily disabled. Please send a text message.",
+        }
+        await msg.answer(msgs.get(lang, msgs["uz"]), reply_markup=kb_chat(sess.lang) if has_data(sess) else kb_main(lang))
 
     # ── Contact (phone share during registration) ──────────────────────────────
     @dp.message(F.contact)
