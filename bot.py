@@ -1337,6 +1337,28 @@ TRANSLATE_SYSTEM = (
     "Faqat tarjimani yoz, boshqa hech narsa qo'shma."
 )
 
+# ─── Shared aiohttp session (reuse across all requests) ──────────────────────
+_http_session: aiohttp.ClientSession | None = None
+
+def _get_http() -> aiohttp.ClientSession:
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        _http_session = aiohttp.ClientSession()
+    return _http_session
+
+# ─── Sheet data cache: {sheet_id: (data, fetched_at)} ───────────────────────
+_SHEET_CACHE: dict[str, tuple[dict, float]] = {}
+_SHEET_CACHE_TTL = 180.0  # 3 minutes
+
+def _sheet_cache_get(sheet_id: str) -> dict | None:
+    entry = _SHEET_CACHE.get(sheet_id)
+    if entry and (time.time() - entry[1]) < _SHEET_CACHE_TTL:
+        return entry[0]
+    return None
+
+def _sheet_cache_set(sheet_id: str, data: dict):
+    _SHEET_CACHE[sheet_id] = (data, time.time())
+
 
 async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz") -> str:
     lang_rule = LANG_INSTRUCTION.get(lang, LANG_INSTRUCTION["uz"])
@@ -1351,28 +1373,28 @@ async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz")
     last_err = ""
     for model in models:
         try:
-            async with aiohttp.ClientSession() as http:
-                async with http.post(
-                    "https://api.x.ai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user_msg},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 3000,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=90),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        answer = data["choices"][0]["message"]["content"]
-                        logger.info(f"Grok({model}): {answer[:80]}")
-                        return answer
-                    last_err = f"{model}: HTTP {resp.status}"
-                    logger.warning(last_err)
+            http = _get_http()
+            async with http.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 3000,
+                },
+                timeout=aiohttp.ClientTimeout(total=90),
+            ) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    answer = data["choices"][0]["message"]["content"]
+                    logger.info(f"Grok({model}): {answer[:80]}")
+                    return answer
+                last_err = f"{model}: HTTP {resp.status}"
+                logger.warning(last_err)
         except Exception as e:
             last_err = f"{model}: {e}"
             logger.warning(last_err)
@@ -1382,15 +1404,15 @@ async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz")
 # ─── Web search ──────────────────────────────────────────────────────────────
 async def do_web_search(query: str, tavily_key: str, grok_key: str = "", lang: str = "uz") -> str:
     try:
-        resp = await asyncio.to_thread(
-            requests.post,
+        http = _get_http()
+        async with http.post(
             "https://api.tavily.com/search",
             json={"api_key": tavily_key, "query": query, "include_answer": True, "max_results": 5},
-            timeout=20,
-        )
-        if resp.status_code != 200:
-            return t(lang, "search_fail", err=f"HTTP {resp.status_code}")
-        data = resp.json()
+            timeout=aiohttp.ClientTimeout(total=20),
+        ) as resp:
+            if resp.status != 200:
+                return t(lang, "search_fail", err=f"HTTP {resp.status}")
+            data = await resp.json()
         raw = data.get("answer", "")
         sources = data.get("results", [])
 
@@ -1459,36 +1481,61 @@ def _extract_folder_id(url: str):
 
 
 async def fetch_sheet_public(sheet_id: str) -> dict:
+    cached = _sheet_cache_get(sheet_id)
+    if cached is not None:
+        logger.info(f"Sheet cache HIT sid={sheet_id[:8]}")
+        return cached
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-        async with aiohttp.ClientSession() as http:
-            async with http.get(url, timeout=aiohttp.ClientTimeout(total=20)) as resp:
-                if resp.status == 200:
-                    rows = _parse_csv(await resp.text())
-                    if rows:
-                        return {"Sheet1": rows}
+        http = _get_http()
+        async with http.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            if resp.status == 200:
+                rows = _parse_csv(await resp.text())
+                if rows:
+                    result = {"Sheet1": rows}
+                    _sheet_cache_set(sheet_id, result)
+                    return result
     except Exception as e:
         logger.error(f"fetch_sheet_public: {e}")
     return {}
 
 
 async def fetch_sheet_with_creds(sheet_id: str, creds_json: str) -> dict:
+    cache_key = f"{sheet_id}:creds"
+    cached = _sheet_cache_get(cache_key)
+    if cached is not None:
+        logger.info(f"Sheet cache HIT (creds) sid={sheet_id[:8]}")
+        return cached
     result = {}
     try:
-        creds = Credentials.from_authorized_user_info(json.loads(creds_json), scopes=SCOPES)
-        svc = build("sheets", "v4", credentials=creds)
-        meta = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
-        for tab in meta.get("sheets", []):
-            title = tab["properties"]["title"]
-            try:
-                vals = svc.spreadsheets().values().get(
-                    spreadsheetId=sheet_id, range=title, valueRenderOption="FORMATTED_VALUE"
-                ).execute()
-                rows = vals.get("values", [])
-                if rows:
-                    result[title] = rows
-            except Exception as e:
-                logger.warning(f"Tab '{title}': {e}")
+        def _sync_fetch():
+            _result = {}
+            creds = Credentials.from_authorized_user_info(json.loads(creds_json), scopes=SCOPES)
+            svc = build("sheets", "v4", credentials=creds)
+            meta = svc.spreadsheets().get(spreadsheetId=sheet_id).execute()
+            tabs = [tab["properties"]["title"] for tab in meta.get("sheets", [])]
+
+            def _fetch_tab(title):
+                try:
+                    vals = svc.spreadsheets().values().get(
+                        spreadsheetId=sheet_id, range=title, valueRenderOption="FORMATTED_VALUE"
+                    ).execute()
+                    rows = vals.get("values", [])
+                    return title, rows if rows else None
+                except Exception as e:
+                    logger.warning(f"Tab '{title}': {e}")
+                    return title, None
+
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(8, len(tabs))) as pool:
+                for title, rows in pool.map(_fetch_tab, tabs):
+                    if rows:
+                        _result[title] = rows
+            return _result
+
+        result = await asyncio.to_thread(_sync_fetch)
+        if result:
+            _sheet_cache_set(cache_key, result)
     except Exception as e:
         logger.error(f"fetch_sheet_with_creds: {e}")
     return result
@@ -2353,19 +2400,16 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         logger.info(f"Q uid={uid} web={sess.web_search} data={has_data(sess)} q={question[:60]!r}")
         await msg.bot.send_chat_action(msg.chat.id, "typing")
 
-        # ── Refresh Google Sheets sources (live data — re-fetch on every question)
+        # ── Refresh Google Sheets sources (cache-aware: re-fetch only if TTL expired)
         for src in sess.sources:
             if src.get("source_type") == "google_sheets":
                 sheet_url = src.get("source_url", "")
                 sid = src.get("sheet_id") or _extract_sheet_id(sheet_url)
                 if sid:
-                    try:
-                        fresh = await fetch_sheet_public(sid)
-                        if fresh:
-                            src["data"] = fresh
-                            logger.info(f"Sheets refreshed sid={sid[:8]} uid={uid}")
-                    except Exception as _e:
-                        logger.warning(f"Sheets refresh failed sid={sid[:8]}: {_e}")
+                    # _sheet_cache_get returns None if expired → fetch_sheet_public will re-fetch
+                    fresh = await fetch_sheet_public(sid)
+                    if fresh:
+                        src["data"] = fresh
 
         # Web-only search
         if sess.web_search and not has_data(sess):
