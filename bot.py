@@ -2455,7 +2455,7 @@ async def main():
         await bot.delete_webhook(drop_pending_updates=True)
     except Exception:
         pass
-    await asyncio.sleep(2)
+    await asyncio.sleep(5)  # Give Telegram time to release previous polling connection
 
     # Set bot commands
     from aiogram.types import BotCommand
@@ -2492,14 +2492,7 @@ async def main():
 
 if __name__ == "__main__":
     logger.info("OnBrain AI Bot process started.")
-    while True:
-        try:
-            asyncio.run(main())
-        except KeyboardInterrupt:
-            logger.info("Stopped.")
-            break
-        except Exception as e:
-            logger.error(f"Crash ({type(e).__name__}): {e}")
-            wait = 15 if "conflict" in str(e).lower() else 5
-            logger.info(f"Restart in {wait}s...")
-            time.sleep(wait)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Stopped.")
