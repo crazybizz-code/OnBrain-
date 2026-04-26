@@ -1138,6 +1138,14 @@ def _python_answer(question: str, s: Session) -> str | None:
         "bahosi", "natija", "score", "natijalari", "yig'indi", "yigindi", "summa",
         "sinf", "class", "и", "или", "для", "с", "в", "на", "по", "что", "как",
         "and", "or", "for", "with", "the", "of", "is", "are", "what", "how",
+        # Fan / predmet nomlari
+        "algebra", "geometriya", "fizika", "kimyo", "biologiya", "tarix",
+        "ingliz", "rus", "matematika", "informatika", "adabiyot", "geografiya",
+        "ona", "tili", "fanidan", "fani", "fandan",
+        # Grammatik so'zlar
+        "olgan", "olgani", "qilgan", "bergan", "topgan", "yozgan",
+        "uning", "uniki", "ularning", "sizning", "mening",
+        "necha", "qanday", "qoida", "nomi", "nomini",
     }
 
     words = [w.strip(".,!?\"'()[]") for w in question.split()]
@@ -1179,7 +1187,7 @@ def _python_answer(question: str, s: Session) -> str | None:
     global_seen: set[tuple[int, str]] = set()  # (row_index, src_label)
 
     def _matches_all_parts(row: list, header: list, parts: list[str]) -> bool:
-        """Return True if the row's name column(s) contain ALL given parts."""
+        """Return True if the row's name column(s) contain ALL given parts as whole words."""
         name_col_indices = []
         for j, h in enumerate(header):
             hl = str(h).strip().lower()
@@ -1187,7 +1195,13 @@ def _python_answer(question: str, s: Session) -> str | None:
                 name_col_indices.append(j)
         cols = name_col_indices if name_col_indices else range(len(row))
         cell_text = " ".join(str(row[j]).strip().lower() for j in cols if j < len(row))
-        return all(p.lower() in cell_text for p in parts)
+        cell_words = cell_text.split()
+        for p in parts:
+            p_lower = p.lower()
+            # Part must match as a whole word token (not substring of another word)
+            if not any(cw == p_lower or cw.startswith(p_lower) for cw in cell_words):
+                return False
+        return True
 
     # Try AND search first when multiple person-like candidates
     and_search_done = False
