@@ -71,9 +71,10 @@ if _SUPABASE_URL and _SUPABASE_KEY:
 def supa_upsert_user(uid: int, telegram_username: str, full_name: str, phone: str, lang: str):
     """Insert or update user in Supabase 'users' table."""
     if not _supa:
+        logging.getLogger("onbrain").warning("Supabase not configured — skipping upsert")
         return
     try:
-        _supa.table("users").upsert({
+        result = _supa.table("users").upsert({
             "telegram_id": uid,
             "telegram_username": telegram_username,
             "full_name": full_name,
@@ -81,21 +82,27 @@ def supa_upsert_user(uid: int, telegram_username: str, full_name: str, phone: st
             "lang": lang,
             "registered_at": datetime.now(timezone.utc).isoformat(),
         }, on_conflict="telegram_id").execute()
+        logging.getLogger("onbrain").info(f"Supabase upsert ok uid={uid} data={result.data}")
     except Exception as e:
-        logging.getLogger("onbrain").warning(f"Supabase upsert error uid={uid}: {e}")
+        logging.getLogger("onbrain").error(f"Supabase upsert ERROR uid={uid}: {type(e).__name__}: {e}")
 
 
 def supa_is_registered(uid: int) -> bool:
     """Check if user has completed registration (has phone in Supabase)."""
     if not _supa:
-        return True   # if Supabase not configured, skip registration gate
+        return True   # Supabase not configured → skip registration gate
     try:
         res = _supa.table("users").select("phone").eq("telegram_id", uid).execute()
         if res.data:
-            return bool(res.data[0].get("phone"))
+            has_phone = bool(res.data[0].get("phone"))
+            logging.getLogger("onbrain").info(f"Supabase check uid={uid} has_phone={has_phone}")
+            return has_phone
+        logging.getLogger("onbrain").info(f"Supabase check uid={uid} not found in DB")
+        return False
     except Exception as e:
-        logging.getLogger("onbrain").warning(f"Supabase check error uid={uid}: {e}")
-    return False
+        # Fail-open: on any error assume registered to avoid re-asking every restart
+        logging.getLogger("onbrain").error(f"Supabase check ERROR uid={uid}: {type(e).__name__}: {e} — assuming registered")
+        return True
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
