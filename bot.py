@@ -996,10 +996,54 @@ def _strip_suffix(word: str) -> str:
     return w
 
 
+def _classify_name_type(word: str) -> str:
+    """Classify a single cleaned word as 'familiya', 'ism', or 'ota'.
+
+    Rules:
+    1. If word ends with a familiya suffix (-ov, -ev, -yev, -ova, -eva, -yeva,
+       -off, -eff, -in, -ina, -skiy, -sky, -zadeh, -zoda, -bekov, etc.)
+       → 'familiya'  (search pos 0 in name column)
+    2. If word ends with o'g'li / qizi (after grammatical strip)
+       → 'ota'  (search pos 2+ — otaismi field)
+    3. Otherwise → 'ism'  (search pos 1 in name column)
+    """
+    w = word.strip().lower()
+    # Familiya (surname) suffixes — Uzbek, Russian-style, Tajik-style
+    fam_suffixes = (
+        "ov", "ev", "yev",
+        "ova", "eva", "yeva",
+        "off", "eff",
+        "in", "ina",
+        "skiy", "sky", "ский",
+        "zadeh", "zoda",
+        "bekov", "bekova",
+        "jonov", "jonova",
+        "xonov", "xonova",
+        "qolov", "qolova",
+        "boyev", "boyeva",
+        "qulov", "qulova",
+        "ulov", "ulova",
+        "aliev", "alieva",
+    )
+    for suf in fam_suffixes:
+        if w.endswith(suf) and len(w) > len(suf) + 1:
+            return "familiya"
+    # Ota-ism markers
+    ota_markers = ("o'g'li", "o'g'lining", "qizi", "qizining", "ugli", "ugil")
+    for m in ota_markers:
+        if w.endswith(m):
+            return "ota"
+    return "ism"
+
+
 def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
     raw = name_q.strip().lower()
     stripped = _strip_suffix(raw)
     candidates = list({raw, stripped})
+
+    # Determine what kind of name this is
+    # Use the stripped form for classification (remove grammatical suffixes first)
+    name_type = _classify_name_type(stripped)
 
     # Find name columns (F.I.O, FIO, Ism, Name, ФИО etc.)
     name_col_indices = []
@@ -1015,7 +1059,7 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
         cols_to_check = range(len(row)) if search_all else name_col_indices
         matched_j = None
         matched_cell = None
-        match_quality = 0  # 3=exact_full, 2=startswith, 1=word_at_pos01
+        match_quality = 0  # 3=exact_full, 2=startswith, 1=word_in_correct_pos
         for j in cols_to_check:
             if j >= len(row):
                 continue
@@ -1032,26 +1076,33 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
                     match_quality = 3
                     break
                 words_in_cell = cs.split()
-                # Priority 2: Cell starts with candidate (familiya match)
-                # e.g. "Halimjonov Muhammad..." starts with "Halimjonov"
+                # Priority 2: Cell starts with candidate
+                # Works for all name types (familiya always at start anyway)
                 if cs.startswith(c) and len(cs) > len(c) and cs[len(c)] == " ":
                     if match_quality < 2:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
                         match_quality = 2
-                # Priority 1: candidate at pos 0 ONLY (familiya match)
-                # e.g. "Muhammad Alijonov" → Muhammad at pos 0 → allowed (familiya)
-                # e.g. "Halimjonov Muhammad Davronbek" → Muhammad at pos 1 → BLOCKED
-                # Reason: "Muhammadning balli" means the person whose FAMILIYA is Muhammad,
-                # not the 3 people whose ISM happens to be Muhammad.
-                if c in words_in_cell:
+
+                # Priority 1: word-in-cell at the correct position by name type
+                # familiya → pos 0 only
+                # ism      → pos 1 only  (e.g. "Halimjonov Muhammad Davronbek")
+                # ota      → pos 2+       (e.g. "Halimjonov Muhammad Davronbek")
+                if c in words_in_cell and match_quality < 1:
                     pos = words_in_cell.index(c)
                     is_name_col = j in name_col_indices
-                    if is_name_col and pos == 0 and match_quality < 1:
-                        matched_j = j
-                        matched_cell = str(row[j]).strip()
-                        match_quality = 1
-                    elif not is_name_col and match_quality < 1:
+                    matched = False
+                    if is_name_col:
+                        if name_type == "familiya" and pos == 0:
+                            matched = True
+                        elif name_type == "ism" and pos == 1:
+                            matched = True
+                        elif name_type == "ota" and pos >= 2:
+                            matched = True
+                    else:
+                        # Non-name column: always allow word match
+                        matched = True
+                    if matched:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
                         match_quality = 1
@@ -1067,9 +1118,8 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
                 "match_quality": match_quality,
             })
 
-    # If any exact matches exist → return ONLY those (eliminates false word-in-cell matches)
-    # If only startswith → return those
-    # If only word-in-cell (pos 0/1) → return all (multiple people with same first name is valid)
+    # If any exact/startswith matches exist → return only those
+    # If only pos-based matches → return all (valid: multiple people can share a first name)
     best_quality = max((r["match_quality"] for r in results), default=0)
     if best_quality >= 2:
         results = [r for r in results if r["match_quality"] >= best_quality]
