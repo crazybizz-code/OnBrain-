@@ -575,6 +575,10 @@ class Session:
     schema_info: str = ""      # e.g. "F.I.O, Ball, Sinf, Maktab"
     # Last sheet URL for state persistence (survives bot restart)
     last_sheet_url: str = ""
+    # Conversation memory: last successfully found person names
+    last_found_names: list = field(default_factory=list)   # e.g. ["Muhammad Davronbek"]
+    # Disambiguation: pending candidates when multiple people found for same query
+    disambiguation_candidates: list = field(default_factory=list)
 
 
 _sessions: dict[int, Session] = {}
@@ -970,6 +974,11 @@ def _strip_suffix(word: str) -> str:
         "ning", "dan",
         "ni", "ga", "da", "gi", "ki",
         "lar", "lik",
+        # Relationship suffixes (don't strip — they're part of name context)
+        # But we DO need to strip them from query words to find the base name
+        # "o'g'li" / "qizi" → strip → base name
+        "o'g'lining", "o'g'lini", "o'g'liga", "o'g'lidan",
+        "qizining", "qizini", "qiziga",
     ]
 
     for suf in suffixes:
@@ -1166,6 +1175,7 @@ def _python_answer(question: str, s: Session) -> str | None:
     }
 
     stop = {
+        # Grammatik / ko'makchi so'zlar
         "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi", "necchi",
         "umumiy", "ball", "balli", "ballari", "baho", "jami", "hammasi",
         "ko'rsat", "toping", "ayt", "qancha", "top", "nima", "qaysi", "nechta",
@@ -1181,7 +1191,63 @@ def _python_answer(question: str, s: Session) -> str | None:
         "olgan", "olgani", "qilgan", "bergan", "topgan", "yozgan",
         "uning", "uniki", "ularning", "sizning", "mening",
         "necha", "qanday", "qoida", "nomi", "nomini",
+        # ── KENGAYTIRILGAN STOP WORDS ──────────────────────────────────────
+        # So'rov so'zlari
+        "menga", "senga", "unga", "bizga", "sizga", "ularga",
+        "ber", "bering", "berib", "bersin",
+        "top", "toping", "topib", "topsin",
+        "ko'rsat", "ko'rsating", "ko'rsatib",
+        "chiqar", "chiqaring", "ayt", "ayting",
+        "kerak", "lozim", "zarur",
+        "qilib", "qiling", "qilsin",
+        "haqida", "haqida", "to'g'risida", "borasida",
+        "malumot", "ma'lumot", "ma'lumotini", "malumotini",
+        "axborot", "bilmoqchi", "bilish", "bilaman",
+        "iltimos", "marhamat", "iltimos",
+        # Olmosh / proximal so'zlar (pronoun → context resolution)
+        "shu", "shuni", "shuning", "shunday", "shuni",
+        "bu", "buni", "buning", "bunday",
+        "u", "uni", "uning", "ul",
+        "o'sha", "o'shani", "o'shaning",
+        "ana", "mana",
+        # Oquvchi / kishi bildiruvchi umumiy so'zlar
+        "oquvchi", "o'quvchi", "talaba", "o'quvchini", "talabani",
+        "shaxs", "kishi", "odam", "bola", "farzand",
+        "oquvchining", "o'quvchining", "talabaning",
+        # Qarindoshlik (relationship) so'zlari — ism emas
+        "o'g'li", "o'g'lini", "o'g'liga", "o'g'lidan", "o'g'lining",
+        "qizi", "qizini", "qiziga", "qizidan", "qizining",
+        "akasi", "singlisi", "ukasi", "opasi",
+        # Savol so'zlari
+        "nechi", "nechchi", "nechanchi", "qaysi", "qachon", "nima",
+        "kim", "kimning", "kimni", "kimga",
+        # Rus / ingliz stop
+        "мне", "мне", "дай", "покажи", "найди", "нужен", "нужна",
+        "этот", "эта", "это", "тот", "та", "то",
+        "ученик", "студент", "человек",
+        "give", "show", "find", "need", "want", "tell",
+        "this", "that", "the", "student", "person",
     }
+
+    # Pronoun resolution: if user says "shu oquvchi", "u", "o'sha" etc.
+    # → inject last found names into candidate list
+    PRONOUNS = {
+        "u", "uni", "uning", "shu", "shuni", "shuning", "o'sha", "o'shani",
+        "bu", "buni", "shu oquvchi", "o'sha oquvchi", "u oquvchi",
+        "this student", "that student", "он", "она", "этот", "тот",
+    }
+    q_stripped = q.strip()
+    has_pronoun = any(pr in q_stripped for pr in PRONOUNS)
+    if has_pronoun and s.last_found_names:
+        # Inject remembered names as extra candidates
+        for remembered in s.last_found_names:
+            remembered_parts = remembered.split()
+            for part in remembered_parts:
+                pl = part.lower()
+                if len(pl) >= 3 and pl not in stop:
+                    if pl not in [x.lower() for x in name_candidates]:
+                        name_candidates.append(part)
+        logger.info(f"Pronoun resolved → injected {s.last_found_names} into candidates")
 
     words = [w.strip(".,!?\"'()[]") for w in question.split()]
     name_candidates: list[str] = []
@@ -1290,6 +1356,25 @@ def _python_answer(question: str, s: Session) -> str | None:
         if not_found_names and not s.web_search:
             missing = ", ".join(f"<b>{n.capitalize()}</b>" for n in not_found_names)
             result += f"\n\n❌ Topilmadi: {missing}"
+
+        # ── Save found names to conversation memory ──────────────────────────
+        found_names = []
+        for part in answer_parts:
+            # Extract name from "👤 <b>Name</b>" pattern
+            import re as _re
+            m = _re.search(r"👤 <b>([^<]+)</b>", part)
+            if m:
+                found_names.append(m.group(1).strip())
+        if found_names:
+            s.last_found_names = found_names[:3]   # keep last 3
+
+        # ── Disambiguation: if single ambiguous query returned 3+ results,
+        #    store candidates so user can pick one next time
+        if len(answer_parts) >= 3 and len(person_like_candidates) <= 1:
+            s.disambiguation_candidates = found_names
+        else:
+            s.disambiguation_candidates = []
+
         return result
 
     # Nothing found at all
@@ -1297,8 +1382,6 @@ def _python_answer(question: str, s: Session) -> str | None:
     if s.web_search:
         return None
     # Only show "topilmadi" if query clearly looked like a person+score search
-    # (is_query=True means user asked for ball/nechchi/qancha etc.)
-    # If is_query=False — could be a general question → let AI answer
     if person_like_candidates and is_query:
         searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in person_like_candidates[:3])
         return (
@@ -2564,6 +2647,25 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         logger.info(f"Q uid={uid} web={sess.web_search} data={has_data(sess)} q={question[:60]!r}")
         await msg.bot.send_chat_action(msg.chat.id, "typing")
 
+        # ── Disambiguation: user picked a number from candidate list
+        if sess.disambiguation_candidates:
+            q_stripped = question.strip()
+            if q_stripped.isdigit():
+                idx = int(q_stripped) - 1
+                if 0 <= idx < len(sess.disambiguation_candidates):
+                    chosen = sess.disambiguation_candidates[idx]
+                    sess.last_found_names = [chosen]
+                    sess.disambiguation_candidates = []
+                    # Re-run with the chosen name
+                    question = chosen
+                    logger.info(f"Disambiguation: uid={uid} chose '{chosen}'")
+                else:
+                    await msg.answer(f"❌ {q_stripped} raqami noto'g'ri. Ro'yxatdagi raqamni kiriting.")
+                    return
+            else:
+                # User typed something else — clear disambiguation
+                sess.disambiguation_candidates = []
+
         # ── Refresh Google Sheets sources (cache-aware: re-fetch only if TTL expired)
         for src in sess.sources:
             if src.get("source_type") == "google_sheets":
@@ -2600,6 +2702,15 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         if py_ans is not None:
             logger.info(f"Python answered uid={uid}")
             await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
+
+            # ── Disambiguation prompt: if 3+ results for same ambiguous name
+            if sess.disambiguation_candidates:
+                cands = sess.disambiguation_candidates
+                disam_msg = f"❓ <b>Qaysi {cands[0].split()[0]}?</b> Aniqlashtiring:\n"
+                for i, name in enumerate(cands, 1):
+                    disam_msg += f"  <b>{i}.</b> {name}\n"
+                disam_msg += "\nRaqamni yozing (1, 2, 3...)"
+                await msg.answer(disam_msg, parse_mode="HTML")
             return
 
         # 2. Web search mode — skip AI+jadval, only show Tavily result
