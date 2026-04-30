@@ -1455,37 +1455,110 @@ async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz",
 
 
 # ─── Web search ──────────────────────────────────────────────────────────────
-async def do_web_search(query: str, tavily_key: str, grok_key: str = "", lang: str = "uz") -> str:
+
+# Real-time trigger keywords — Tavily faqat shu so'zlar bo'lganda ishga tushadi
+_REALTIME_TRIGGERS = {
+    # Uz
+    "bugun", "bugungi", "hozir", "hozirgi", "joriy", "oxirgi", "so'nggi",
+    "yangilik", "yangiliklar", "kurs", "valyuta", "dollar", "euro",
+    "ob-havo", "havo", "harorat", "prognoz", "bashorat",
+    "narx", "narxi", "baho", "bahosi", "neft", "oltin",
+    "sport", "futbol", "natija", "o'yin", "match",
+    "tirik", "live", "onlayn", "online",
+    # Ru
+    "сегодня", "сейчас", "текущий", "последний", "последние",
+    "новость", "новости", "курс", "валюта", "погода",
+    "цена", "нефть", "золото", "спорт",
+    # En
+    "today", "current", "latest", "now", "live", "real-time",
+    "news", "weather", "exchange", "rate", "price", "score",
+}
+
+def _is_realtime_query(question: str) -> bool:
+    """Return True if the question likely needs fresh internet data."""
+    q = question.lower()
+    return any(kw in q for kw in _REALTIME_TRIGGERS)
+
+
+async def _fetch_tavily_snippets(query: str, tavily_key: str) -> str | None:
+    """
+    Fast Tavily search: basic depth, 3 results, no answer synthesis.
+    Returns a clean context string for Grok, or None on timeout/error.
+    """
     try:
         http = _get_http()
         async with http.post(
             "https://api.tavily.com/search",
-            json={"api_key": tavily_key, "query": query, "include_answer": True, "max_results": 5},
-            timeout=aiohttp.ClientTimeout(total=20),
+            json={
+                "api_key": tavily_key,
+                "query": query,
+                "search_depth": "basic",   # fast mode
+                "include_answer": False,    # skip slow answer synthesis
+                "max_results": 3,
+            },
+            timeout=aiohttp.ClientTimeout(total=5),  # hard 5s limit
         ) as resp:
             if resp.status != 200:
-                return t(lang, "search_fail", err=f"HTTP {resp.status}")
+                logger.warning(f"Tavily HTTP {resp.status}")
+                return None
             data = await resp.json()
-        raw = data.get("answer", "")
-        sources = data.get("results", [])
 
-        # Translate to user's language via Grok
-        if raw and grok_key:
-            lang_names = {"uz": "O'zbek", "ru": "Ruscha", "en": "English"}
-            prompt = f"Quyidagi matnni {lang_names.get(lang, 'Uzbek')} tiliga tarjima qil. Faqat tarjimani yoz:\n\n{raw}"
-            try:
-                raw = await ask_grok(prompt, "", grok_key, lang)
-            except Exception:
-                pass
+        results = data.get("results", [])
+        if not results:
+            return None
 
-        result = t(lang, "search_result", answer=raw or "—")
-        if sources:
-            result += t(lang, "search_sources")
-            for i, s in enumerate(sources[:3], 1):
-                result += f"\n{i}. {s.get('title','')}"
-        return result
+        # Clean output: title + snippet only
+        lines = []
+        for r in results:
+            title = r.get("title", "").strip()
+            snippet = r.get("content", "").strip()[:300]
+            url = r.get("url", "")
+            if title or snippet:
+                lines.append(f"• {title}\n  {snippet}\n  ({url})")
+        return "\n\n".join(lines) if lines else None
+
+    except asyncio.TimeoutError:
+        logger.warning("Tavily timeout (5s) — falling back to Grok knowledge")
+        return None
     except Exception as e:
-        return t(lang, "search_fail", err=str(e)[:80])
+        logger.warning(f"Tavily error: {e}")
+        return None
+
+
+async def do_web_search(query: str, tavily_key: str, grok_key: str = "", lang: str = "uz") -> str:
+    """
+    Full web search for web_search mode (user explicitly pressed 🌐).
+    Uses fast snippets + Grok to compose a final answer.
+    """
+    snippets = await _fetch_tavily_snippets(query, tavily_key)
+
+    if snippets and grok_key:
+        lang_names = {"uz": "O'zbek tilida", "ru": "на русском языке", "en": "in English"}
+        lang_str = lang_names.get(lang, "O'zbek tilida")
+        prompt = (
+            f"Quyidagi internet qidiruv natijalari asosida savolga qisqa va aniq javob ber {lang_str}.\n"
+            f"Faqat ma'lum bo'lgan ma'lumotlarni yoz — ixtiro qilma.\n\n"
+            f"SAVOL: {query}\n\n"
+            f"QIDIRUV NATIJALARI:\n{snippets}"
+        )
+        try:
+            answer = await ask_grok(prompt, "", grok_key, lang)
+            # Append source URLs
+            sources_block = ""
+            lines = [l for l in snippets.split("\n") if l.strip().startswith("(http")]
+            if lines:
+                sources_block = "\n\n🔗 <b>Manbalar:</b>"
+                for i, l in enumerate(lines[:3], 1):
+                    url = l.strip().strip("()")
+                    sources_block += f"\n{i}. {url}"
+            return answer + sources_block
+        except Exception as e:
+            logger.warning(f"Grok web summary error: {e}")
+
+    if snippets:
+        return t(lang, "search_result", answer=snippets[:1500])
+
+    return t(lang, "search_fail", err="Natija topilmadi")
 
 
 # ─── Voice ───────────────────────────────────────────────────────────────────
@@ -2551,7 +2624,26 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await status.edit_text(t(lang, "no_data"))
             return
 
-        answer = await ask_grok(question, ctx, config.grok_key, lang, schema_info=sess.schema_info)
+        # Smart router: if question needs real-time data AND Tavily key exists,
+        # fetch snippets in parallel (5s timeout) and inject into Grok context
+        extra_web_ctx = ""
+        if config.tavily_key and _is_realtime_query(question):
+            logger.info(f"Realtime query detected uid={uid} — fetching Tavily snippets")
+            try:
+                snippets = await asyncio.wait_for(
+                    _fetch_tavily_snippets(question, config.tavily_key),
+                    timeout=5.0,
+                )
+                if snippets:
+                    extra_web_ctx = f"\n\nINTERNET MA'LUMOTLARI (hozirgi):\n{snippets}"
+                    logger.info(f"Tavily snippets injected uid={uid}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Tavily router timeout uid={uid} — Grok uses own knowledge")
+            except Exception as _e:
+                logger.warning(f"Tavily router error uid={uid}: {_e}")
+
+        full_ctx = ctx + extra_web_ctx
+        answer = await ask_grok(question, full_ctx, config.grok_key, lang, schema_info=sess.schema_info)
 
         if len(answer) > 4000:
             parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
