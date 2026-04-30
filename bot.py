@@ -1039,13 +1039,15 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
                         match_quality = 2
-                # Priority 1: candidate at pos 0 (familiya) OR pos 1 (ism) — NOT pos 2+ (otaismi/suffix)
-                # e.g. "Halimjonov Muhammad Davronbek" → Muhammad at pos 1 → allowed
-                # e.g. "Halimjonov Muhammad Davronbek o'g'li" → "o'g'li" at pos 3 → blocked
+                # Priority 1: candidate at pos 0 ONLY (familiya match)
+                # e.g. "Muhammad Alijonov" → Muhammad at pos 0 → allowed (familiya)
+                # e.g. "Halimjonov Muhammad Davronbek" → Muhammad at pos 1 → BLOCKED
+                # Reason: "Muhammadning balli" means the person whose FAMILIYA is Muhammad,
+                # not the 3 people whose ISM happens to be Muhammad.
                 if c in words_in_cell:
                     pos = words_in_cell.index(c)
                     is_name_col = j in name_col_indices
-                    if is_name_col and pos <= 1 and match_quality < 1:
+                    if is_name_col and pos == 0 and match_quality < 1:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
                         match_quality = 1
