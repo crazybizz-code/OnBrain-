@@ -571,6 +571,10 @@ class Session:
     pending_clear: bool = False
     # Registration flow
     reg_full_name: str = ""    # temp: stores name during registration
+    # Dynamic schema: human-readable column description built from loaded sheet
+    schema_info: str = ""      # e.g. "F.I.O, Ball, Sinf, Maktab"
+    # Last sheet URL for state persistence (survives bot restart)
+    last_sheet_url: str = ""
 
 
 _sessions: dict[int, Session] = {}
@@ -604,6 +608,11 @@ def _init_db():
             c.execute("ALTER TABLE tokens ADD COLUMN is_registered INTEGER DEFAULT 0")
         except Exception:
             pass
+        # Add last_sheet_url column for state persistence
+        try:
+            c.execute("ALTER TABLE tokens ADD COLUMN last_sheet_url TEXT DEFAULT ''")
+        except Exception:
+            pass
         c.execute(
             "CREATE TABLE IF NOT EXISTS data_sources("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -635,6 +644,25 @@ def is_registered_local(uid: int) -> bool:
     with _db_conn() as c:
         row = c.execute("SELECT is_registered FROM tokens WHERE uid=?", (uid,)).fetchone()
     return bool(row and row["is_registered"])
+
+
+def save_last_sheet_url(uid: int, url: str):
+    """Persist the last Google Sheets URL for a user — survives bot restarts."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_conn() as c:
+        c.execute(
+            "INSERT INTO tokens(uid, last_sheet_url, updated) VALUES(?,?,?) "
+            "ON CONFLICT(uid) DO UPDATE SET last_sheet_url=excluded.last_sheet_url, updated=excluded.updated",
+            (uid, url, now),
+        )
+        c.commit()
+
+
+def load_last_sheet_url(uid: int) -> str:
+    """Load the last saved Google Sheets URL for a user."""
+    with _db_conn() as c:
+        row = c.execute("SELECT last_sheet_url FROM tokens WHERE uid=?", (uid,)).fetchone()
+    return (row["last_sheet_url"] or "") if row else ""
 
 
 # ─── Multi-source DB helpers ──────────────────────────────────────────────────
@@ -1322,8 +1350,9 @@ LANG_INSTRUCTION = {
 
 GROK_SYSTEM = (
     "Sen jadval (Excel/Sheets) ma'lumotlarini tahlil qiluvchi aqlli assistantsan.\n"
+    "{schema_section}"
     "QOIDALAR:\n"
-    "1. Faqat berilgan jadval ma'lumotlari asosida javob ber.\n"
+    "1. FAQAT berilgan jadval ma'lumotlari asosida javob ber — tashqaridan ma'lumot qo'shma.\n"
     "2. Ism qidirishda: to'liq mos topishga harakat qil, topilmasa 'topilmadi' de.\n"
     "3. Har bir shaxs uchun alohida javob ber.\n"
     "4. Ball so'ralganda: jadvalda 'Umumiy ball' ustuni bo'lsa — o'sha qiymatni ber.\n"
@@ -1360,10 +1389,34 @@ def _sheet_cache_set(sheet_id: str, data: dict):
     _SHEET_CACHE[sheet_id] = (data, time.time())
 
 
-async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz") -> str:
+def _build_schema_info(sources: list) -> str:
+    """Extract all column names from loaded sources and return a human-readable summary."""
+    all_columns: list[str] = []
+    seen: set[str] = set()
+    for src in sources:
+        data = src.get("data")
+        headers: list[str] = []
+        if isinstance(data, list) and data:
+            headers = [str(c).strip() for c in data[0] if str(c).strip()]
+        elif isinstance(data, dict):
+            for rows in data.values():
+                if isinstance(rows, list) and rows:
+                    headers = [str(c).strip() for c in rows[0] if str(c).strip()]
+                    break
+        for h in headers:
+            if h and h.lower() not in seen:
+                seen.add(h.lower())
+                all_columns.append(h)
+    if all_columns:
+        return f"JADVAL USTUNLARI: {', '.join(all_columns)}\n\n"
+    return ""
+
+
+async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz", schema_info: str = "") -> str:
     lang_rule = LANG_INSTRUCTION.get(lang, LANG_INSTRUCTION["uz"])
     if context.strip():
-        system = GROK_SYSTEM.format(lang_rule=lang_rule)
+        schema_section = f"JADVAL USTUNLARI: {schema_info}\n\n" if schema_info else ""
+        system = GROK_SYSTEM.format(lang_rule=lang_rule, schema_section=schema_section)
         user_msg = f"JADVAL:\n{context}\n\nSAVOL: {question}\n\nJavob {lang_rule}"
     else:
         system = TRANSLATE_SYSTEM
@@ -1383,7 +1436,7 @@ async def ask_grok(question: str, context: str, grok_key: str, lang: str = "uz")
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_msg},
                     ],
-                    "temperature": 0.1,
+                    "temperature": 0,
                     "max_tokens": 3000,
                 },
                 timeout=aiohttp.ClientTimeout(total=90),
@@ -1720,7 +1773,36 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         welcome = t(sess.lang, "welcome", name=name)
         if source_count > 0:
             welcome += f"\n\n📚 Sizda <b>{source_count}</b> ta ulangan manba bor. /my_sources"
-        await msg.answer(welcome, reply_markup=kb_main(sess.lang), parse_mode="HTML")
+
+        # ── State restore: if user had a sheet before restart, silently re-fetch it
+        if not has_data(sess):
+            last_url = load_last_sheet_url(uid)
+            if last_url:
+                sheet_id = _extract_sheet_id(last_url)
+                if sheet_id:
+                    try:
+                        data = await fetch_sheet_public(sheet_id)
+                        if data:
+                            src_name = list(data.keys())[0] if len(data) == 1 else f"Sheets ({sheet_id[:8]})"
+                            sess.sources = [{
+                                "source_type": "google_sheets",
+                                "source_name": src_name,
+                                "source_url": last_url,
+                                "sheet_id": sheet_id,
+                                "data": data,
+                            }]
+                            sess.schema_info = _build_schema_info(sess.sources)
+                            sess.last_sheet_url = last_url
+                            sess.sheets_data = data
+                            sess.sheet_id = sheet_id
+                            sess.sheet_name = src_name
+                            sess.step = "in_chat"
+                            welcome += f"\n\n✅ Oxirgi jadval tiklandi: <b>{src_name}</b>"
+                            logger.info(f"State restored uid={uid} sheet={sheet_id[:8]}")
+                    except Exception as _e:
+                        logger.warning(f"State restore failed uid={uid}: {_e}")
+
+        await msg.answer(welcome, reply_markup=kb_main(sess.lang) if not has_data(sess) else kb_chat(sess.lang), parse_mode="HTML")
 
     # ── /help ─────────────────────────────────────────────────────────────────
     @dp.message(Command("help"))
@@ -2274,21 +2356,27 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 db_add_source(uid, "google_sheets", unique_name, source_url=text, file_id=None)
                 total_count = db_source_count(uid)
                 # Session: ADD only if same sheet_id not already loaded
+                new_src = {
+                    "source_type": "google_sheets",
+                    "source_name": unique_name,
+                    "source_url": text,
+                    "sheet_id": sheet_id,
+                    "data": data,
+                }
                 already_loaded = any(s.get("sheet_id") == sheet_id for s in sess.sources)
                 if not already_loaded:
-                    sess.sources.append({
-                        "source_type": "google_sheets",
-                        "source_name": unique_name,
-                        "source_url": text,
-                        "sheet_id": sheet_id,
-                        "data": data,
-                    })
+                    sess.sources.append(new_src)
                 else:
                     # Update existing source data (refresh)
                     for s in sess.sources:
                         if s.get("sheet_id") == sheet_id:
                             s["data"] = data
                             break
+                # Dynamic schema: build column description from all sources
+                sess.schema_info = _build_schema_info(sess.sources)
+                # State persistence: save URL so it survives bot restart
+                sess.last_sheet_url = text
+                save_last_sheet_url(uid, text)
                 # Legacy compat
                 sess.sheets_data = data
                 sess.sheet_id = sheet_id
@@ -2296,10 +2384,13 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 sess.web_search = False
                 sess.step = "in_chat"
                 # Safe log: no URL in log output
-                _safe_log(uid, "sheets_add", unique_name, f"tabs={len(data)} rows={total} total_sources={total_count}")
+                cols_preview = sess.schema_info[:80] if sess.schema_info else "—"
+                _safe_log(uid, "sheets_add", unique_name, f"tabs={len(data)} rows={total} cols={cols_preview} total_sources={total_count}")
                 await status.edit_text(
                     t(lang, "sheets_ok", sheets=len(data), rows=total)
-                    + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
+                    + f"\n\n✅ <b>{unique_name}</b> ulandi\n"
+                    + (f"📋 Ustunlar: <b>{sess.schema_info}</b>\n" if sess.schema_info else "")
+                    + f"📚 Jami manbalar: <b>{total_count}</b> ta",
                     parse_mode="HTML",
                 )
                 await msg.answer("👇", reply_markup=kb_chat(lang))
@@ -2460,7 +2551,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await status.edit_text(t(lang, "no_data"))
             return
 
-        answer = await ask_grok(question, ctx, config.grok_key, lang)
+        answer = await ask_grok(question, ctx, config.grok_key, lang, schema_info=sess.schema_info)
 
         if len(answer) > 4000:
             parts = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
