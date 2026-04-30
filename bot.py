@@ -1015,6 +1015,7 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
         cols_to_check = range(len(row)) if search_all else name_col_indices
         matched_j = None
         matched_cell = None
+        match_quality = 0  # 3=exact_full, 2=startswith, 1=word_in_cell
         for j in cols_to_check:
             if j >= len(row):
                 continue
@@ -1024,34 +1025,56 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
             for c in candidates:
                 if len(c) < 3:
                     continue
-                # Exact full match
+                # Priority 3: Exact full match (whole cell == candidate)
                 if c == cs:
                     matched_j = j
                     matched_cell = str(row[j]).strip()
+                    match_quality = 3
                     break
-                # Cell contains candidate as a whole word (space-bounded)
-                # For F.I.O columns: "Familiya Ism Otaismi" format — only match
-                # position 0 (familiya) or 1 (ism), NOT position 2+ (otaismi/suffix).
-                # This prevents "KUMUSHOY YODGORBEK QIZI" from matching "Yodgorbek".
+                # Priority 2: Cell starts with candidate (e.g. "Muhammad" matches "Muhammad Davronbek"
+                # only if cell has exactly 1 word more — i.e. candidate is the familiya)
+                if cs.startswith(c) and len(cs) > len(c) and cs[len(c)] == " ":
+                    if match_quality < 2:
+                        matched_j = j
+                        matched_cell = str(row[j]).strip()
+                        match_quality = 2
+                # Priority 1: candidate appears as a word inside cell
+                # Only allowed at position 0 (familiya) in dedicated name columns
                 words_in_cell = cs.split()
                 if c in words_in_cell:
                     pos = words_in_cell.index(c)
                     is_name_col = j in name_col_indices
-                    # In name columns: allow only positions 0 (familiya) or 1 (ism)
-                    if not is_name_col or pos <= 1:
+                    # In name columns: ONLY match familiya (pos=0), NOT ism/otaismi
+                    if is_name_col and pos == 0 and match_quality < 1:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
-                        break
-                # Cell starts with candidate (first name search)
-                if cs.startswith(c) and (len(cs) == len(c) or cs[len(c)] in (" ", "")):
-                    matched_j = j
-                    matched_cell = str(row[j]).strip()
-                    break
-            if matched_j is not None:
-                break
+                        match_quality = 1
+                    # In non-name columns (no dedicated name col): allow any position
+                    elif not is_name_col and match_quality < 1:
+                        matched_j = j
+                        matched_cell = str(row[j]).strip()
+                        match_quality = 1
+            if match_quality == 3:
+                break  # exact match found, no need to check more columns
         if matched_j is not None:
             col = str(header[matched_j]).strip() if matched_j < len(header) else f"Col{matched_j}"
-            results.append({"row_index": i, "row": row, "matched_cell": matched_cell, "matched_col": col})
+            results.append({
+                "row_index": i,
+                "row": row,
+                "matched_cell": matched_cell,
+                "matched_col": col,
+                "match_quality": match_quality,
+            })
+
+    # If we have any exact matches (quality=3), return ONLY those
+    # This prevents "Muhammad" from matching 3 people when only 1 has it as their exact name
+    best_quality = max((r["match_quality"] for r in results), default=0)
+    if best_quality == 3:
+        results = [r for r in results if r["match_quality"] == 3]
+    elif best_quality == 2:
+        results = [r for r in results if r["match_quality"] >= 2]
+    # quality=1 (word-in-cell at pos0): keep all, already filtered to familiya only
+
     return results
 
 
