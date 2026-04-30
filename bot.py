@@ -1368,12 +1368,8 @@ def _python_answer(question: str, s: Session) -> str | None:
         if found_names:
             s.last_found_names = found_names[:3]   # keep last 3
 
-        # ── Disambiguation: if single ambiguous query returned 3+ results,
-        #    store candidates so user can pick one next time
-        if len(answer_parts) >= 3 and len(person_like_candidates) <= 1:
-            s.disambiguation_candidates = found_names
-        else:
-            s.disambiguation_candidates = []
+        # Disambiguation disabled: multiple results = multiple real people, show all
+        s.disambiguation_candidates = []
 
         return result
 
@@ -2543,10 +2539,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 cols_preview = sess.schema_info[:80] if sess.schema_info else "—"
                 _safe_log(uid, "sheets_add", unique_name, f"tabs={len(data)} rows={total} cols={cols_preview} total_sources={total_count}")
                 await status.edit_text(
-                    t(lang, "sheets_ok", sheets=len(data), rows=total)
-                    + f"\n\n✅ <b>{unique_name}</b> ulandi\n"
-                    + (f"📋 Ustunlar: <b>{sess.schema_info}</b>\n" if sess.schema_info else "")
-                    + f"📚 Jami manbalar: <b>{total_count}</b> ta",
+                    f"✅ <b>{unique_name}</b> ulandi\n"
+                    f"📚 Jami manbalar: <b>{total_count}</b> ta",
                     parse_mode="HTML",
                 )
                 await msg.answer("👇", reply_markup=kb_chat(lang))
@@ -2625,8 +2619,8 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                         sess.step = "in_chat"
                         _safe_log(uid, "sheets_add_idle", unique_name, f"tabs={len(data)} rows={total}")
                         await status.edit_text(
-                            t(lang, "sheets_ok", sheets=len(data), rows=total)
-                            + f"\n\n✅ <b>{unique_name}</b> ulandi\n📚 Jami manbalar: <b>{total_count}</b> ta",
+                            f"✅ <b>{unique_name}</b> ulandi\n"
+                            f"📚 Jami manbalar: <b>{total_count}</b> ta",
                             parse_mode="HTML",
                         )
                         await msg.answer("👇", reply_markup=kb_chat(lang))
@@ -2702,15 +2696,6 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         if py_ans is not None:
             logger.info(f"Python answered uid={uid}")
             await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
-
-            # ── Disambiguation prompt: if 3+ results for same ambiguous name
-            if sess.disambiguation_candidates:
-                cands = sess.disambiguation_candidates
-                disam_msg = f"❓ <b>Qaysi {cands[0].split()[0]}?</b> Aniqlashtiring:\n"
-                for i, name in enumerate(cands, 1):
-                    disam_msg += f"  <b>{i}.</b> {name}\n"
-                disam_msg += "\nRaqamni yozing (1, 2, 3...)"
-                await msg.answer(disam_msg, parse_mode="HTML")
             return
 
         # 2. Web search mode — skip AI+jadval, only show Tavily result
