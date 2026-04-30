@@ -1352,10 +1352,36 @@ def _python_answer(question: str, s: Session) -> str | None:
     if not answer_parts:
         for name in name_candidates:
             found_this_name = False
+            # Collect all matches with their quality for this name
+            name_matches_all = []  # list of (match, src_label, header, quality)
             for (rows, header, src_label) in source_datasets:
                 data_rows = rows[1:]
                 matches = _search_person(data_rows, header, name)
                 for m in matches:
+                    key = (m["row_index"], src_label)
+                    if key in global_seen:
+                        continue
+                    name_matches_all.append((m, src_label, header))
+
+            if name_matches_all:
+                # Check if all results are quality=1 (ism-only weak match) and multiple
+                all_q1 = all(m["match_quality"] == 1 for (m, _, _) in name_matches_all)
+                if all_q1 and len(name_matches_all) >= 2:
+                    # Disambiguation: multiple people share this ism — ask user to pick
+                    candidates_list = []
+                    for (m, slabel, _) in name_matches_all:
+                        full_name = m["matched_cell"]
+                        if full_name not in candidates_list:
+                            candidates_list.append(full_name)
+                    s.disambiguation_candidates = candidates_list
+                    lines = [f"🔍 <b>'{name.capitalize()}'</b> isimli bir nechta o'quvchi topildi:\n"]
+                    for i, cn in enumerate(candidates_list, 1):
+                        lines.append(f"{i}. {cn}")
+                    lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
+                    return "\n".join(lines)
+
+                # Normal: add to answer_parts (exact/startswith or single ism match)
+                for (m, src_label, header) in name_matches_all:
                     key = (m["row_index"], src_label)
                     if key in global_seen:
                         continue
@@ -1381,17 +1407,14 @@ def _python_answer(question: str, s: Session) -> str | None:
         # ── Save found names to conversation memory ──────────────────────────
         found_names = []
         for part in answer_parts:
-            # Extract name from "👤 <b>Name</b>" pattern
             import re as _re
             m = _re.search(r"👤 <b>([^<]+)</b>", part)
             if m:
                 found_names.append(m.group(1).strip())
         if found_names:
-            s.last_found_names = found_names[:3]   # keep last 3
+            s.last_found_names = found_names[:3]
 
-        # Disambiguation disabled: multiple results = multiple real people, show all
         s.disambiguation_candidates = []
-
         return result
 
     # Nothing found at all
