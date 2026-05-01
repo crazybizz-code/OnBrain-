@@ -1244,6 +1244,13 @@ def _python_answer(question: str, s: Session) -> str | None:
         "raqam", "raqami", "nomer", "nomeri",
         "price", "cost", "money", "time", "date", "number",
         "цена", "стоимость", "деньги", "время", "дата",
+        # Fan / predmet nomlari — ism emas
+        "algebra", "geometriya", "matematika", "fizika", "kimyo", "biologiya",
+        "tarix", "geografiya", "adabiyot", "ingliz", "rus", "ona", "tili",
+        "informatika", "texnologiya", "sport", "chizmachilik", "musiqa",
+        "huquq", "iqtisodiyot", "falsafa", "psixologiya", "astronomiya",
+        "fan", "fani", "fanidan", "predmet", "dars", "darsi", "darslari",
+        "subject", "math", "physics", "chemistry", "biology", "history",
     }
 
     stop = {
@@ -1301,27 +1308,6 @@ def _python_answer(question: str, s: Session) -> str | None:
         "this", "that", "the", "student", "person",
     }
 
-    # Pronoun resolution: if user says "shu oquvchi", "u", "o'sha" etc.
-    # → inject last found names into candidate list
-    PRONOUNS = {
-        "u", "uni", "uning", "shu", "shuni", "shuning", "o'sha", "o'shani",
-        "bu", "buni", "ushbu", "shu oquvchi", "o'sha oquvchi", "u oquvchi",
-        "ushbu oquvchi", "shu talaba", "ushbu talaba",
-        "this student", "that student", "он", "она", "этот", "тот",
-    }
-    q_stripped = q.strip()
-    has_pronoun = any(pr in q_stripped for pr in PRONOUNS)
-    if has_pronoun and s.last_found_names:
-        # Inject remembered names as extra candidates
-        for remembered in s.last_found_names:
-            remembered_parts = remembered.split()
-            for part in remembered_parts:
-                pl = part.lower()
-                if len(pl) >= 3 and pl not in stop:
-                    if pl not in [x.lower() for x in name_candidates]:
-                        name_candidates.append(part)
-        logger.info(f"Pronoun resolved → injected {s.last_found_names} into candidates")
-
     words = [w.strip(".,!?\"'()[]") for w in question.split()]
     name_candidates: list[str] = []
     for w in words:
@@ -1331,6 +1317,41 @@ def _python_answer(question: str, s: Session) -> str | None:
             if cl not in [x.lower() for x in name_candidates]:  # deduplicate
                 name_candidates.append(c)
 
+    # ── Pronoun / context resolution ─────────────────────────────────────────
+    # 1. Explicit pronouns: "u", "shu", "o'sha" etc. → inject last found name
+    # 2. No person name at all in question → inject last found name automatically
+    #    e.g. "algebra fanidan necha ball olgan" after asking about Halimjonov
+    #    → should still refer to Halimjonov, not ALL people
+    PRONOUNS = {
+        "u", "uni", "uning", "shu", "shuni", "shuning", "o'sha", "o'shani",
+        "bu", "buni", "ushbu", "shu oquvchi", "o'sha oquvchi", "u oquvchi",
+        "ushbu oquvchi", "shu talaba", "ushbu talaba",
+        "this student", "that student", "он", "она", "этот", "тот",
+    }
+    q_stripped = q.strip()
+    has_pronoun = any(pr in q_stripped for pr in PRONOUNS)
+
+    # "person-like" = candidate not in non_person_indicators and not a pure number
+    person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
+
+    should_inject_memory = (
+        s.last_found_names and (
+            has_pronoun or len(person_like_candidates) == 0
+        )
+    )
+    if should_inject_memory:
+        for remembered in s.last_found_names:
+            remembered_parts = remembered.split()
+            for part in remembered_parts:
+                pl = part.lower()
+                if len(pl) >= 3 and pl not in stop and pl not in non_person_indicators:
+                    if pl not in [x.lower() for x in name_candidates]:
+                        name_candidates.append(part)
+        # Rebuild person_like_candidates after injection
+        person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
+        logger.info(f"Memory injected → {s.last_found_names} into candidates")
+    # ─────────────────────────────────────────────────────────────────────────
+
     if not name_candidates:
         return None
 
@@ -1338,11 +1359,7 @@ def _python_answer(question: str, s: Session) -> str | None:
     if all(c.lower() in non_person_indicators for c in name_candidates):
         return None
 
-    # If no scoring keyword found AND only 1 short candidate → let AI handle
-    # (e.g. bare questions like "nima bu?" with no name)
-    # But if there ARE person-like name candidates, always try searching even
-    # without an explicit scoring keyword (covers voice queries like "Yodgorbekning").
-    person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
+    # If no scoring keyword found AND no person-like candidates → let AI handle
     if not is_query and not person_like_candidates:
         return None
 
