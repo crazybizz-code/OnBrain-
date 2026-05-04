@@ -1,219 +1,274 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="uz">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
   <title>OnBrain AI</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
-      --primary: #7B2FFF;
-      --primary-light: #9D5FFF;
-      --primary-dark: #5B0FFF;
-      --bg: #0D0D1A;
-      --bg2: #09090F;
-      --card: #1A1A2E;
-      --border: #2A2A3E;
-      --text: #FFFFFF;
-      --muted: #A0A0B8;
-      --success: #10B981;
-      --error: #EF4444;
-      --warning: #F59E0B;
+      --p: #7C3AED;
+      --p2: #A78BFA;
+      --p3: #4C1D95;
+      --bg: #0A0A0F;
+      --bg2: #0F0F1A;
+      --card: rgba(255,255,255,0.04);
+      --card2: rgba(255,255,255,0.07);
+      --border: rgba(255,255,255,0.08);
+      --border2: rgba(124,58,237,0.35);
+      --text: #F8F8FF;
+      --muted: #8B8BAD;
+      --dim: #4A4A6A;
+      --ok: #10B981;
+      --err: #EF4444;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+    #app{display:flex;flex-direction:column;height:100vh;position:relative}
 
-    /* в”Ђв”Ђ App Shell в”Ђв”Ђ */
-    #app { display: flex; flex-direction: column; height: 100vh; }
+    /* Animated background */
+    .bg-glow{position:fixed;pointer-events:none;z-index:0}
+    .bg-glow-1{width:400px;height:400px;background:radial-gradient(circle,rgba(124,58,237,0.15) 0%,transparent 70%);top:-100px;left:-100px;animation:glowMove1 8s ease-in-out infinite}
+    .bg-glow-2{width:300px;height:300px;background:radial-gradient(circle,rgba(167,139,250,0.08) 0%,transparent 70%);bottom:-50px;right:-50px;animation:glowMove2 10s ease-in-out infinite}
+    @keyframes glowMove1{0%,100%{transform:translate(0,0)}50%{transform:translate(40px,30px)}}
+    @keyframes glowMove2{0%,100%{transform:translate(0,0)}50%{transform:translate(-30px,-20px)}}
 
-    /* в”Ђв”Ђ Pages в”Ђв”Ђ */
-    .page { display: none; flex: 1; flex-direction: column; overflow: hidden; animation: fadeUp 0.3s ease; }
-    .page.active { display: flex; }
-    @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+    .page{display:none;flex:1;flex-direction:column;overflow:hidden;position:relative;z-index:1}
+    .page.active{display:flex;animation:pageIn .3s cubic-bezier(.4,0,.2,1)}
+    @keyframes pageIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
-    /* в•ђв•ђ WELCOME PAGE в•ђв•ђ */
-    #pgWelcome { justify-content: center; align-items: center; padding: 28px 24px; text-align: center; background: linear-gradient(160deg, var(--bg2) 0%, var(--bg) 100%); }
-    .logo { font-size: 72px; margin-bottom: 16px; animation: float 3s ease-in-out infinite; }
-    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
-    .welcome-title { font-size: 30px; font-weight: 800; background: linear-gradient(135deg,var(--primary),var(--primary-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 8px; }
-    .welcome-sub { font-size: 15px; color: var(--muted); margin-bottom: 36px; line-height: 1.6; }
-    .lang-row { display: flex; gap: 10px; margin-bottom: 28px; justify-content: center; }
-    .lang-btn { padding: 8px 20px; border-radius: 20px; border: 1.5px solid var(--border); background: var(--card); color: var(--muted); font-size: 14px; cursor: pointer; transition: all .2s; }
-    .lang-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(123,47,255,.12); }
-    .btn-primary { width: 100%; max-width: 320px; padding: 15px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 14px; color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 20px rgba(123,47,255,.35); transition: transform .2s, box-shadow .2s; }
-    .btn-primary:active { transform: scale(.97); }
-    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    /* ── WELCOME ── */
+    #pgWelcome{align-items:center;justify-content:center;padding:32px 24px;text-align:center;gap:0}
 
-    /* в•ђв•ђ DATA SOURCE PAGE в•ђв•ђ */
-    #pgData { background: var(--bg); }
-    .page-header { padding: 16px 20px; background: linear-gradient(135deg,var(--primary-dark),var(--primary)); display: flex; align-items: center; gap: 12px; }
-    .page-header-back { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; padding: 4px; }
-    .page-header-title { font-size: 18px; font-weight: 700; }
-    .page-header-sub { font-size: 12px; opacity: .8; }
-    .data-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .logo-wrap{position:relative;margin-bottom:28px}
+    .logo-ring{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,var(--p),var(--p2));padding:2px;animation:spin 8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .logo-inner{width:100%;height:100%;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center}
+    .logo-svg{width:44px;height:44px}
 
-    .section-label { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .brand{font-size:26px;font-weight:900;letter-spacing:-0.5px;margin-bottom:6px;background:linear-gradient(135deg,#fff 0%,var(--p2) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .tagline{font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:32px;max-width:280px}
 
-    /* Source cards */
-    .source-list { display: flex; flex-direction: column; gap: 10px; }
-    .source-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-    .source-icon { font-size: 28px; flex-shrink: 0; }
-    .source-info { flex: 1; min-width: 0; }
-    .source-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .source-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-    .source-del { background: none; border: none; color: var(--error); font-size: 18px; cursor: pointer; padding: 4px; flex-shrink: 0; }
+    .lang-row{display:flex;gap:8px;margin-bottom:32px;background:var(--card);padding:4px;border-radius:14px;border:1px solid var(--border)}
+    .lang-btn{flex:1;padding:8px 0;border-radius:10px;border:none;background:transparent;color:var(--muted);font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:all .2s;letter-spacing:0.3px}
+    .lang-btn.active{background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;box-shadow:0 2px 12px rgba(124,58,237,.4)}
 
-    /* Upload zone */
-    .upload-zone { border: 2px dashed var(--border); border-radius: 14px; padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
-    .upload-zone:hover, .upload-zone.drag { border-color: var(--primary); background: rgba(123,47,255,.06); }
-    .upload-zone-icon { font-size: 40px; margin-bottom: 10px; }
-    .upload-zone-text { font-size: 15px; color: var(--muted); }
-    .upload-zone-hint { font-size: 12px; color: var(--border); margin-top: 6px; }
-    #fileInput { display: none; }
+    .btn-start{width:100%;max-width:300px;padding:16px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:16px;color:#fff;font-size:16px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;letter-spacing:0.3px;box-shadow:0 4px 24px rgba(124,58,237,.4),0 0 0 1px rgba(124,58,237,.2);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden}
+    .btn-start::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent);pointer-events:none}
+    .btn-start:active{transform:scale(.97);box-shadow:0 2px 12px rgba(124,58,237,.3)}
+    .btn-start:disabled{opacity:.5;cursor:not-allowed}
 
-    /* Sheets input */
-    .sheets-row { display: flex; gap: 8px; }
-    .sheets-input { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-size: 14px; outline: none; transition: border-color .2s; }
-    .sheets-input:focus { border-color: var(--primary); }
-    .sheets-input::placeholder { color: var(--muted); }
-    .btn-icon { width: 44px; height: 44px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 10px; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .powered{margin-top:20px;font-size:11px;color:var(--dim);letter-spacing:0.5px}
+    .powered span{color:var(--p2)}
 
-    .go-chat-btn { margin-top: 4px; padding: 14px; background: var(--success); border: none; border-radius: 12px; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; transition: opacity .2s; }
-    .go-chat-btn:hover { opacity: .9; }
+    /* ── DATA PAGE ── */
+    #pgData{background:var(--bg)}
+    .ph{padding:14px 18px;background:rgba(12,12,22,0.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0}
+    .ph-back{background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--muted);width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+    .ph-title{font-size:16px;font-weight:700}
+    .ph-sub{font-size:12px;color:var(--muted);margin-top:1px}
+    .data-body{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:20px}
+    .data-body::-webkit-scrollbar{width:4px}
+    .data-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
-    /* в•ђв•ђ CHAT PAGE в•ђв•ђ */
-    #pgChat { background: var(--bg); }
-    .chat-header { padding: 12px 16px; background: linear-gradient(135deg,var(--primary-dark),var(--primary)); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .chat-header-back { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
-    .chat-header-info { flex: 1; min-width: 0; }
-    .chat-header-title { font-size: 17px; font-weight: 700; }
-    .chat-header-badges { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
-    .badge { font-size: 11px; background: rgba(255,255,255,.18); border-radius: 6px; padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-    .badge-none { font-size: 11px; color: rgba(255,255,255,.6); }
-    .chat-header-add { background: rgba(255,255,255,.18); border: none; border-radius: 8px; color: #fff; padding: 6px 10px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .sec-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
 
-    .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-    .messages::-webkit-scrollbar { width: 5px; }
-    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .source-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;transition:border-color .2s}
+    .source-card:hover{border-color:var(--border2)}
+    .sc-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .sc-icon.excel{background:rgba(16,185,129,.1)}
+    .sc-icon.sheets{background:rgba(124,58,237,.1)}
+    .sc-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sc-meta{font-size:12px;color:var(--muted);margin-top:2px}
+    .sc-del{background:none;border:none;color:var(--dim);cursor:pointer;padding:6px;border-radius:8px;transition:color .2s;flex-shrink:0}
+    .sc-del:hover{color:var(--err)}
 
-    .msg { display: flex; animation: fadeUp .25s ease; }
-    .msg.user { justify-content: flex-end; }
-    .bubble { max-width: 82%; padding: 11px 15px; border-radius: 16px; line-height: 1.5; font-size: 15px; word-break: break-word; }
-    .msg.user .bubble { background: linear-gradient(135deg,var(--primary-dark),var(--primary)); color: #fff; border-radius: 16px 4px 16px 16px; }
-    .msg.bot .bubble { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 4px 16px 16px 16px; }
-    /* HTML tags from bot answers */
-    .bubble b { font-weight: 700; }
-    .bubble br { display: block; content: ""; margin: 3px 0; }
+    .upload-zone{border:1.5px dashed var(--border);border-radius:16px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .2s}
+    .upload-zone:hover,.upload-zone.drag{border-color:var(--p);background:rgba(124,58,237,.05)}
+    .uz-icon{width:48px;height:48px;background:var(--card2);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+    .uz-text{font-size:14px;font-weight:500;color:var(--muted)}
+    .uz-hint{font-size:12px;color:var(--dim);margin-top:4px}
+    #fileInput{display:none}
 
-    /* Typing dots */
-    .typing { display: flex; gap: 5px; padding: 4px 2px; align-items: center; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: dotBounce 1.4s infinite; }
-    .dot:nth-child(2) { animation-delay: .2s; }
-    .dot:nth-child(3) { animation-delay: .4s; }
-    @keyframes dotBounce { 0%,80%,100%{transform:scale(.7);opacity:.5} 40%{transform:scale(1);opacity:1} }
+    .sheets-row{display:flex;gap:8px}
+    .sheets-input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s}
+    .sheets-input:focus{border-color:var(--p)}
+    .sheets-input::placeholder{color:var(--dim)}
+    .btn-connect{height:46px;padding:0 16px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:12px;color:#fff;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;white-space:nowrap;transition:opacity .15s}
+    .btn-connect:hover{opacity:.9}
+    .sheets-hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
 
-    .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 20px; gap: 10px; }
-    .empty-chat-icon { font-size: 56px; opacity: .4; }
+    .btn-go{padding:15px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;width:100%;box-shadow:0 4px 20px rgba(124,58,237,.35);transition:transform .15s}
+    .btn-go:active{transform:scale(.98)}
 
-    .input-area { padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
-    .input-row { display: flex; gap: 10px; align-items: flex-end; }
-    .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 2px 14px; display: flex; align-items: center; transition: border-color .2s; }
-    .input-wrap:focus-within { border-color: var(--primary); }
-    .msg-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 15px; padding: 10px 0; resize: none; max-height: 120px; font-family: inherit; }
-    .msg-input::placeholder { color: var(--muted); }
-    .send-btn { width: 42px; height: 42px; min-width: 42px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 50%; color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(123,47,255,.4); transition: transform .15s; }
-    .send-btn:active { transform: scale(.93); }
-    .send-btn:disabled { opacity: .4; cursor: not-allowed; }
+    /* ── CHAT PAGE ── */
+    #pgChat{background:var(--bg)}
+    .chat-hdr{padding:12px 16px;background:rgba(10,10,15,0.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .chat-hdr-back{background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--muted);width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+    .chat-hdr-info{flex:1;min-width:0}
+    .chat-hdr-name{font-size:15px;font-weight:700;display:flex;align-items:center;gap:6px}
+    .online-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex-shrink:0;box-shadow:0 0 6px rgba(16,185,129,.6)}
+    .chat-hdr-badges{display:flex;gap:5px;margin-top:3px;flex-wrap:wrap}
+    .badge{font-size:11px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.25);border-radius:6px;padding:2px 8px;color:var(--p2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+    .badge-none{font-size:11px;color:var(--dim)}
+    .btn-add{background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--muted);padding:6px 10px;font-size:12px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;white-space:nowrap;transition:border-color .2s}
+    .btn-add:hover{border-color:var(--p2);color:var(--p2)}
 
-    /* в”Ђв”Ђ Toast в”Ђв”Ђ */
-    #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 18px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 999; white-space: nowrap; max-width: 90vw; }
-    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    #toast.err { border-color: var(--error); color: var(--error); }
-    #toast.ok  { border-color: var(--success); color: var(--success); }
+    .messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+    .messages::-webkit-scrollbar{width:4px}
+    .messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 
-    /* в”Ђв”Ђ Progress bar в”Ђв”Ђ */
-    #progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--primary); width: 0%; transition: width .3s; z-index: 9999; }
+    .msg{display:flex;animation:msgIn .2s ease}
+    @keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .msg.user{justify-content:flex-end}
+
+    .bubble{max-width:84%;padding:11px 14px;border-radius:16px;line-height:1.55;font-size:14.5px;word-break:break-word}
+    .msg.user .bubble{background:linear-gradient(135deg,var(--p3),var(--p));color:#fff;border-radius:16px 4px 16px 16px}
+    .msg.bot .bubble{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:4px 16px 16px 16px}
+    .bubble b{font-weight:700}
+
+    .typing{display:flex;gap:4px;padding:4px 2px;align-items:center}
+    .dot{width:7px;height:7px;border-radius:50%;background:var(--p2);animation:bounce 1.3s infinite}
+    .dot:nth-child(2){animation-delay:.15s}
+    .dot:nth-child(3){animation-delay:.3s}
+    @keyframes bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+
+    .empty-chat{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:20px;gap:12px}
+    .empty-icon{width:64px;height:64px;background:var(--card2);border:1px solid var(--border);border-radius:20px;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+    .empty-title{font-size:16px;font-weight:600;color:var(--text)}
+    .empty-sub{font-size:13px;color:var(--muted);line-height:1.5}
+
+    .input-area{padding:10px 12px;border-top:1px solid var(--border);background:rgba(10,10,15,.95);backdrop-filter:blur(20px);flex-shrink:0}
+    .input-row{display:flex;gap:8px;align-items:flex-end}
+    .input-wrap{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:20px;padding:2px 14px;display:flex;align-items:center;transition:border-color .2s}
+    .input-wrap:focus-within{border-color:rgba(124,58,237,.5)}
+    .msg-input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:14.5px;padding:10px 0;resize:none;max-height:120px;font-family:'Inter',sans-serif}
+    .msg-input::placeholder{color:var(--dim)}
+    .send-btn{width:40px;height:40px;min-width:40px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 12px rgba(124,58,237,.4);transition:transform .15s}
+    .send-btn:active{transform:scale(.92)}
+    .send-btn:disabled{opacity:.35;cursor:not-allowed}
+
+    /* Toast */
+    #toast{position:fixed;bottom:76px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--card2);backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:12px;padding:10px 18px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:all .25s;z-index:999;white-space:nowrap;max-width:88vw}
+    #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+    #toast.err{border-color:rgba(239,68,68,.4);color:#FCA5A5}
+    #toast.ok{border-color:rgba(16,185,129,.4);color:#6EE7B7}
+
+    /* Progress */
+    #progress{position:fixed;top:0;left:0;height:2px;background:linear-gradient(90deg,var(--p),var(--p2));width:0%;transition:width .3s;z-index:9999}
   </style>
 </head>
 <body>
+<div class="bg-glow bg-glow-1"></div>
+<div class="bg-glow bg-glow-2"></div>
 <div id="progress"></div>
 <div id="toast"></div>
 
 <div id="app">
 
-  <!-- в•ђв•ђ WELCOME PAGE в•ђв•ђ -->
+  <!-- WELCOME -->
   <div id="pgWelcome" class="page active">
-    <div class="logo">рџ¤–</div>
-    <h1 class="welcome-title">OnBrain AI</h1>
-    <p class="welcome-sub" id="welcomeSub">Excel va Google Sheets ma'lumotlarini AI bilan tahlil qiling</p>
-    <div class="lang-row">
-      <button class="lang-btn active" data-lang="uz" onclick="setLang('uz')">рџ‡єрџ‡ї UZ</button>
-      <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">рџ‡·рџ‡є RU</button>
-      <button class="lang-btn" data-lang="en" onclick="setLang('en')">рџ‡¬рџ‡§ EN</button>
+    <div class="logo-wrap">
+      <div class="logo-ring">
+        <div class="logo-inner">
+          <svg class="logo-svg" viewBox="0 0 44 44" fill="none">
+            <path d="M22 6C13.163 6 6 13.163 6 22s7.163 16 16 16 16-7.163 16-16S30.837 6 22 6z" fill="url(#lg1)" opacity=".15"/>
+            <path d="M14 22c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8-8-3.582-8-8z" fill="url(#lg1)" opacity=".3"/>
+            <circle cx="22" cy="22" r="4" fill="url(#lg1)"/>
+            <path d="M22 10v4M22 30v4M10 22h4M30 22h4" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+            <path d="M14.93 14.93l2.83 2.83M26.24 26.24l2.83 2.83M14.93 29.07l2.83-2.83M26.24 17.76l2.83-2.83" stroke="url(#lg2)" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
+            <defs>
+              <linearGradient id="lg1" x1="6" y1="6" x2="38" y2="38" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#A78BFA"/>
+                <stop offset="1" stop-color="#7C3AED"/>
+              </linearGradient>
+              <linearGradient id="lg2" x1="6" y1="6" x2="38" y2="38" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#C4B5FD"/>
+                <stop offset="1" stop-color="#8B5CF6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+      </div>
     </div>
-    <button class="btn-primary" id="startBtn" onclick="onStart()">Boshlash в†’</button>
+    <div class="brand">OnBrain AI</div>
+    <p class="tagline" id="welcomeSub">Excel va Google Sheets ma'lumotlarini AI bilan tahlil qiling</p>
+    <div class="lang-row">
+      <button class="lang-btn active" data-lang="uz" onclick="setLang('uz')">UZ</button>
+      <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">RU</button>
+      <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+    </div>
+    <button class="btn-start" id="startBtn" onclick="onStart()">Boshlash &rarr;</button>
+    <p class="powered">Powered by <span>Grok AI</span></p>
   </div>
 
-  <!-- в•ђв•ђ DATA SOURCE PAGE в•ђв•ђ -->
+  <!-- DATA SOURCE -->
   <div id="pgData" class="page">
-    <div class="page-header">
-      <button class="page-header-back" onclick="showPage('pgWelcome')">вЂ№</button>
+    <div class="ph">
+      <button class="ph-back" onclick="showPage('pgWelcome')">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <div>
-        <div class="page-header-title">рџ“‚ Ma'lumot manbasi</div>
-        <div class="page-header-sub" id="dataHeaderSub">Excel yoki Google Sheets qo'shing</div>
+        <div class="ph-title" id="dataTitle">Ma'lumot manbasi</div>
+        <div class="ph-sub">Excel yoki Google Sheets qo'shing</div>
       </div>
     </div>
     <div class="data-body">
 
-      <!-- Connected sources -->
       <div id="sourcesSection" style="display:none">
-        <div class="section-label" id="lblConnected">Ulangan manbalar</div>
-        <div class="source-list" id="sourceList"></div>
-        <button class="go-chat-btn" onclick="showPage('pgChat')" id="goChatBtn">рџ’¬ Savolga o'tish в†’</button>
+        <div class="sec-label" id="lblConnected">Ulangan manbalar</div>
+        <div id="sourceList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+        <button class="btn-go" onclick="showPage('pgChat')" id="goChatBtn">Savolga o'tish &rarr;</button>
       </div>
 
-      <!-- Excel upload -->
       <div>
-        <div class="section-label" id="lblExcel">Excel fayl yuklash</div>
+        <div class="sec-label" id="lblExcel">Excel fayl yuklash</div>
         <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="onDragOver(event)" ondrop="onDrop(event)" ondragleave="onDragLeave()">
-          <div class="upload-zone-icon">рџ“Љ</div>
-          <div class="upload-zone-text" id="uploadZoneText">Fayl tanlash yoki bu yerga tashlang</div>
-          <div class="upload-zone-hint">.xlsx В· .xls</div>
+          <div class="uz-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 2v6h6M12 18v-6M9 15l3 3 3-3" stroke="#10B981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="uz-text" id="uploadZoneText">Fayl tanlash yoki bu yerga tashlang</div>
+          <div class="uz-hint">.xlsx &middot; .xls</div>
         </div>
         <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" onchange="onFileSelected(event)" />
       </div>
 
-      <!-- Google Sheets -->
       <div>
-        <div class="section-label" id="lblSheets">Google Sheets ulash</div>
+        <div class="sec-label" id="lblSheets">Google Sheets ulash</div>
         <div class="sheets-row">
           <input class="sheets-input" id="sheetsUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." />
-          <button class="btn-icon" onclick="connectSheets()" title="Ulash">рџ”—</button>
+          <button class="btn-connect" onclick="connectSheets()">Ulash</button>
         </div>
-        <div style="font-size:12px;color:var(--muted);margin-top:6px" id="sheetsHint">Fayl "Hamma ko'rishi mumkin" bo'lishi shart</div>
+        <div class="sheets-hint" id="sheetsHint">Fayl "Hamma ko'rishi mumkin" bo'lishi shart</div>
       </div>
 
     </div>
   </div>
 
-  <!-- в•ђв•ђ CHAT PAGE в•ђв•ђ -->
+  <!-- CHAT -->
   <div id="pgChat" class="page">
-    <div class="chat-header">
-      <button class="chat-header-back" onclick="showPage('pgData')">вЂ№</button>
-      <div class="chat-header-info">
-        <div class="chat-header-title">OnBrain AI рџ¤–</div>
-        <div class="chat-header-badges" id="headerBadges">
+    <div class="chat-hdr">
+      <button class="chat-hdr-back" onclick="showPage('pgData')">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 12L6 8l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="chat-hdr-info">
+        <div class="chat-hdr-name"><div class="online-dot"></div>OnBrain AI</div>
+        <div class="chat-hdr-badges" id="headerBadges">
           <span class="badge-none" id="noBadge">Ma'lumot yo'q</span>
         </div>
       </div>
-      <button class="chat-header-add" onclick="showPage('pgData')">+ Manba</button>
+      <button class="btn-add" onclick="showPage('pgData')">+ Manba</button>
     </div>
 
     <div class="messages" id="messages">
       <div class="empty-chat" id="emptyChat">
-        <div class="empty-chat-icon">рџ’¬</div>
-        <div id="emptyChatText">Savol yozing!</div>
-        <div style="font-size:13px;color:var(--border)" id="emptyChatSub">Masalan: "Yusupovning balli necha?"</div>
+        <div class="empty-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M14 4C8.477 4 4 8.477 4 14c0 1.75.453 3.394 1.25 4.82L4 24l5.18-1.25A9.953 9.953 0 0014 24c5.523 0 10-4.477 10-10S19.523 4 14 4z" stroke="url(#cg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="cg" x1="4" y1="4" x2="24" y2="24" gradientUnits="userSpaceOnUse"><stop stop-color="#A78BFA"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs></svg>
+        </div>
+        <div class="empty-title" id="emptyChatText">Savol yozing!</div>
+        <div class="empty-sub" id="emptyChatSub">Masalan: "Yusupovning balli necha?"</div>
       </div>
     </div>
 
@@ -222,7 +277,9 @@
         <div class="input-wrap">
           <textarea class="msg-input" id="msgInput" rows="1" placeholder="Savol yozing..." onkeydown="onInputKey(event)" oninput="autoResize(this)"></textarea>
         </div>
-        <button class="send-btn" id="sendBtn" onclick="sendMessage()">вћ¤</button>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M16 9L2 2l3 7-3 7 14-7z" fill="white"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -230,79 +287,75 @@
 </div>
 
 <script>
-// в”Ђв”Ђ Telegram WebApp в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const TG_USER = tg?.initDataUnsafe?.user || {};
 const UID = TG_USER.id || 0;
 const UNAME = TG_USER.first_name || "Foydalanuvchi";
 
-// в”Ђв”Ђ State в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 let currentLang = "uz";
-let sources = [];   // [{name, type, rows}]
+let sources = [];
 let isLoading = false;
 
 const I18N = {
   uz: {
     welcomeSub: "Excel va Google Sheets ma'lumotlarini AI bilan tahlil qiling",
-    startBtn: "Boshlash в†’",
+    startBtn: "Boshlash &rarr;",
     lblConnected: "Ulangan manbalar",
     lblExcel: "Excel fayl yuklash",
     lblSheets: "Google Sheets ulash",
     uploadZoneText: "Fayl tanlash yoki bu yerga tashlang",
     sheetsHint: "Fayl \"Hamma ko'rishi mumkin\" bo'lishi shart",
-    goChatBtn: "рџ’¬ Savolga o'tish в†’",
+    goChatBtn: "Savolga o'tish &rarr;",
     emptyChatText: "Savol yozing!",
     emptyChatSub: "Masalan: \"Yusupovning balli necha?\"",
     placeholder: "Savol yozing...",
-    noData: "рџ“‚ Hali ma'lumot yuklanmagan. Excel yuboring yoki Sheets qo'shing.",
+    noData: "Ma'lumot yuklanmagan. Excel yoki Sheets qo'shing.",
     uploading: "Yuklanmoqda...",
     connecting: "Ulanmoqda...",
+    dataTitle: "Ma'lumot manbasi",
   },
   ru: {
-    welcomeSub: "РђРЅР°Р»РёР·РёСЂСѓР№С‚Рµ РґР°РЅРЅС‹Рµ Excel Рё Google Sheets СЃ РїРѕРјРѕС‰СЊСЋ AI",
-    startBtn: "РќР°С‡Р°С‚СЊ в†’",
-    lblConnected: "РџРѕРґРєР»СЋС‡С‘РЅРЅС‹Рµ РёСЃС‚РѕС‡РЅРёРєРё",
-    lblExcel: "Р—Р°РіСЂСѓР·РёС‚СЊ Excel С„Р°Р№Р»",
-    lblSheets: "РџРѕРґРєР»СЋС‡РёС‚СЊ Google Sheets",
-    uploadZoneText: "Р’С‹Р±РµСЂРёС‚Рµ С„Р°Р№Р» РёР»Рё РїРµСЂРµС‚Р°С‰РёС‚Рµ СЃСЋРґР°",
-    sheetsHint: "Р¤Р°Р№Р» РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚РєСЂС‹С‚ РґР»СЏ РІСЃРµС…",
-    goChatBtn: "рџ’¬ РџРµСЂРµР№С‚Рё Рє С‡Р°С‚Сѓ в†’",
-    emptyChatText: "Р—Р°РґР°Р№С‚Рµ РІРѕРїСЂРѕСЃ!",
-    emptyChatSub: "РќР°РїСЂРёРјРµСЂ: \"РЎРєРѕР»СЊРєРѕ Р±Р°Р»Р»РѕРІ Сѓ Р®СЃСѓРїРѕРІР°?\"",
-    placeholder: "Р’РІРµРґРёС‚Рµ РІРѕРїСЂРѕСЃ...",
-    noData: "рџ“‚ Р”Р°РЅРЅС‹Рµ РЅРµ Р·Р°РіСЂСѓР¶РµРЅС‹. РћС‚РїСЂР°РІСЊС‚Рµ Excel РёР»Рё РґРѕР±Р°РІСЊС‚Рµ Sheets.",
-    uploading: "Р—Р°РіСЂСѓР·РєР°...",
-    connecting: "РџРѕРґРєР»СЋС‡РµРЅРёРµ...",
+    welcomeSub: "Анализируйте данные Excel и Google Sheets с помощью AI",
+    startBtn: "Начать &rarr;",
+    lblConnected: "Подключённые источники",
+    lblExcel: "Загрузить Excel файл",
+    lblSheets: "Подключить Google Sheets",
+    uploadZoneText: "Выберите файл или перетащите сюда",
+    sheetsHint: "Файл должен быть открыт для всех",
+    goChatBtn: "Перейти к чату &rarr;",
+    emptyChatText: "Задайте вопрос!",
+    emptyChatSub: "Например: \"Сколько баллов у Юсупова?\"",
+    placeholder: "Введите вопрос...",
+    noData: "Данные не загружены. Отправьте Excel или добавьте Sheets.",
+    uploading: "Загрузка...",
+    connecting: "Подключение...",
+    dataTitle: "Источник данных",
   },
   en: {
     welcomeSub: "Analyze Excel & Google Sheets data with AI",
-    startBtn: "Get Started в†’",
+    startBtn: "Get Started &rarr;",
     lblConnected: "Connected sources",
     lblExcel: "Upload Excel file",
     lblSheets: "Connect Google Sheets",
     uploadZoneText: "Select file or drag & drop here",
     sheetsHint: "File must be shared publicly (Anyone with link)",
-    goChatBtn: "рџ’¬ Go to Chat в†’",
+    goChatBtn: "Go to Chat &rarr;",
     emptyChatText: "Ask a question!",
     emptyChatSub: "E.g. \"What is Yusupov's score?\"",
     placeholder: "Type your question...",
-    noData: "рџ“‚ No data loaded. Upload Excel or add Sheets.",
+    noData: "No data loaded. Upload Excel or add Sheets.",
     uploading: "Uploading...",
     connecting: "Connecting...",
+    dataTitle: "Data Source",
   },
 };
 
 function t(key) { return (I18N[currentLang] || I18N.uz)[key] || key; }
 
-// в”Ђв”Ђ Backend API base URL в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-// When served from Netlify (separate domain), point to Koyeb backend.
-// When served from onbrain.online itself, relative path works too.
 const BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? ''
-  : 'https://onbrain.online';
+  ? '' : 'https://onbrain.online';
 
-// в”Ђв”Ђ Pages в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -323,7 +376,6 @@ if (tg) tg.onEvent('backButtonClicked', () => {
   else tg.BackButton.hide();
 });
 
-// в”Ђв”Ђ Language в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 function setLang(lang) {
   currentLang = lang;
   document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
@@ -332,297 +384,203 @@ function setLang(lang) {
 }
 
 function applyI18n() {
-  const keys = ['welcomeSub','startBtn','lblConnected','lblExcel','lblSheets','uploadZoneText','sheetsHint','goChatBtn','emptyChatText','emptyChatSub'];
-  keys.forEach(k => { const el = document.getElementById(k); if(el) el.textContent = t(k); });
-  const inp = document.getElementById('msgInput'); if(inp) inp.placeholder = t('placeholder');
+  const map = {
+    welcomeSub:'welcomeSub', startBtn:'startBtn', lblConnected:'lblConnected',
+    lblExcel:'lblExcel', lblSheets:'lblSheets', uploadZoneText:'uploadZoneText',
+    sheetsHint:'sheetsHint', goChatBtn:'goChatBtn', emptyChatText:'emptyChatText',
+    emptyChatSub:'emptyChatSub', dataTitle:'dataTitle'
+  };
+  for (const [id, key] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = t(key);
+  }
+  const inp = document.getElementById('msgInput');
+  if (inp) inp.placeholder = t('placeholder');
 }
 
-// в”Ђв”Ђ Start / Register в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 async function onStart() {
   const btn = document.getElementById('startBtn');
   btn.disabled = true;
   try {
     if (UID) {
       await fetch(BASE_URL + '/api/register', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ telegram_id: UID, full_name: UNAME, username: TG_USER.username || '', lang: currentLang })
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({telegram_id:UID, full_name:UNAME, username:TG_USER.username||'', lang:currentLang})
       });
     }
     await loadSession();
     if (sources.length > 0) showPage('pgChat');
     else showPage('pgData');
-  } catch(e) {
-    console.error(e);
-    showPage('pgData');
-  } finally {
-    btn.disabled = false;
-  }
+  } catch(e) { showPage('pgData'); }
+  finally { btn.disabled = false; }
 }
 
 async function loadSession() {
   if (!UID) return;
   try {
     const r = await fetch(`${BASE_URL}/api/session/${UID}`);
-    if (r.ok) {
-      const d = await r.json();
-      sources = d.sources || [];
-      currentLang = d.lang || currentLang;
-      setLang(currentLang);
-    }
+    if (r.ok) { const d = await r.json(); sources = d.sources||[]; currentLang = d.lang||currentLang; setLang(currentLang); }
   } catch(e) {}
 }
 
-// в”Ђв”Ђ Source list в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 function refreshSourceList() {
   const sec = document.getElementById('sourcesSection');
   const list = document.getElementById('sourceList');
-  if (sources.length === 0) { sec.style.display = 'none'; return; }
+  if (!sources.length) { sec.style.display='none'; return; }
   sec.style.display = 'block';
-  list.innerHTML = sources.map((s, i) => `
+  list.innerHTML = sources.map((s,i) => `
     <div class="source-card">
-      <div class="source-icon">${s.type === 'excel' ? 'рџ“Љ' : 'рџ“‹'}</div>
-      <div class="source-info">
-        <div class="source-name">${escHtml(s.name)}</div>
-        <div class="source-meta">${s.rows != null ? s.rows + ' qator' : (s.tabs ? s.tabs.join(', ') : '')}</div>
+      <div class="sc-icon ${s.type==='excel'?'excel':'sheets'}">
+        ${s.type==='excel'
+          ? '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M11 2H5a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V8l-6-6z" stroke="#10B981" stroke-width="1.6" stroke-linecap="round"/><path d="M7 12l1.5 2 3-4" stroke="#10B981" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          : '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="2" stroke="#A78BFA" stroke-width="1.6"/><path d="M3 8h14M8 8v9" stroke="#A78BFA" stroke-width="1.6" stroke-linecap="round"/></svg>'
+        }
       </div>
-      <button class="source-del" onclick="removeSource(${i})" title="O'chirish">вњ•</button>
+      <div style="flex:1;min-width:0">
+        <div class="sc-name">${escHtml(s.name)}</div>
+        <div class="sc-meta">${s.rows!=null ? s.rows+' qator' : (s.tabs?s.tabs.join(', '):'')}</div>
+      </div>
+      <button class="sc-del" onclick="removeSource(${i})">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 4L4 12M4 4l8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
     </div>
   `).join('');
 }
 
 async function removeSource(idx) {
-  sources.splice(idx, 1);
-  // Clear server session and re-upload logic: just clear all for simplicity
-  if (UID) await fetch(BASE_URL + '/api/clear', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({telegram_id: UID})});
-  sources = [];
-  refreshSourceList();
-  refreshHeaderBadges();
-  toast('Ma\'lumot o\'chirildi', 'ok');
+  sources.splice(idx,1);
+  if (UID) await fetch(BASE_URL+'/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID})});
+  sources=[];
+  refreshSourceList(); refreshHeaderBadges();
+  toast("Ma'lumot o'chirildi",'ok');
 }
 
 function refreshHeaderBadges() {
-  const container = document.getElementById('headerBadges');
-  const none = document.getElementById('noBadge');
-  if (sources.length === 0) {
-    none.style.display = 'block';
-    container.innerHTML = '<span class="badge-none" id="noBadge">Ma\'lumot yo\'q</span>';
-    return;
-  }
-  container.innerHTML = sources.map(s => `<span class="badge">${escHtml(s.name)}</span>`).join('');
+  const c = document.getElementById('headerBadges');
+  if (!sources.length) { c.innerHTML='<span class="badge-none" id="noBadge">Ma\'lumot yo\'q</span>'; return; }
+  c.innerHTML = sources.map(s=>`<span class="badge">${escHtml(s.name)}</span>`).join('');
 }
 
-// в”Ђв”Ђ File Upload в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-function onDragOver(e) { e.preventDefault(); document.getElementById('uploadZone').classList.add('drag'); }
-function onDragLeave() { document.getElementById('uploadZone').classList.remove('drag'); }
-function onDrop(e) {
-  e.preventDefault();
-  document.getElementById('uploadZone').classList.remove('drag');
-  const file = e.dataTransfer?.files?.[0];
-  if (file) uploadFile(file);
-}
-function onFileSelected(e) {
-  const file = e.target.files?.[0];
-  if (file) uploadFile(file);
-  e.target.value = '';
-}
+function onDragOver(e){e.preventDefault();document.getElementById('uploadZone').classList.add('drag')}
+function onDragLeave(){document.getElementById('uploadZone').classList.remove('drag')}
+function onDrop(e){e.preventDefault();document.getElementById('uploadZone').classList.remove('drag');const f=e.dataTransfer?.files?.[0];if(f)uploadFile(f)}
+function onFileSelected(e){const f=e.target.files?.[0];if(f)uploadFile(f);e.target.value=''}
 
 async function uploadFile(file) {
-  if (!file.name.match(/\.(xlsx|xls|xlsm)$/i)) { toast('Faqat .xlsx, .xls fayl!', 'err'); return; }
+  if (!file.name.match(/\.(xlsx|xls|xlsm)$/i)){toast('Faqat .xlsx, .xls fayl!','err');return}
   setProgress(20);
-  const zone = document.getElementById('uploadZone');
-  zone.style.opacity = '.5';
-  document.getElementById('uploadZoneText').textContent = t('uploading');
+  const zone=document.getElementById('uploadZone');
+  zone.style.opacity='.5';
+  document.getElementById('uploadZoneText').textContent=t('uploading');
   try {
-    const fd = new FormData();
-    fd.append('telegram_id', UID || 0);
-    fd.append('file', file);
+    const fd=new FormData();fd.append('telegram_id',UID||0);fd.append('file',file);
     setProgress(50);
-    const r = await fetch(BASE_URL + '/api/upload', { method:'POST', body: fd });
-    const d = await r.json();
-    setProgress(90);
-    if (d.success) {
-      sources = sources.filter(s => s.type !== 'excel');
-      sources.push({ name: d.source_name, type: 'excel', rows: d.rows, cols: d.cols });
-      refreshSourceList();
-      refreshHeaderBadges();
-      toast(`вњ… ${d.source_name} вЂ” ${d.rows} qator`, 'ok');
-    } else {
-      toast(d.detail || 'Xato', 'err');
-    }
-  } catch(e) {
-    toast('Yuklashda xato: ' + e.message, 'err');
-  } finally {
-    setProgress(0);
-    zone.style.opacity = '1';
-    document.getElementById('uploadZoneText').textContent = t('uploadZoneText');
+    const r=await fetch(BASE_URL+'/api/upload',{method:'POST',body:fd});
+    const d=await r.json();setProgress(90);
+    if(d.success){
+      sources=sources.filter(s=>s.type!=='excel');
+      sources.push({name:d.source_name,type:'excel',rows:d.rows,cols:d.cols});
+      refreshSourceList();refreshHeaderBadges();
+      toast(d.source_name+' — '+d.rows+' qator','ok');
+    } else toast(d.detail||'Xato','err');
+  } catch(e){toast('Yuklashda xato: '+e.message,'err')}
+  finally{
+    setProgress(0);zone.style.opacity='1';
+    document.getElementById('uploadZoneText').textContent=t('uploadZoneText');
   }
 }
 
-// в”Ђв”Ђ Google Sheets в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 async function connectSheets() {
-  const url = document.getElementById('sheetsUrl').value.trim();
-  if (!url) { toast('URL kiriting', 'err'); return; }
+  const url=document.getElementById('sheetsUrl').value.trim();
+  if(!url){toast('URL kiriting','err');return}
   setProgress(30);
-  document.getElementById('sheetsUrl').disabled = true;
+  document.getElementById('sheetsUrl').disabled=true;
   try {
-    const r = await fetch(BASE_URL + '/api/sheets', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ telegram_id: UID || 0, url })
-    });
-    const d = await r.json();
-    setProgress(80);
-    if (d.success) {
-      sources = sources.filter(s => s.url !== url);
-      sources.push({ name: d.source_name, type: 'google_sheets', rows: d.rows, tabs: d.tabs, url });
-      document.getElementById('sheetsUrl').value = '';
-      refreshSourceList();
-      refreshHeaderBadges();
-      toast(`вњ… ${d.source_name} вЂ” ${d.rows} qator`, 'ok');
-    } else {
-      toast(d.detail || 'Ulanishda xato', 'err');
-    }
-  } catch(e) {
-    toast('Xato: ' + e.message, 'err');
-  } finally {
-    setProgress(0);
-    document.getElementById('sheetsUrl').disabled = false;
-  }
+    const r=await fetch(BASE_URL+'/api/sheets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID||0,url})});
+    const d=await r.json();setProgress(80);
+    if(d.success){
+      sources=sources.filter(s=>s.url!==url);
+      sources.push({name:d.source_name,type:'google_sheets',rows:d.rows,tabs:d.tabs,url});
+      document.getElementById('sheetsUrl').value='';
+      refreshSourceList();refreshHeaderBadges();
+      toast(d.source_name+' — '+d.rows+' qator','ok');
+    } else toast(d.detail||'Ulanishda xato','err');
+  } catch(e){toast('Xato: '+e.message,'err')}
+  finally{setProgress(0);document.getElementById('sheetsUrl').disabled=false}
 }
 
-// в”Ђв”Ђ Chat в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 async function sendMessage() {
-  const input = document.getElementById('msgInput');
-  const question = input.value.trim();
-  if (!question || isLoading) return;
-
-  isLoading = true;
-  input.value = '';
-  autoResize(input);
-  document.getElementById('sendBtn').disabled = true;
-
-  removeEmptyState();
-  addMessage(question, 'user');
-  const loadingEl = addTyping();
-
+  const input=document.getElementById('msgInput');
+  const question=input.value.trim();
+  if(!question||isLoading)return;
+  isLoading=true;input.value='';autoResize(input);
+  document.getElementById('sendBtn').disabled=true;
+  removeEmptyState();addMessage(question,'user');
+  const loadEl=addTyping();
   try {
-    const r = await fetch(BASE_URL + '/api/chat', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ telegram_id: UID || 0, message: question })
-    });
-    const d = await r.json();
-    loadingEl.remove();
-    if (d.success) {
-      addMessage(d.answer, 'bot', true);
-    } else {
-      addMessage('вќЊ ' + (d.detail || 'Xato'), 'bot');
-    }
-  } catch(e) {
-    loadingEl.remove();
-    addMessage('вќЊ Texnik xato: ' + e.message, 'bot');
-  } finally {
-    isLoading = false;
-    document.getElementById('sendBtn').disabled = false;
-    input.focus();
-  }
+    const r=await fetch(BASE_URL+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID||0,message:question})});
+    const d=await r.json();loadEl.remove();
+    if(d.success) addMessage(d.answer,'bot',true);
+    else addMessage((d.detail||'Xato'),'bot');
+  } catch(e){loadEl.remove();addMessage('Texnik xato: '+e.message,'bot')}
+  finally{isLoading=false;document.getElementById('sendBtn').disabled=false;input.focus()}
 }
 
-function removeEmptyState() {
-  document.getElementById('emptyChat')?.remove();
+function removeEmptyState(){document.getElementById('emptyChat')?.remove()}
+
+function addMessage(text,role,isHtml=false){
+  const msgs=document.getElementById('messages');
+  const div=document.createElement('div');div.className='msg '+(role==='user'?'user':'bot');
+  const bubble=document.createElement('div');bubble.className='bubble';
+  if(isHtml) bubble.innerHTML=tgHtml(text); else bubble.textContent=text;
+  div.appendChild(bubble);msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;return div;
 }
 
-function addMessage(text, role, isHtml = false) {
-  const msgs = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  if (isHtml) {
-    // Convert Telegram HTML-like tags to real HTML
-    bubble.innerHTML = telegramHtmlToHtml(text);
-  } else {
-    bubble.textContent = text;
-  }
-  div.appendChild(bubble);
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
-  return div;
+function addTyping(){
+  const msgs=document.getElementById('messages');
+  const div=document.createElement('div');div.className='msg bot';
+  div.innerHTML='<div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+  msgs.appendChild(div);msgs.scrollTop=msgs.scrollHeight;return div;
 }
 
-function addTyping() {
-  const msgs = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = 'msg bot';
-  div.innerHTML = '<div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
-  return div;
-}
-
-// Convert Telegram-style HTML (<b>, <i>, <code>, \n) to safe HTML
-function telegramHtmlToHtml(text) {
+function tgHtml(text){
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, 'В§LTВ§')
-    .replace(/>/g, 'В§GTВ§')
-    // restore allowed tags
-    .replace(/В§LTВ§bВ§GTВ§/g, '<b>').replace(/В§LTВ§\/bВ§GTВ§/g, '</b>')
-    .replace(/В§LTВ§iВ§GTВ§/g, '<i>').replace(/В§LTВ§\/iВ§GTВ§/g, '</i>')
-    .replace(/В§LTВ§codeВ§GTВ§/g, '<code>').replace(/В§LTВ§\/codeВ§GTВ§/g, '</code>')
-    .replace(/В§LTВ§br\s*\/В§GTВ§/g, '<br>').replace(/В§LTВ§brВ§GTВ§/g, '<br>')
-    .replace(/\n/g, '<br>');
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'\x01LT\x01').replace(/>/g,'\x01GT\x01')
+    .replace(/\x01LT\x01b\x01GT\x01/g,'<b>').replace(/\x01LT\x01\/b\x01GT\x01/g,'</b>')
+    .replace(/\x01LT\x01i\x01GT\x01/g,'<i>').replace(/\x01LT\x01\/i\x01GT\x01/g,'</i>')
+    .replace(/\x01LT\x01code\x01GT\x01/g,'<code>').replace(/\x01LT\x01\/code\x01GT\x01/g,'</code>')
+    .replace(/\x01LT\x01br\s*\/\x01GT\x01/g,'<br>').replace(/\x01LT\x01br\x01GT\x01/g,'<br>')
+    .replace(/\x01LT\x01[^>]*\x01GT\x01/g,'')
+    .replace(/\n/g,'<br>');
 }
 
-function onInputKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-}
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-// в”Ђв”Ђ Utilities в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function onInputKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px'}
+function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 
 let toastTimer;
-function toast(msg, type = '') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'show ' + type;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.className = '', 3000);
+function toast(msg,type=''){
+  const el=document.getElementById('toast');el.textContent=msg;
+  el.className='show '+(type||'');clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.className='',3000);
 }
 
-function setProgress(pct) {
-  const el = document.getElementById('progress');
-  el.style.width = pct + '%';
-  if (pct === 0) setTimeout(() => el.style.width = '0%', 400);
+function setProgress(pct){
+  const el=document.getElementById('progress');el.style.width=pct+'%';
+  if(pct===0)setTimeout(()=>el.style.width='0%',400);
 }
 
-// в”Ђв”Ђ Init в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-window.addEventListener('load', async () => {
+window.addEventListener('load',async()=>{
   applyI18n();
-  if (UID) {
-    // Try to load existing user
-    try {
-      const r = await fetch(`${BASE_URL}/api/user/${UID}`);
-      if (r.ok) {
-        const d = await r.json();
-        currentLang = d.user?.lang || 'uz';
-        setLang(currentLang);
-        await loadSession();
-        if (sources.length > 0) showPage('pgChat');
-        else showPage('pgData');
-        return;
-      }
-    } catch(e) {}
+  if(UID){
+    try{
+      const r=await fetch(`${BASE_URL}/api/user/${UID}`);
+      if(r.ok){const d=await r.json();currentLang=d.user?.lang||'uz';setLang(currentLang);await loadSession();if(sources.length>0){showPage('pgChat');return}}
+    }catch(e){}
   }
-  // New user вЂ” show welcome
   showPage('pgWelcome');
 });
 </script>
 </body>
 </html>
-
