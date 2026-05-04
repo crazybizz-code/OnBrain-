@@ -142,7 +142,9 @@ app.add_middleware(
 )
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+if os.path.isdir(_STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 # ─── Pydantic models ──────────────────────────────────────────────────────────
 
@@ -169,17 +171,20 @@ class LangRequest(BaseModel):
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_INDEX_HTML = os.path.join(_BASE_DIR, "static", "index.html")
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "OnBrain AI Mini App"}
 
 @app.get("/miniapp")
 async def serve_miniapp():
-    return FileResponse("static/index.html")
+    return FileResponse(_INDEX_HTML)
 
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse(_INDEX_HTML)
 
 # ── User management ──────────────────────────────────────────────────────────
 
