@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>OnBrain AI</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --primary: #7B2FFF;
+      --primary-light: #9D5FFF;
+      --primary-dark: #5B0FFF;
+      --bg: #0D0D1A;
+      --bg2: #09090F;
+      --card: #1A1A2E;
+      --border: #2A2A3E;
+      --text: #FFFFFF;
+      --muted: #A0A0B8;
+      --success: #10B981;
+      --error: #EF4444;
+      --warning: #F59E0B;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+
+    /* ── App Shell ── */
+    #app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Pages ── */
+    .page { display: none; flex: 1; flex-direction: column; overflow: hidden; animation: fadeUp 0.3s ease; }
+    .page.active { display: flex; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+
+    /* ══ WELCOME PAGE ══ */
+    #pgWelcome { justify-content: center; align-items: center; padding: 28px 24px; text-align: center; background: linear-gradient(160deg, var(--bg2) 0%, var(--bg) 100%); }
+    .logo { font-size: 72px; margin-bottom: 16px; animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    .welcome-title { font-size: 30px; font-weight: 800; background: linear-gradient(135deg,var(--primary),var(--primary-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 8px; }
+    .welcome-sub { font-size: 15px; color: var(--muted); margin-bottom: 36px; line-height: 1.6; }
+    .lang-row { display: flex; gap: 10px; margin-bottom: 28px; justify-content: center; }
+    .lang-btn { padding: 8px 20px; border-radius: 20px; border: 1.5px solid var(--border); background: var(--card); color: var(--muted); font-size: 14px; cursor: pointer; transition: all .2s; }
+    .lang-btn.active { border-color: var(--primary); color: var(--primary); background: rgba(123,47,255,.12); }
+    .btn-primary { width: 100%; max-width: 320px; padding: 15px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 14px; color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 20px rgba(123,47,255,.35); transition: transform .2s, box-shadow .2s; }
+    .btn-primary:active { transform: scale(.97); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ══ DATA SOURCE PAGE ══ */
+    #pgData { background: var(--bg); }
+    .page-header { padding: 16px 20px; background: linear-gradient(135deg,var(--primary-dark),var(--primary)); display: flex; align-items: center; gap: 12px; }
+    .page-header-back { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; padding: 4px; }
+    .page-header-title { font-size: 18px; font-weight: 700; }
+    .page-header-sub { font-size: 12px; opacity: .8; }
+    .data-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+    .section-label { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+
+    /* Source cards */
+    .source-list { display: flex; flex-direction: column; gap: 10px; }
+    .source-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+    .source-icon { font-size: 28px; flex-shrink: 0; }
+    .source-info { flex: 1; min-width: 0; }
+    .source-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .source-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .source-del { background: none; border: none; color: var(--error); font-size: 18px; cursor: pointer; padding: 4px; flex-shrink: 0; }
+
+    /* Upload zone */
+    .upload-zone { border: 2px dashed var(--border); border-radius: 14px; padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+    .upload-zone:hover, .upload-zone.drag { border-color: var(--primary); background: rgba(123,47,255,.06); }
+    .upload-zone-icon { font-size: 40px; margin-bottom: 10px; }
+    .upload-zone-text { font-size: 15px; color: var(--muted); }
+    .upload-zone-hint { font-size: 12px; color: var(--border); margin-top: 6px; }
+    #fileInput { display: none; }
+
+    /* Sheets input */
+    .sheets-row { display: flex; gap: 8px; }
+    .sheets-input { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-size: 14px; outline: none; transition: border-color .2s; }
+    .sheets-input:focus { border-color: var(--primary); }
+    .sheets-input::placeholder { color: var(--muted); }
+    .btn-icon { width: 44px; height: 44px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 10px; color: #fff; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+    .go-chat-btn { margin-top: 4px; padding: 14px; background: var(--success); border: none; border-radius: 12px; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; transition: opacity .2s; }
+    .go-chat-btn:hover { opacity: .9; }
+
+    /* ══ CHAT PAGE ══ */
+    #pgChat { background: var(--bg); }
+    .chat-header { padding: 12px 16px; background: linear-gradient(135deg,var(--primary-dark),var(--primary)); display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .chat-header-back { background: none; border: none; color: #fff; font-size: 22px; cursor: pointer; }
+    .chat-header-info { flex: 1; min-width: 0; }
+    .chat-header-title { font-size: 17px; font-weight: 700; }
+    .chat-header-badges { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+    .badge { font-size: 11px; background: rgba(255,255,255,.18); border-radius: 6px; padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+    .badge-none { font-size: 11px; color: rgba(255,255,255,.6); }
+    .chat-header-add { background: rgba(255,255,255,.18); border: none; border-radius: 8px; color: #fff; padding: 6px 10px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+
+    .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .messages::-webkit-scrollbar { width: 5px; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .msg { display: flex; animation: fadeUp .25s ease; }
+    .msg.user { justify-content: flex-end; }
+    .bubble { max-width: 82%; padding: 11px 15px; border-radius: 16px; line-height: 1.5; font-size: 15px; word-break: break-word; }
+    .msg.user .bubble { background: linear-gradient(135deg,var(--primary-dark),var(--primary)); color: #fff; border-radius: 16px 4px 16px 16px; }
+    .msg.bot .bubble { background: var(--card); border: 1px solid var(--border); color: var(--text); border-radius: 4px 16px 16px 16px; }
+    /* HTML tags from bot answers */
+    .bubble b { font-weight: 700; }
+    .bubble br { display: block; content: ""; margin: 3px 0; }
+
+    /* Typing dots */
+    .typing { display: flex; gap: 5px; padding: 4px 2px; align-items: center; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: dotBounce 1.4s infinite; }
+    .dot:nth-child(2) { animation-delay: .2s; }
+    .dot:nth-child(3) { animation-delay: .4s; }
+    @keyframes dotBounce { 0%,80%,100%{transform:scale(.7);opacity:.5} 40%{transform:scale(1);opacity:1} }
+
+    .empty-chat { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 20px; gap: 10px; }
+    .empty-chat-icon { font-size: 56px; opacity: .4; }
+
+    .input-area { padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg2); flex-shrink: 0; }
+    .input-row { display: flex; gap: 10px; align-items: flex-end; }
+    .input-wrap { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 2px 14px; display: flex; align-items: center; transition: border-color .2s; }
+    .input-wrap:focus-within { border-color: var(--primary); }
+    .msg-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-size: 15px; padding: 10px 0; resize: none; max-height: 120px; font-family: inherit; }
+    .msg-input::placeholder { color: var(--muted); }
+    .send-btn { width: 42px; height: 42px; min-width: 42px; background: linear-gradient(135deg,var(--primary),var(--primary-light)); border: none; border-radius: 50%; color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(123,47,255,.4); transition: transform .15s; }
+    .send-btn:active { transform: scale(.93); }
+    .send-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 18px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 999; white-space: nowrap; max-width: 90vw; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    #toast.err { border-color: var(--error); color: var(--error); }
+    #toast.ok  { border-color: var(--success); color: var(--success); }
+
+    /* ── Progress bar ── */
+    #progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--primary); width: 0%; transition: width .3s; z-index: 9999; }
+  </style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="toast"></div>
+
+<div id="app">
+
+  <!-- ══ WELCOME PAGE ══ -->
+  <div id="pgWelcome" class="page active">
+    <div class="logo">🤖</div>
+    <h1 class="welcome-title">OnBrain AI</h1>
+    <p class="welcome-sub" id="welcomeSub">Excel va Google Sheets ma'lumotlarini AI bilan tahlil qiling</p>
+    <div class="lang-row">
+      <button class="lang-btn active" data-lang="uz" onclick="setLang('uz')">🇺🇿 UZ</button>
+      <button class="lang-btn" data-lang="ru" onclick="setLang('ru')">🇷🇺 RU</button>
+      <button class="lang-btn" data-lang="en" onclick="setLang('en')">🇬🇧 EN</button>
+    </div>
+    <button class="btn-primary" id="startBtn" onclick="onStart()">Boshlash →</button>
+  </div>
+
+  <!-- ══ DATA SOURCE PAGE ══ -->
+  <div id="pgData" class="page">
+    <div class="page-header">
+      <button class="page-header-back" onclick="showPage('pgWelcome')">‹</button>
+      <div>
+        <div class="page-header-title">📂 Ma'lumot manbasi</div>
+        <div class="page-header-sub" id="dataHeaderSub">Excel yoki Google Sheets qo'shing</div>
+      </div>
+    </div>
+    <div class="data-body">
+
+      <!-- Connected sources -->
+      <div id="sourcesSection" style="display:none">
+        <div class="section-label" id="lblConnected">Ulangan manbalar</div>
+        <div class="source-list" id="sourceList"></div>
+        <button class="go-chat-btn" onclick="showPage('pgChat')" id="goChatBtn">💬 Savolga o'tish →</button>
+      </div>
+
+      <!-- Excel upload -->
+      <div>
+        <div class="section-label" id="lblExcel">Excel fayl yuklash</div>
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="onDragOver(event)" ondrop="onDrop(event)" ondragleave="onDragLeave()">
+          <div class="upload-zone-icon">📊</div>
+          <div class="upload-zone-text" id="uploadZoneText">Fayl tanlash yoki bu yerga tashlang</div>
+          <div class="upload-zone-hint">.xlsx · .xls</div>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" onchange="onFileSelected(event)" />
+      </div>
+
+      <!-- Google Sheets -->
+      <div>
+        <div class="section-label" id="lblSheets">Google Sheets ulash</div>
+        <div class="sheets-row">
+          <input class="sheets-input" id="sheetsUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." />
+          <button class="btn-icon" onclick="connectSheets()" title="Ulash">🔗</button>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px" id="sheetsHint">Fayl "Hamma ko'rishi mumkin" bo'lishi shart</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ CHAT PAGE ══ -->
+  <div id="pgChat" class="page">
+    <div class="chat-header">
+      <button class="chat-header-back" onclick="showPage('pgData')">‹</button>
+      <div class="chat-header-info">
+        <div class="chat-header-title">OnBrain AI 🤖</div>
+        <div class="chat-header-badges" id="headerBadges">
+          <span class="badge-none" id="noBadge">Ma'lumot yo'q</span>
+        </div>
+      </div>
+      <button class="chat-header-add" onclick="showPage('pgData')">+ Manba</button>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-chat" id="emptyChat">
+        <div class="empty-chat-icon">💬</div>
+        <div id="emptyChatText">Savol yozing!</div>
+        <div style="font-size:13px;color:var(--border)" id="emptyChatSub">Masalan: "Yusupovning balli necha?"</div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-row">
+        <div class="input-wrap">
+          <textarea class="msg-input" id="msgInput" rows="1" placeholder="Savol yozing..." onkeydown="onInputKey(event)" oninput="autoResize(this)"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Telegram WebApp ──────────────────────────────────────────────
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const TG_USER = tg?.initDataUnsafe?.user || {};
+const UID = TG_USER.id || 0;
+const UNAME = TG_USER.first_name || "Foydalanuvchi";
+
+// ── State ────────────────────────────────────────────────────────
+let currentLang = "uz";
+let sources = [];   // [{name, type, rows}]
+let isLoading = false;
+
+const I18N = {
+  uz: {
+    welcomeSub: "Excel va Google Sheets ma'lumotlarini AI bilan tahlil qiling",
+    startBtn: "Boshlash →",
+    lblConnected: "Ulangan manbalar",
+    lblExcel: "Excel fayl yuklash",
+    lblSheets: "Google Sheets ulash",
+    uploadZoneText: "Fayl tanlash yoki bu yerga tashlang",
+    sheetsHint: "Fayl \"Hamma ko'rishi mumkin\" bo'lishi shart",
+    goChatBtn: "💬 Savolga o'tish →",
+    emptyChatText: "Savol yozing!",
+    emptyChatSub: "Masalan: \"Yusupovning balli necha?\"",
+    placeholder: "Savol yozing...",
+    noData: "📂 Hali ma'lumot yuklanmagan. Excel yuboring yoki Sheets qo'shing.",
+    uploading: "Yuklanmoqda...",
+    connecting: "Ulanmoqda...",
+  },
+  ru: {
+    welcomeSub: "Анализируйте данные Excel и Google Sheets с помощью AI",
+    startBtn: "Начать →",
+    lblConnected: "Подключённые источники",
+    lblExcel: "Загрузить Excel файл",
+    lblSheets: "Подключить Google Sheets",
+    uploadZoneText: "Выберите файл или перетащите сюда",
+    sheetsHint: "Файл должен быть открыт для всех",
+    goChatBtn: "💬 Перейти к чату →",
+    emptyChatText: "Задайте вопрос!",
+    emptyChatSub: "Например: \"Сколько баллов у Юсупова?\"",
+    placeholder: "Введите вопрос...",
+    noData: "📂 Данные не загружены. Отправьте Excel или добавьте Sheets.",
+    uploading: "Загрузка...",
+    connecting: "Подключение...",
+  },
+  en: {
+    welcomeSub: "Analyze Excel & Google Sheets data with AI",
+    startBtn: "Get Started →",
+    lblConnected: "Connected sources",
+    lblExcel: "Upload Excel file",
+    lblSheets: "Connect Google Sheets",
+    uploadZoneText: "Select file or drag & drop here",
+    sheetsHint: "File must be shared publicly (Anyone with link)",
+    goChatBtn: "💬 Go to Chat →",
+    emptyChatText: "Ask a question!",
+    emptyChatSub: "E.g. \"What is Yusupov's score?\"",
+    placeholder: "Type your question...",
+    noData: "📂 No data loaded. Upload Excel or add Sheets.",
+    uploading: "Uploading...",
+    connecting: "Connecting...",
+  },
+};
+
+function t(key) { return (I18N[currentLang] || I18N.uz)[key] || key; }
+
+// ── Pages ────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (id === 'pgChat') {
+    if (tg) tg.BackButton.show();
+    refreshHeaderBadges();
+    document.getElementById('msgInput').focus();
+  } else {
+    if (tg) tg.BackButton.hide();
+  }
+  if (id === 'pgData') refreshSourceList();
+}
+
+if (tg) tg.onEvent('backButtonClicked', () => {
+  const active = document.querySelector('.page.active')?.id;
+  if (active === 'pgChat') showPage('pgData');
+  else if (active === 'pgData') showPage('pgWelcome');
+  else tg.BackButton.hide();
+});
+
+// ── Language ─────────────────────────────────────────────────────
+function setLang(lang) {
+  currentLang = lang;
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+  applyI18n();
+  if (UID) fetch('/api/lang', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({telegram_id: UID, lang}) });
+}
+
+function applyI18n() {
+  const keys = ['welcomeSub','startBtn','lblConnected','lblExcel','lblSheets','uploadZoneText','sheetsHint','goChatBtn','emptyChatText','emptyChatSub'];
+  keys.forEach(k => { const el = document.getElementById(k); if(el) el.textContent = t(k); });
+  const inp = document.getElementById('msgInput'); if(inp) inp.placeholder = t('placeholder');
+}
+
+// ── Start / Register ─────────────────────────────────────────────
+async function onStart() {
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  try {
+    if (UID) {
+      await fetch('/api/register', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ telegram_id: UID, full_name: UNAME, username: TG_USER.username || '', lang: currentLang })
+      });
+    }
+    await loadSession();
+    if (sources.length > 0) showPage('pgChat');
+    else showPage('pgData');
+  } catch(e) {
+    console.error(e);
+    showPage('pgData');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadSession() {
+  if (!UID) return;
+  try {
+    const r = await fetch(`/api/session/${UID}`);
+    if (r.ok) {
+      const d = await r.json();
+      sources = d.sources || [];
+      currentLang = d.lang || currentLang;
+      setLang(currentLang);
+    }
+  } catch(e) {}
+}
+
+// ── Source list ──────────────────────────────────────────────────
+function refreshSourceList() {
+  const sec = document.getElementById('sourcesSection');
+  const list = document.getElementById('sourceList');
+  if (sources.length === 0) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  list.innerHTML = sources.map((s, i) => `
+    <div class="source-card">
+      <div class="source-icon">${s.type === 'excel' ? '📊' : '📋'}</div>
+      <div class="source-info">
+        <div class="source-name">${escHtml(s.name)}</div>
+        <div class="source-meta">${s.rows != null ? s.rows + ' qator' : (s.tabs ? s.tabs.join(', ') : '')}</div>
+      </div>
+      <button class="source-del" onclick="removeSource(${i})" title="O'chirish">✕</button>
+    </div>
+  `).join('');
+}
+
+async function removeSource(idx) {
+  sources.splice(idx, 1);
+  // Clear server session and re-upload logic: just clear all for simplicity
+  if (UID) await fetch('/api/clear', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({telegram_id: UID})});
+  sources = [];
+  refreshSourceList();
+  refreshHeaderBadges();
+  toast('Ma\'lumot o\'chirildi', 'ok');
+}
+
+function refreshHeaderBadges() {
+  const container = document.getElementById('headerBadges');
+  const none = document.getElementById('noBadge');
+  if (sources.length === 0) {
+    none.style.display = 'block';
+    container.innerHTML = '<span class="badge-none" id="noBadge">Ma\'lumot yo\'q</span>';
+    return;
+  }
+  container.innerHTML = sources.map(s => `<span class="badge">${escHtml(s.name)}</span>`).join('');
+}
+
+// ── File Upload ──────────────────────────────────────────────────
+function onDragOver(e) { e.preventDefault(); document.getElementById('uploadZone').classList.add('drag'); }
+function onDragLeave() { document.getElementById('uploadZone').classList.remove('drag'); }
+function onDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) uploadFile(file);
+}
+function onFileSelected(e) {
+  const file = e.target.files?.[0];
+  if (file) uploadFile(file);
+  e.target.value = '';
+}
+
+async function uploadFile(file) {
+  if (!file.name.match(/\.(xlsx|xls|xlsm)$/i)) { toast('Faqat .xlsx, .xls fayl!', 'err'); return; }
+  setProgress(20);
+  const zone = document.getElementById('uploadZone');
+  zone.style.opacity = '.5';
+  document.getElementById('uploadZoneText').textContent = t('uploading');
+  try {
+    const fd = new FormData();
+    fd.append('telegram_id', UID || 0);
+    fd.append('file', file);
+    setProgress(50);
+    const r = await fetch('/api/upload', { method:'POST', body: fd });
+    const d = await r.json();
+    setProgress(90);
+    if (d.success) {
+      sources = sources.filter(s => s.type !== 'excel');
+      sources.push({ name: d.source_name, type: 'excel', rows: d.rows, cols: d.cols });
+      refreshSourceList();
+      refreshHeaderBadges();
+      toast(`✅ ${d.source_name} — ${d.rows} qator`, 'ok');
+    } else {
+      toast(d.detail || 'Xato', 'err');
+    }
+  } catch(e) {
+    toast('Yuklashda xato: ' + e.message, 'err');
+  } finally {
+    setProgress(0);
+    zone.style.opacity = '1';
+    document.getElementById('uploadZoneText').textContent = t('uploadZoneText');
+  }
+}
+
+// ── Google Sheets ────────────────────────────────────────────────
+async function connectSheets() {
+  const url = document.getElementById('sheetsUrl').value.trim();
+  if (!url) { toast('URL kiriting', 'err'); return; }
+  setProgress(30);
+  document.getElementById('sheetsUrl').disabled = true;
+  try {
+    const r = await fetch('/api/sheets', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ telegram_id: UID || 0, url })
+    });
+    const d = await r.json();
+    setProgress(80);
+    if (d.success) {
+      sources = sources.filter(s => s.url !== url);
+      sources.push({ name: d.source_name, type: 'google_sheets', rows: d.rows, tabs: d.tabs, url });
+      document.getElementById('sheetsUrl').value = '';
+      refreshSourceList();
+      refreshHeaderBadges();
+      toast(`✅ ${d.source_name} — ${d.rows} qator`, 'ok');
+    } else {
+      toast(d.detail || 'Ulanishda xato', 'err');
+    }
+  } catch(e) {
+    toast('Xato: ' + e.message, 'err');
+  } finally {
+    setProgress(0);
+    document.getElementById('sheetsUrl').disabled = false;
+  }
+}
+
+// ── Chat ─────────────────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('msgInput');
+  const question = input.value.trim();
+  if (!question || isLoading) return;
+
+  isLoading = true;
+  input.value = '';
+  autoResize(input);
+  document.getElementById('sendBtn').disabled = true;
+
+  removeEmptyState();
+  addMessage(question, 'user');
+  const loadingEl = addTyping();
+
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ telegram_id: UID || 0, message: question })
+    });
+    const d = await r.json();
+    loadingEl.remove();
+    if (d.success) {
+      addMessage(d.answer, 'bot', true);
+    } else {
+      addMessage('❌ ' + (d.detail || 'Xato'), 'bot');
+    }
+  } catch(e) {
+    loadingEl.remove();
+    addMessage('❌ Texnik xato: ' + e.message, 'bot');
+  } finally {
+    isLoading = false;
+    document.getElementById('sendBtn').disabled = false;
+    input.focus();
+  }
+}
+
+function removeEmptyState() {
+  document.getElementById('emptyChat')?.remove();
+}
+
+function addMessage(text, role, isHtml = false) {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  if (isHtml) {
+    // Convert Telegram HTML-like tags to real HTML
+    bubble.innerHTML = telegramHtmlToHtml(text);
+  } else {
+    bubble.textContent = text;
+  }
+  div.appendChild(bubble);
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function addTyping() {
+  const msgs = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = '<div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+// Convert Telegram-style HTML (<b>, <i>, <code>, \n) to safe HTML
+function telegramHtmlToHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '§LT§')
+    .replace(/>/g, '§GT§')
+    // restore allowed tags
+    .replace(/§LT§b§GT§/g, '<b>').replace(/§LT§\/b§GT§/g, '</b>')
+    .replace(/§LT§i§GT§/g, '<i>').replace(/§LT§\/i§GT§/g, '</i>')
+    .replace(/§LT§code§GT§/g, '<code>').replace(/§LT§\/code§GT§/g, '</code>')
+    .replace(/§LT§br\s*\/§GT§/g, '<br>').replace(/§LT§br§GT§/g, '<br>')
+    .replace(/\n/g, '<br>');
+}
+
+function onInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Utilities ────────────────────────────────────────────────────
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+let toastTimer;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.className = '', 3000);
+}
+
+function setProgress(pct) {
+  const el = document.getElementById('progress');
+  el.style.width = pct + '%';
+  if (pct === 0) setTimeout(() => el.style.width = '0%', 400);
+}
+
+// ── Init ─────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  applyI18n();
+  if (UID) {
+    // Try to load existing user
+    try {
+      const r = await fetch(`/api/user/${UID}`);
+      if (r.ok) {
+        const d = await r.json();
+        currentLang = d.user?.lang || 'uz';
+        setLang(currentLang);
+        await loadSession();
+        if (sources.length > 0) showPage('pgChat');
+        else showPage('pgData');
+        return;
+      }
+    } catch(e) {}
+  }
+  // New user — show welcome
+  showPage('pgWelcome');
+});
+</script>
+</body>
+</html>
