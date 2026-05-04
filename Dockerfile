@@ -21,4 +21,4 @@ RUN mkdir -p /data
 
 EXPOSE 8080
 
-CMD ["uvicorn", "miniapp:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "bot.py"]

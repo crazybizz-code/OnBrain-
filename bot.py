@@ -1908,6 +1908,8 @@ class OAuthServer:
         app = web.Application()
         app.router.add_get("/", self._oauth)
         app.router.add_get("/health", self._health)
+        app.router.add_get("/miniapp", self._miniapp)
+        app.router.add_static("/static", path=os.path.join(os.path.dirname(__file__), "static"), name="static")
         self._runner = web.AppRunner(app)
         await self._runner.setup()
         await web.TCPSite(self._runner, self.config.host, self.config.port).start()
@@ -1919,6 +1921,10 @@ class OAuthServer:
 
     async def _health(self, req):
         return web.Response(text="OK")
+
+    async def _miniapp(self, req):
+        index = os.path.join(os.path.dirname(__file__), "static", "index.html")
+        return web.FileResponse(index)
 
     async def _oauth(self, req):
         code = req.query.get("code")
