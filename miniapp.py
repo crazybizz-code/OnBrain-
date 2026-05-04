@@ -107,7 +107,31 @@ def db_upsert_user(uid: int, full_name: str, username: str, lang: str = "uz"):
     con.close()
 
 # ─── FastAPI app ──────────────────────────────────────────────────────────────
-app = FastAPI(title="OnBrain AI Mini App")
+from contextlib import asynccontextmanager
+import subprocess
+import sys
+
+_bot_process: Optional[subprocess.Popen] = None
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Start bot.py as a background subprocess alongside the web server."""
+    global _bot_process
+    bot_py = os.path.join(os.path.dirname(__file__), "bot.py")
+    if os.path.exists(bot_py):
+        logger.info("🤖 Starting bot.py as background process...")
+        _bot_process = subprocess.Popen(
+            [sys.executable, bot_py],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        logger.info(f"🤖 bot.py PID={_bot_process.pid}")
+    yield
+    if _bot_process:
+        logger.info("🛑 Stopping bot.py...")
+        _bot_process.terminate()
+
+app = FastAPI(title="OnBrain AI Mini App", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
