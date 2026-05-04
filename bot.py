@@ -1145,9 +1145,55 @@ def _sum_numeric(row: list, header: list) -> tuple[float, list[str]]:
 
 
 def _format_person_answer(person: str, row: list, header: list, src_label: str,
-                           is_avg: bool, is_max: bool, is_min: bool) -> str:
+                           is_avg: bool, is_max: bool, is_min: bool,
+                           question: str = "") -> str:
     """Build a clean answer line for one person. Shows only what was asked."""
     src_tag = f"\n📂 <i>Manba: {src_label}</i>"
+    q_lower = question.strip().lower()
+
+    # ── Subject/column filter: if question mentions a specific subject, show that column ──
+    SUBJECT_KEYWORDS = {
+        "algebra": ["algebra"],
+        "geometriya": ["geometriya", "геометрия"],
+        "matematika": ["matematika", "математика", "math"],
+        "fizika": ["fizika", "физика", "physics"],
+        "kimyo": ["kimyo", "химия", "chemistry"],
+        "biologiya": ["biologiya", "биология", "biology"],
+        "tarix": ["tarix", "история", "history"],
+        "geografiya": ["geografiya", "география", "geography"],
+        "adabiyot": ["adabiyot", "литература"],
+        "ingliz": ["ingliz", "английский", "english"],
+        "rus": ["rus tili", "rus", "русский"],
+        "ona tili": ["ona tili", "ona", "узбекский"],
+        "informatika": ["informatika", "информатика"],
+        "chizmachilik": ["chizmachilik"],
+        "texnologiya": ["texnologiya"],
+        "musiqa": ["musiqa"],
+        "sport": ["sport", "jismoniy"],
+        "huquq": ["huquq"],
+        "iqtisodiyot": ["iqtisodiyot"],
+        "falsafa": ["falsafa"],
+        "psixologiya": ["psixologiya"],
+        "astronomiya": ["astronomiya"],
+    }
+
+    asked_subject_col = None  # header column index matching the asked subject
+    for subj, keywords in SUBJECT_KEYWORDS.items():
+        if any(kw in q_lower for kw in keywords):
+            # Find column in header matching this subject
+            for j, h in enumerate(header):
+                hl = str(h).strip().lower()
+                if any(kw in hl for kw in keywords):
+                    if j < len(row):
+                        v = _to_num(row[j])
+                        if v is not None:
+                            asked_subject_col = (j, str(header[j]).strip(), v)
+                            break
+            break
+
+    if asked_subject_col is not None:
+        j, col_name, val = asked_subject_col
+        return f"👤 <b>{person}</b>\n📚 {col_name}: <b>{val}</b>{src_tag}"
 
     # Find dedicated "Umumiy ball" column first
     direct_val, direct_col = None, None
@@ -1412,7 +1458,7 @@ def _python_answer(question: str, s: Session) -> str | None:
                 answer_parts.append(
                     _format_person_answer(
                         m["matched_cell"], m["row"], header, src_label,
-                        is_avg, is_max, is_min,
+                        is_avg, is_max, is_min, question=question,
                     )
                 )
 
@@ -1459,7 +1505,7 @@ def _python_answer(question: str, s: Session) -> str | None:
                     answer_parts.append(
                         _format_person_answer(
                             m["matched_cell"], m["row"], header, src_label,
-                            is_avg, is_max, is_min,
+                            is_avg, is_max, is_min, question=question,
                         )
                     )
             if not found_this_name:
