@@ -1,0 +1,64 @@
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.git
+.gitignore
+.env
+.env.*
+.venv
+venv
+.pytest_cache
+.coverage
+*.log
+.DS_Store
+node_modules
+.idea
+.vscode
+
+# Debug/fix/temp files
+_fix*.py
+_r*.py
+_debug*.py
+_check.py
+_dbg.py
+_repair.py
+_verify*.py
+_inspect*.py
+_output*.txt
+__debug*.txt
+__sheet*.txt
+fix_bot.py
+
+# Markdown docs (not needed at runtime)
+*.md
+
+# Backup files
+*_backup.*
+bot_restored.py
+bot_new.py
+bot_from_main.py
+bot_webhook.py
+miniapp_backup.py
+
+# Other scripts not needed
+fly.toml
+railway.json
+vercel.json
+*.bat
+*.ps1
+*.sh
+*.sql
+start_bot*.py
+check_*.py
+test_*.py
+create_*.py
+reset_*.py
+rotate_*.py
+aggressive_reset.py
+force_reset_telegram.py
+
+# Large folders
+onbrain/
+api/
+.github/
