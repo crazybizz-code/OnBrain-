@@ -1029,7 +1029,7 @@ def _classify_name_type(word: str) -> str:
         if w.endswith(suf) and len(w) > len(suf) + 1:
             return "familiya"
     # Ota-ism markers
-    ota_markers = ("o'g'li", "o'g'lining", "qizi", "qizining", "ugli", "ugil")
+    ota_markers = ("o'g'li", "o'g'lining", "qizi", "qizining", "ugli", "ugil", "ogli")
     for m in ota_markers:
         if w.endswith(m):
             return "ota"
