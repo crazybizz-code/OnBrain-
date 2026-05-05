@@ -408,14 +408,13 @@ Foydalanuvchi ma'lumot manbalari:
 {'--- Internet qidiruv natijalari ---' + chr(10) + web_context if web_context else ''}
 
 MUHIM QOIDALAR:
-1. Odam ismi bo'yicha qidirganda — faqat to'liq ism emas, QISMAN mos kelsa ham toping.
-   Masalan: "Yusupov" desa — "Yusupov Jasur Aliyevich" ni ham toping.
-   "Jasur" desa — "Jasur" ismi bo'lgan barcha odamlarni toping.
-   "Aliyevich" (ota ismi) desa — shu otanomli odamlarni toping.
-2. Katta-kichik harfga e'tibor bermang (case-insensitive).
+1. FAQAT yuqoridagi ma'lumotlar asosida javob bering. O'zingizdan hech narsa qo'shmang, to'qimang.
+2. Odam ismi bo'yicha qidirganda — qisman mos kelsa ham toping (case-insensitive).
+   Masalan: "Yusupov" → "Yusupov Jasur Aliyevich" ni ham toping.
+   "Jasur" → barcha Jasur ismlilarni toping.
+   Ota ismi bo'yicha ham qidiring.
 3. Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
-4. Raqamlar, foizlar, jadval ko'rinishida aniq javob yozing.
-5. Topilmasa — "Bunday odam ma'lumotlarda topilmadi" deying."""
+4. Ma'lumotlarda topilmasa — "Bu odam ma'lumotlarda topilmadi" deying. Hech qachon taxmin qilmang."""
     else:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.
