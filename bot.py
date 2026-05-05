@@ -2019,7 +2019,7 @@ class Config:
         bot_token = os.getenv("BOT_TOKEN", "").strip()
         if not bot_token:
             raise RuntimeError("BOT_TOKEN is not set!")
-        port = int(os.getenv("PORT", os.getenv("SERVER_PORT", "8080")))
+        port = int(os.getenv("BOT_PORT", os.getenv("PORT", os.getenv("SERVER_PORT", "8081"))))
         domain = os.getenv("APP_DOMAIN", "").strip()
         redirect = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
         if not redirect:
