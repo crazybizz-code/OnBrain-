@@ -105,10 +105,56 @@ services:
 
     # ─────────────────────────────────────────────────────────────────────
     # PERSISTENT VOLUME (Koyeb paid feature)
-    # Keeps google_tokens.db alive across deploys.
-    # Comment out if using Supabase-only persistence (free tier).
-    # To enable: create a volume named "onbrain-data" in Koyeb dashboard first.
     # ─────────────────────────────────────────────────────────────────────
     # volumes:
-    #   - id: onbrain-data      # volume name created in Koyeb dashboard
-    #     path: /data           # mounted inside the container
+    #   - id: onbrain-data
+    #     path: /data
+
+  # ─── Mini App (FastAPI) ───────────────────────────────────────────────────
+  - name: miniapp
+    type: web
+    docker:
+      dockerfile: Dockerfile
+
+    ports:
+      - port: 8080
+        protocol: http
+
+    routes:
+      - path: /
+        port: 8080
+
+    health_checks:
+      - path: /health
+        port: 8080
+        protocol: http
+        interval: 30
+        timeout: 10
+        unhealthy_threshold: 3
+        healthy_threshold: 1
+
+    instance_type: nano
+
+    scaling:
+      min: 1
+      max: 1
+
+    env:
+      - name: PORT
+        value: "8080"
+      - name: APP_DOMAIN
+        value: "onbrain-miniapp-YOURORG.koyeb.app"   # ← replace with your actual miniapp domain
+      - name: SQLITE_TOKEN_DB
+        value: "/data/google_tokens.db"
+      - name: BOT_TOKEN
+        value: "YOUR_TELEGRAM_BOT_TOKEN"
+      - name: XAI_API_KEY
+        value: "YOUR_XAI_API_KEY"
+      - name: SUPABASE_URL
+        value: "https://YOUR_PROJECT.supabase.co"
+      - name: SUPABASE_KEY
+        value: "YOUR_SUPABASE_ANON_OR_SERVICE_KEY"
+
+    # Override CMD so this service runs uvicorn, not bot.py
+    # Set this in Koyeb dashboard → Service → Settings → Override command:
+    # uvicorn miniapp:app --host 0.0.0.0 --port $PORT

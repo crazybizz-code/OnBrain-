@@ -20,40 +20,127 @@
 html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh;position:relative}
 
-/* Glow bg */
-.glow{position:fixed;pointer-events:none;border-radius:50%}
-.glow-a{width:500px;height:500px;background:radial-gradient(circle,rgba(124,58,237,.12) 0%,transparent 65%);top:-150px;left:-100px;animation:ga 9s ease-in-out infinite}
-.glow-b{width:350px;height:350px;background:radial-gradient(circle,rgba(167,139,250,.07) 0%,transparent 65%);bottom:-80px;right:-60px;animation:gb 11s ease-in-out infinite}
-@keyframes ga{0%,100%{transform:translate(0,0)}50%{transform:translate(50px,35px)}}
-@keyframes gb{0%,100%{transform:translate(0,0)}50%{transform:translate(-35px,-25px)}}
+/* Neural canvas bg */
+#neuralCanvas{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.85}
+
+/* Ambient glow pulses */
+.glow{position:fixed;pointer-events:none;border-radius:50%;z-index:0}
+.glow-a{width:600px;height:600px;background:radial-gradient(circle,rgba(124,58,237,.13) 0%,transparent 65%);top:-200px;left:-150px;animation:ga 10s ease-in-out infinite}
+.glow-b{width:450px;height:450px;background:radial-gradient(circle,rgba(167,139,250,.09) 0%,transparent 65%);bottom:-100px;right:-80px;animation:gb 13s ease-in-out infinite}
+.glow-c{width:300px;height:300px;background:radial-gradient(circle,rgba(192,86,255,.06) 0%,transparent 65%);top:40%;left:50%;transform:translate(-50%,-50%);animation:gc 8s ease-in-out infinite}
+@keyframes ga{0%,100%{transform:translate(0,0)}50%{transform:translate(60px,40px)}}
+@keyframes gb{0%,100%{transform:translate(0,0)}50%{transform:translate(-40px,-30px)}}
+@keyframes gc{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.18)}}
 
 .page{display:none;flex:1;flex-direction:column;overflow:hidden;position:relative;z-index:1}
 .page.active{display:flex;animation:pin .28s cubic-bezier(.4,0,.2,1)}
 @keyframes pin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
 /* ══ WELCOME ══════════════════════════════════════════════ */
-#pgWelcome{align-items:center;justify-content:center;padding:40px 28px;text-align:center}
+#pgWelcome{
+  align-items:center;justify-content:center;
+  padding:40px 28px;text-align:center;
+  position:relative;z-index:1;
+}
 
-.logo-orbit{position:relative;width:96px;height:96px;margin:0 auto 28px}
-.orbit-ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid transparent;background:linear-gradient(var(--bg),var(--bg)) padding-box,linear-gradient(135deg,var(--p),var(--p2),transparent) border-box;animation:rot 6s linear infinite}
+/* — Logo — */
+.logo-wrap{position:relative;width:110px;height:110px;margin:0 auto 32px;flex-shrink:0}
+.logo-ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid transparent;
+  background:linear-gradient(var(--bg),var(--bg)) padding-box,
+  linear-gradient(135deg,rgba(192,86,255,.8),rgba(124,58,237,.3),rgba(192,86,255,.8)) border-box;
+  animation:rot 7s linear infinite}
+.logo-ring2{position:absolute;inset:6px;border-radius:50%;border:1px solid transparent;
+  background:linear-gradient(var(--bg),var(--bg)) padding-box,
+  linear-gradient(225deg,rgba(167,139,250,.4),transparent,rgba(167,139,250,.4)) border-box;
+  animation:rot 12s linear infinite reverse}
 @keyframes rot{to{transform:rotate(360deg)}}
-.orbit-dot{position:absolute;top:4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:var(--p2);box-shadow:0 0 8px var(--p2)}
-.logo-core{position:absolute;inset:12px;border-radius:50%;background:linear-gradient(135deg,var(--p3),var(--p));display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px rgba(124,58,237,.4)}
-.logo-core-icon{font-size:28px;filter:drop-shadow(0 0 6px rgba(167,139,250,.8))}
+.logo-dot{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%;background:var(--p2);box-shadow:0 0 10px var(--p2),0 0 20px rgba(167,139,250,.5)}
+.logo-inner{position:absolute;inset:16px;border-radius:50%;
+  background:radial-gradient(135deg at 35% 35%,#2A1060 0%,#150730 100%);
+  border:1px solid rgba(124,58,237,.3);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 40px rgba(124,58,237,.35),inset 0 0 20px rgba(124,58,237,.08)}
 
-.brand{font-size:28px;font-weight:900;letter-spacing:-.5px;background:linear-gradient(135deg,#fff 20%,var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:8px}
-.tagline{font-size:14px;color:var(--muted);line-height:1.65;margin-bottom:36px;max-width:270px}
+/* Brain SVG */
+.brain-svg{width:52px;height:52px;filter:drop-shadow(0 0 8px rgba(192,86,255,.7))}
 
-.lang-tabs{display:flex;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:4px;gap:4px;margin-bottom:32px}
-.lang-tab{flex:1;padding:9px 0;border-radius:10px;border:none;background:transparent;color:var(--muted);font-size:13px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;transition:all .2s;letter-spacing:.5px}
+/* — Text — */
+.brand{font-size:30px;font-weight:900;letter-spacing:-.5px;
+  background:linear-gradient(135deg,#fff 20%,var(--p2) 80%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:10px}
+.tagline{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:36px;max-width:280px}
+
+/* — Lang tabs — */
+.lang-tabs{display:flex;background:rgba(255,255,255,.04);border:1px solid var(--border);
+  border-radius:14px;padding:4px;gap:4px;margin-bottom:32px}
+.lang-tab{flex:1;padding:9px 0;border-radius:10px;border:none;background:transparent;
+  color:var(--muted);font-size:13px;font-weight:700;font-family:'Inter',sans-serif;
+  cursor:pointer;transition:all .22s;letter-spacing:.5px}
 .lang-tab.active{background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;box-shadow:0 2px 14px rgba(124,58,237,.45)}
 
-.btn-start{width:100%;max-width:300px;padding:16px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:16px;color:#fff;font-size:16px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;box-shadow:0 4px 28px rgba(124,58,237,.45);transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden}
-.btn-start::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.15),transparent);pointer-events:none}
+/* — Start button — */
+.btn-start{
+  width:100%;max-width:320px;padding:17px 24px;
+  background:linear-gradient(135deg,var(--p) 0%,#9333ea 50%,var(--p2) 100%);
+  background-size:200% auto;
+  border:none;border-radius:18px;color:#fff;font-size:16px;font-weight:700;
+  font-family:'Inter',sans-serif;cursor:pointer;
+  box-shadow:0 4px 32px rgba(124,58,237,.5),0 0 0 0 rgba(124,58,237,.3);
+  transition:transform .15s,box-shadow .15s,background-position .4s;
+  position:relative;overflow:hidden;
+  animation:btnPulse 3s ease-in-out infinite
+}
+.btn-start::before{content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,rgba(255,255,255,.18),transparent 60%);pointer-events:none}
+.btn-start:hover{background-position:right center;transform:translateY(-1px);box-shadow:0 8px 40px rgba(124,58,237,.65)}
 .btn-start:active{transform:scale(.97)}
-.btn-start:disabled{opacity:.4;cursor:not-allowed}
-.powered{margin-top:22px;font-size:11px;color:var(--dim);letter-spacing:.6px}
-.powered b{color:var(--p2);font-weight:600}
+.btn-start:disabled{opacity:.4;cursor:not-allowed;animation:none}
+@keyframes btnPulse{
+  0%,100%{box-shadow:0 4px 32px rgba(124,58,237,.5),0 0 0 0 rgba(124,58,237,.25)}
+  50%{box-shadow:0 4px 32px rgba(124,58,237,.5),0 0 0 10px rgba(124,58,237,0)}
+}
+
+.powered{margin-top:24px;font-size:11px;color:var(--dim);letter-spacing:.6px}
+.powered a{color:var(--p2);font-weight:600;text-decoration:none}
+
+/* ══ RESPONSIVE ═══════════════════════════════════════════ */
+/* Desktop / Laptop */
+@media(min-width:768px){
+  #pgWelcome{padding:60px 48px;gap:0}
+  .logo-wrap{width:140px;height:140px;margin-bottom:36px}
+  .logo-inner{inset:20px}
+  .brain-svg{width:68px;height:68px}
+  .brand{font-size:38px;margin-bottom:14px}
+  .tagline{font-size:16px;margin-bottom:44px;max-width:380px}
+  .lang-tabs{max-width:260px;margin-bottom:36px}
+  .lang-tab{font-size:15px;padding:10px 0}
+  .btn-start{max-width:380px;font-size:18px;padding:19px 32px;border-radius:20px}
+  .powered{margin-top:30px;font-size:12px}
+}
+
+/* Wide desktop */
+@media(min-width:1200px){
+  #pgWelcome{flex-direction:row;justify-content:center;align-items:center;gap:80px;text-align:left;padding:0 80px}
+  .welcome-left{display:flex;flex-direction:column;align-items:center}
+  .welcome-right{display:flex;flex-direction:column;align-items:flex-start;max-width:480px}
+  .logo-wrap{margin:0 auto}
+  .tagline{max-width:420px}
+  .lang-tabs{align-self:flex-start}
+  .btn-start{align-self:flex-start}
+  .powered{align-self:flex-start}
+}
+
+/* Small phone */
+@media(max-width:360px){
+  #pgWelcome{padding:28px 20px}
+  .logo-wrap{width:90px;height:90px;margin-bottom:22px}
+  .logo-inner{inset:12px}
+  .brain-svg{width:42px;height:42px}
+  .brand{font-size:24px}
+  .tagline{font-size:13px;margin-bottom:28px}
+  .btn-start{font-size:15px;padding:15px}
+}
 
 /* ══ DASHBOARD PAGE ═══════════════════════════════════════ */
 #pgData{background:var(--bg)}
@@ -198,29 +285,81 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 </style>
 </head>
 <body>
+<canvas id="neuralCanvas"></canvas>
 <div class="glow glow-a"></div>
 <div class="glow glow-b"></div>
+<div class="glow glow-c"></div>
 <div id="progress"></div>
 <div id="toast"></div>
 <div id="app">
 
 <!-- ══ WELCOME ══ -->
 <div id="pgWelcome" class="page active">
-  <div class="logo-orbit">
-    <div class="orbit-ring"><div class="orbit-dot"></div></div>
-    <div class="logo-core">
-      <span class="logo-core-icon" style="font-size:22px;font-weight:900;font-family:'Inter',sans-serif;letter-spacing:-1px;background:linear-gradient(135deg,#fff,#A78BFA);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:none">OB</span>
+  <div class="welcome-left">
+    <div class="logo-wrap">
+      <div class="logo-ring"><div class="logo-dot"></div></div>
+      <div class="logo-ring2"></div>
+      <div class="logo-inner">
+        <!-- Brain SVG logo (gradient line-art brain with checkmark) -->
+        <svg class="brain-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="brainGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#E879A0"/>
+              <stop offset="55%" stop-color="#C050E8"/>
+              <stop offset="100%" stop-color="#7C3AED"/>
+            </linearGradient>
+          </defs>
+          <!-- Brain outline -->
+          <path d="M32 10
+            C32 10 24 8 20 12
+            C16 16 15 22 16 26
+            C14 27 12 30 13 34
+            C14 38 18 40 20 40
+            C20 44 22 47 26 48
+            C28 49 30 49 32 49
+            C34 49 36 49 38 48
+            C42 47 44 44 44 40
+            C46 40 50 38 51 34
+            C52 30 50 27 48 26
+            C49 22 48 16 44 12
+            C40 8 32 10 32 10Z"
+            stroke="url(#brainGrad)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Brain center fold -->
+          <path d="M32 10 C32 18 32 32 32 49"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>
+          <!-- Left gyri -->
+          <path d="M16 26 C19 24 22 26 22 29 C22 32 19 33 17 32"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M15 33 C18 31 22 33 22 37 C22 40 19 41 17 40"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <!-- Right gyri -->
+          <path d="M48 26 C45 24 42 26 42 29 C42 32 45 33 47 32"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M49 33 C46 31 42 33 42 37 C42 40 45 41 47 40"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <!-- Top gyri -->
+          <path d="M22 14 C24 11 28 11 29 14 C30 17 28 19 26 19"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M42 14 C40 11 36 11 35 14 C34 17 36 19 38 19"
+            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <!-- Checkmark at bottom -->
+          <path d="M24 54 L29 59 L40 48"
+            stroke="url(#brainGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
     </div>
   </div>
-  <div class="brand">OnBrain AI</div>
-  <p class="tagline" id="welcomeSub">Excel va Google Sheets ma&#x2019;lumotlarini AI bilan tahlil qiling</p>
-  <div class="lang-tabs">
-    <button class="lang-tab active" data-lang="uz" onclick="setLang('uz')">UZ</button>
-    <button class="lang-tab" data-lang="ru" onclick="setLang('ru')">RU</button>
-    <button class="lang-tab" data-lang="en" onclick="setLang('en')">EN</button>
+  <div class="welcome-right">
+    <div class="brand">OnBrain AI</div>
+    <p class="tagline" id="welcomeSub">Excel va Google Sheets ma&#x2019;lumotlarini AI bilan tahlil qiling</p>
+    <div class="lang-tabs">
+      <button class="lang-tab active" data-lang="uz" onclick="setLang('uz')">UZ</button>
+      <button class="lang-tab" data-lang="ru" onclick="setLang('ru')">RU</button>
+      <button class="lang-tab" data-lang="en" onclick="setLang('en')">EN</button>
+    </div>
+    <button class="btn-start" id="startBtn" onclick="onStart()">Boshlash &#x2192;</button>
+    <p class="powered">Powered by <a href="https://t.me/foundree" target="_blank">Foundree</a></p>
   </div>
-  <button class="btn-start" id="startBtn" onclick="onStart()">Boshlash &#x2192;</button>
-  <p class="powered">Powered by <a href="https://t.me/foundree" target="_blank" style="color:var(--p2);font-weight:600;text-decoration:none">Foundree</a></p>
 </div>
 
 <!-- ══ DASHBOARD ══ -->
@@ -643,6 +782,97 @@ function toast(msg,type=''){const el=document.getElementById('toast');el.textCon
 function setProgress(p){const el=document.getElementById('progress');el.style.width=p+'%';if(p===0)setTimeout(()=>el.style.width='0%',400);}
 
 window.addEventListener('load',async()=>{
+  // ── Neural Canvas Animation ─────────────────────────────
+  (function initNeural(){
+    const canvas=document.getElementById('neuralCanvas');
+    const ctx=canvas.getContext('2d');
+    let W,H,nodes=[],raf;
+    const NODE_COUNT=()=>Math.min(Math.floor(W*H/9000)+28,80);
+    const MAX_DIST=()=>Math.min(W,H)*0.28;
+    const COLORS=['rgba(124,58,237,','rgba(167,139,250,','rgba(192,86,255,','rgba(219,148,255,'];
+
+    function resize(){
+      W=canvas.width=window.innerWidth;
+      H=canvas.height=window.innerHeight;
+      initNodes();
+    }
+
+    function initNodes(){
+      const n=NODE_COUNT();
+      nodes=Array.from({length:n},(_,i)=>({
+        x:Math.random()*W, y:Math.random()*H,
+        vx:(Math.random()-.5)*.35,
+        vy:(Math.random()-.5)*.35,
+        r:Math.random()*2+1,
+        pulse:Math.random()*Math.PI*2,
+        pulseSpeed:Math.random()*.02+.008,
+        color:COLORS[Math.floor(Math.random()*COLORS.length)]
+      }));
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      const md=MAX_DIST();
+      const md2=md*md;
+
+      // Connections
+      for(let i=0;i<nodes.length;i++){
+        const a=nodes[i];
+        for(let j=i+1;j<nodes.length;j++){
+          const b=nodes[j];
+          const dx=a.x-b.x, dy=a.y-b.y;
+          const d2=dx*dx+dy*dy;
+          if(d2<md2){
+            const alpha=(1-d2/md2)*0.22;
+            const grd=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
+            grd.addColorStop(0,a.color+alpha+')');
+            grd.addColorStop(1,b.color+alpha+')');
+            ctx.beginPath();
+            ctx.strokeStyle=grd;
+            ctx.lineWidth=.8;
+            ctx.moveTo(a.x,a.y);
+            ctx.lineTo(b.x,b.y);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Nodes
+      nodes.forEach(n=>{
+        n.pulse+=n.pulseSpeed;
+        const glow=.5+.5*Math.sin(n.pulse);
+        const r=n.r+glow*.8;
+        // Outer glow
+        const grd=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*4);
+        grd.addColorStop(0,n.color+(0.25*glow)+')');
+        grd.addColorStop(1,n.color+'0)');
+        ctx.beginPath();ctx.arc(n.x,n.y,r*4,0,Math.PI*2);
+        ctx.fillStyle=grd;ctx.fill();
+        // Core dot
+        ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
+        ctx.fillStyle=n.color+(0.7+.3*glow)+')';ctx.fill();
+        // Update pos
+        n.x+=n.vx; n.y+=n.vy;
+        if(n.x<-20)n.x=W+20; if(n.x>W+20)n.x=-20;
+        if(n.y<-20)n.y=H+20; if(n.y>H+20)n.y=-20;
+      });
+
+      raf=requestAnimationFrame(draw);
+    }
+
+    window.addEventListener('resize',()=>{cancelAnimationFrame(raf);resize();draw();});
+    resize();draw();
+
+    // Pause when not welcome page (perf)
+    const observer=new MutationObserver(()=>{
+      const active=document.querySelector('.page.active')?.id;
+      if(active==='pgWelcome'){if(!raf)draw();}
+      else{cancelAnimationFrame(raf);raf=null;}
+    });
+    observer.observe(document.getElementById('app'),{subtree:true,attributes:true,attributeFilter:['class']});
+  })();
+  // ── End Neural Canvas ───────────────────────────────────
+
   applyI18n();
   if(UID){
     try{
