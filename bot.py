@@ -2963,7 +2963,13 @@ async def main():
     register(dp, config, bot)
 
     oauth = OAuthServer(bot, config)
-    await oauth.start()
+    oauth_started = False
+    try:
+        await oauth.start()
+        oauth_started = True
+        logger.info(f"OAuth HTTP server started on port {config.port}")
+    except OSError as e:
+        logger.warning(f"OAuth server could not start (port busy): {e} — continuing without it")
 
     logger.info("Polling started...")
     try:
@@ -2974,7 +2980,8 @@ async def main():
             long_poll_timeout=30.0,
         )
     finally:
-        await oauth.stop()
+        if oauth_started:
+            await oauth.stop()
         await bot.session.close()
 
 
