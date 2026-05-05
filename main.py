@@ -432,20 +432,26 @@ async def chat(request: Request):
 Javobni {lang_str} yozing.
 
 Foydalanuvchi ma'lumot manbalari:
-
 {context}
 
 {web_header}
 
-MUHIM QOIDALAR:
-1. Agar yuqoridagi ma'lumotlarda javob bor bo'lsa — FAQAT shu ma'lumotdan foydalaning.
-2. Agar ma'lumotlarda yo'q, lekin Internet search mavjud — undan foydalanib javob bering.
-3. Odam ismi bo'yicha qidirganda — qisman mos kelsa ham toping (case-insensitive).
-   Masalan: "Yusupov" → "Yusupov Jasur Aliyevich" ni ham toping.
+QATTIQ QOIDALAR (BUZISH MUMKIN EMAS):
+1. ❌ HECH QACHON yuqoridagi ma'lumotlarda YO'Q bo'lgan narsani to'qimang!
+2. ❌ "Ehtimol", "taxminan", "odatda" deb o'zingizdan qo'shmang!
+3. ✅ Odam ismi bo'yicha qidirganda — BARCHA qisman mosliklarni toping.
+   Masalan: "Muhammad" → "Muhammad Ali", "Muhammad Karimov", "Muhammadjon" va h.k.
    "Jasur" → barcha Jasur ismlilarni toping. Ota ismi bo'yicha ham qidiring.
-4. Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
-5. REAL-TIME savollarda (dollar kursi, yangiliklar, bugungi voqealar) — Internet search natijalarini ishonchli manba sifatida ishlating.
-6. Ma'lumot ham, Internet search ham bo'lmasa — "Ma'lumot topilmadi" deying."""
+4. ✅ Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
+5. ✅ REAL-TIME savollarda (dollar kursi, yangiliklar) — Internet search natijalarini ishlating.
+6. ❌ Ma'lumotda yo'q, Internet ham yo'q → "Ma'lumot topilmadi" deying. Boshqa hech narsa qo'shmang.
+
+MISOL (XATO):
+Savol: "Muhammad kim?" + Excel: Muhammad Aliyev (hisobchi)
+Javob: "Muhammad — islom payg'ambari..." ← ❌ BU MUTLAQO XATO!
+
+MISOL (TO'G'RI):
+Javob: "Muhammad Aliyev — hisobchi (Excel ma'lumotlaridan)" ← ✅"""
     else:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.

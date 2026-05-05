@@ -636,8 +636,8 @@ function refreshDashboard(){
         <button class="src-btn" onclick="removeSource(${i})" title="O'chirish">&#x2715;</button>
       </div>
     </div>`).join('');
-  // open sources card if has items
-  document.getElementById('cardSourcesBody').style.display='flex';
+  // DON'T auto-open sources card - let user click to expand
+  // document.getElementById('cardSourcesBody').style.display='flex';
 }
 
 function toggleSource(idx){
