@@ -32,6 +32,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GROK_API_KEY   = os.getenv("GROK_API_KEY", "")
 SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY   = os.getenv("SUPABASE_ANON_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 # Use Grok if no OpenAI key (xAI API is OpenAI-compatible)
 if not OPENAI_API_KEY and GROK_API_KEY:
@@ -353,6 +354,25 @@ async def connect_sheets(request: Request):
         logger.error(f"Sheets error: {e}")
         raise HTTPException(500, f"Google Sheets ulanishda xato: {str(e)}")
 
+# ── Tavily web search ─────────────────────────────────────
+async def tavily_search(query: str) -> str:
+    if not TAVILY_API_KEY:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 5, "search_depth": "basic"},
+                headers={"Content-Type": "application/json"}
+            )
+        if resp.status_code == 200:
+            results = resp.json().get("results", [])
+            snippets = [f"- {r.get('title','')}: {r.get('content','')[:300]}" for r in results]
+            return "\n".join(snippets)
+    except Exception as e:
+        logger.warning(f"Tavily search error: {e}")
+    return ""
+
 # ── AI Chat ───────────────────────────────────────────────
 @app.post("/api/chat")
 async def chat(request: Request):
@@ -373,6 +393,11 @@ async def chat(request: Request):
     lang_map = {"uz": "O'zbek tilida", "ru": "Русском языке", "en": "English"}
     lang_str = lang_map.get(lang, "O'zbek tilida")
 
+    # Web search
+    web_context = ""
+    if web and TAVILY_API_KEY:
+        web_context = await tavily_search(message)
+
     if context:
         system = f"""Siz OnBrain AI — ma'lumot tahlil yordamchisiz.
 Javobni {lang_str} yozing.
@@ -380,13 +405,13 @@ Javobni {lang_str} yozing.
 Foydalanuvchi ma'lumot manbalari:
 
 {context}
+{'--- Internet qidiruv natijalari ---' + chr(10) + web_context if web_context else ''}
 
-Savollarga yuqoridagi ma'lumotlar asosida javob bering. Raqamlar, foizlar, jadval ko'rinishida aniq javob yozing.
-Agar savol ma'lumotga bog'liq bo'lmasa — umumiy bilimingizdan foydalaning."""
+Savollarga yuqoridagi ma'lumotlar asosida javob bering. Raqamlar, foizlar, jadval ko'rinishida aniq javob yozing."""
     else:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.
-{'Agar kerak bo\'lsa internetdagi so\'nggi ma\'lumotlardan foydalaning.' if web else ''}
+{'--- Internet qidiruv natijalari ---' + chr(10) + web_context + chr(10) if web_context else ''}
 Savollarga qisqa, aniq va foydali javob bering."""
 
     try:
