@@ -407,7 +407,15 @@ Foydalanuvchi ma'lumot manbalari:
 {context}
 {'--- Internet qidiruv natijalari ---' + chr(10) + web_context if web_context else ''}
 
-Savollarga yuqoridagi ma'lumotlar asosida javob bering. Raqamlar, foizlar, jadval ko'rinishida aniq javob yozing."""
+MUHIM QOIDALAR:
+1. Odam ismi bo'yicha qidirganda — faqat to'liq ism emas, QISMAN mos kelsa ham toping.
+   Masalan: "Yusupov" desa — "Yusupov Jasur Aliyevich" ni ham toping.
+   "Jasur" desa — "Jasur" ismi bo'lgan barcha odamlarni toping.
+   "Aliyevich" (ota ismi) desa — shu otanomli odamlarni toping.
+2. Katta-kichik harfga e'tibor bermang (case-insensitive).
+3. Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
+4. Raqamlar, foizlar, jadval ko'rinishida aniq javob yozing.
+5. Topilmasa — "Bunday odam ma'lumotlarda topilmadi" deying."""
     else:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.
