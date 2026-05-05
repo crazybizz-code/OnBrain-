@@ -33,6 +33,8 @@ GROK_API_KEY   = os.getenv("GROK_API_KEY", "")
 SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY   = os.getenv("SUPABASE_ANON_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+BOT_TOKEN      = os.getenv("BOT_TOKEN", "")
+ADMIN_CHAT_ID  = os.getenv("ADMIN_CHAT_ID", "")  # Your Telegram ID for notifications
 
 # ALWAYS use Grok first (xAI API is OpenAI-compatible)
 # Only fall back to OpenAI if GROK_API_KEY is missing
@@ -46,7 +48,7 @@ else:
     AI_MODEL    = "gpt-4o"
 
 # ── In-memory session store ───────────────────────────────
-# {telegram_id: {"sources": [...], "lang": "uz", "web_search": False}}
+# {telegram_id: {"sources": [...], "lang": "uz", "web_search": False, "chat_count": 0, "rated": False}}
 _sessions: Dict[int, Dict] = {}
 
 # ── App ───────────────────────────────────────────────────
@@ -500,7 +502,15 @@ MUHIM QOIDALAR:
             except Exception as e:
                 logger.warning(f"Supabase save: {e}")
 
-        return {"success": True, "answer": answer}
+        # Track chat count for rating prompt trigger
+        sess = session_get(uid)
+        sess["chat_count"] = sess.get("chat_count", 0) + 1
+        session_save(uid, sess)
+
+        # Ask for rating after 5th message (if not rated yet)
+        ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
+
+        return {"success": True, "answer": answer, "ask_rating": ask_rating}
 
     except HTTPException:
         raise
@@ -515,6 +525,126 @@ async def http_exc(req: Request, exc: HTTPException):
         status_code=exc.status_code,
         content={"success": False, "detail": exc.detail}
     )
+
+# ── Rating endpoint ───────────────────────────────────────
+@app.post("/api/rating")
+async def submit_rating(request: Request):
+    """User submits a rating. One per user, stored in Supabase + notifies admin."""
+    try:
+        data = await request.json()
+        telegram_id = int(data.get("telegram_id", 0))
+        stars        = int(data.get("stars", 0))        # 1-5
+        full_name    = str(data.get("full_name", "")).strip()
+        phone        = str(data.get("phone", "")).strip()
+        comment      = str(data.get("comment", "")).strip()[:500]
+        username     = str(data.get("username", "")).strip()
+
+        if not telegram_id or not (1 <= stars <= 5):
+            raise HTTPException(400, "telegram_id va stars (1-5) majburiy")
+
+        sess = session_get(telegram_id)
+
+        # ── 1. Check already rated (in-memory fast check) ──
+        if sess.get("rated"):
+            return {"success": False, "already_rated": True, "message": "Siz allaqachon baho berdingiz"}
+
+        # ── 2. Check in Supabase ───────────────────────────
+        sb = get_supabase()
+        if sb:
+            try:
+                ex = sb.table("ratings").select("id").eq("telegram_id", telegram_id).execute()
+                if ex.data:
+                    sess["rated"] = True
+                    session_save(telegram_id, sess)
+                    return {"success": False, "already_rated": True, "message": "Siz allaqachon baho berdingiz"}
+            except Exception:
+                pass
+
+        # ── 3. Save rating ─────────────────────────────────
+        rating_row = {
+            "telegram_id": telegram_id,
+            "username":    username,
+            "full_name":   full_name,
+            "phone":       phone,
+            "stars":       stars,
+            "comment":     comment,
+            "created_at":  datetime.now().isoformat(),
+        }
+        if sb:
+            try:
+                sb.table("ratings").insert(rating_row).execute()
+            except Exception as e:
+                logger.warning(f"Rating save error: {e}")
+
+        # ── 4. Mark session as rated ───────────────────────
+        sess["rated"] = True
+        session_save(telegram_id, sess)
+
+        # ── 5. Notify admin via Telegram ───────────────────
+        if BOT_TOKEN and ADMIN_CHAT_ID:
+            stars_display = "⭐" * stars + "☆" * (5 - stars)
+            msg = (
+                f"🌟 Yangi baho!\n\n"
+                f"{stars_display} ({stars}/5)\n"
+                f"👤 {full_name or 'Nomsiz'}"
+                + (f" (@{username})" if username else "") + "\n"
+                f"📞 {phone or 'Kiritilmagan'}\n"
+                f"💬 {comment or '—'}\n"
+                f"🆔 tg:{telegram_id}"
+            )
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": ADMIN_CHAT_ID, "text": msg}
+                    )
+            except Exception:
+                pass
+
+        return {"success": True, "message": "Rahmat! Bahoyingiz qabul qilindi 🙏"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Rating error: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/rating/check/{telegram_id}")
+async def check_rating(telegram_id: int):
+    """Check if user has already rated."""
+    sess = session_get(telegram_id)
+    if sess.get("rated"):
+        return {"rated": True}
+    sb = get_supabase()
+    if sb:
+        try:
+            ex = sb.table("ratings").select("id").eq("telegram_id", telegram_id).execute()
+            if ex.data:
+                sess["rated"] = True
+                session_save(telegram_id, sess)
+                return {"rated": True}
+        except Exception:
+            pass
+    return {"rated": False}
+
+
+@app.get("/api/ratings")
+async def get_ratings():
+    """Admin: get all ratings summary."""
+    sb = get_supabase()
+    if not sb:
+        return {"success": False, "message": "Supabase not configured"}
+    try:
+        res = sb.table("ratings").select("*").order("created_at", desc=True).execute()
+        rows = res.data or []
+        total = len(rows)
+        avg   = round(sum(r["stars"] for r in rows) / total, 1) if total else 0
+        return {"success": True, "total": total, "average": avg, "ratings": rows}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 
 # ── Startup ───────────────────────────────────────────────
 @app.on_event("startup")
