@@ -34,8 +34,9 @@ SUPABASE_URL   = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY   = os.getenv("SUPABASE_ANON_KEY", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
-# Use Grok if no OpenAI key (xAI API is OpenAI-compatible)
-if not OPENAI_API_KEY and GROK_API_KEY:
+# ALWAYS use Grok first (xAI API is OpenAI-compatible)
+# Only fall back to OpenAI if GROK_API_KEY is missing
+if GROK_API_KEY:
     AI_KEY      = GROK_API_KEY
     AI_BASE_URL = "https://api.x.ai/v1"
     AI_MODEL    = "grok-3-latest"
