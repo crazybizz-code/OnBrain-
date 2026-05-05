@@ -424,6 +424,9 @@ async def chat(request: Request):
     if web and TAVILY_API_KEY:
         web_context = await tavily_search(message)
 
+    # Build web search header (avoid backslash in f-string)
+    web_header = "═══ REAL-TIME INTERNET MALUMOTLARI ═══\n" + web_context + "\n" if web_context else ""
+    
     if context:
         system = f"""Siz OnBrain AI — ma'lumot tahlil yordamchisiz.
 Javobni {lang_str} yozing.
@@ -432,7 +435,7 @@ Foydalanuvchi ma'lumot manbalari:
 
 {context}
 
-{'═══ REAL-TIME INTERNET MA\'LUMOTLARI ═══' + chr(10) + web_context + chr(10) if web_context else ''}
+{web_header}
 
 MUHIM QOIDALAR:
 1. Agar yuqoridagi ma'lumotlarda javob bor bo'lsa — FAQAT shu ma'lumotdan foydalaning.
@@ -447,7 +450,7 @@ MUHIM QOIDALAR:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.
 
-{'═══ REAL-TIME INTERNET MA\'LUMOTLARI ═══' + chr(10) + web_context + chr(10) if web_context else ''}
+{web_header}
 
 MUHIM QOIDALAR:
 1. Agar Internet search natijalari mavjud — ulardan to'liq foydalaning.
