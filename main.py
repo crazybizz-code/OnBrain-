@@ -356,19 +356,45 @@ async def connect_sheets(request: Request):
 
 # ── Tavily web search ─────────────────────────────────────
 async def tavily_search(query: str) -> str:
+    """
+    Real-time web search via Tavily API.
+    Uses 'advanced' depth for fresh, real-time results (news, prices, current events).
+    """
     if not TAVILY_API_KEY:
         return ""
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
                 "https://api.tavily.com/search",
-                json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 5, "search_depth": "basic"},
+                json={
+                    "api_key": TAVILY_API_KEY,
+                    "query": query,
+                    "max_results": 8,
+                    "search_depth": "advanced",  # Real-time, fresh results (not basic)
+                    "include_answer": True,      # Get AI-generated answer from search
+                    "include_raw_content": False,
+                    "include_images": False
+                },
                 headers={"Content-Type": "application/json"}
             )
         if resp.status_code == 200:
-            results = resp.json().get("results", [])
-            snippets = [f"- {r.get('title','')}: {r.get('content','')[:300]}" for r in results]
-            return "\n".join(snippets)
+            data = resp.json()
+            # Get AI answer if available
+            answer = data.get("answer", "")
+            results = data.get("results", [])
+            
+            output = []
+            if answer:
+                output.append(f"📌 ANSWER: {answer}\n")
+            
+            # Add top search results
+            for r in results[:8]:
+                title = r.get('title', '')
+                content = r.get('content', '')[:400]
+                url = r.get('url', '')
+                output.append(f"• {title}\n  {content}\n  🔗 {url}")
+            
+            return "\n\n".join(output)
     except Exception as e:
         logger.warning(f"Tavily search error: {e}")
     return ""
@@ -405,21 +431,29 @@ Javobni {lang_str} yozing.
 Foydalanuvchi ma'lumot manbalari:
 
 {context}
-{'--- Internet qidiruv natijalari ---' + chr(10) + web_context if web_context else ''}
+
+{'═══ REAL-TIME INTERNET MA\'LUMOTLARI ═══' + chr(10) + web_context + chr(10) if web_context else ''}
 
 MUHIM QOIDALAR:
-1. FAQAT yuqoridagi ma'lumotlar asosida javob bering. O'zingizdan hech narsa qo'shmang, to'qimang.
-2. Odam ismi bo'yicha qidirganda — qisman mos kelsa ham toping (case-insensitive).
+1. Agar yuqoridagi ma'lumotlarda javob bor bo'lsa — FAQAT shu ma'lumotdan foydalaning.
+2. Agar ma'lumotlarda yo'q, lekin Internet search mavjud — undan foydalanib javob bering.
+3. Odam ismi bo'yicha qidirganda — qisman mos kelsa ham toping (case-insensitive).
    Masalan: "Yusupov" → "Yusupov Jasur Aliyevich" ni ham toping.
-   "Jasur" → barcha Jasur ismlilarni toping.
-   Ota ismi bo'yicha ham qidiring.
-3. Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
-4. Ma'lumotlarda topilmasa — "Bu odam ma'lumotlarda topilmadi" deying. Hech qachon taxmin qilmang."""
+   "Jasur" → barcha Jasur ismlilarni toping. Ota ismi bo'yicha ham qidiring.
+4. Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
+5. REAL-TIME savollarda (dollar kursi, yangiliklar, bugungi voqealar) — Internet search natijalarini ishonchli manba sifatida ishlating.
+6. Ma'lumot ham, Internet search ham bo'lmasa — "Ma'lumot topilmadi" deying."""
     else:
         system = f"""Siz OnBrain AI — aqlli yordamchi.
 Javobni {lang_str} yozing.
-{'--- Internet qidiruv natijalari ---' + chr(10) + web_context + chr(10) if web_context else ''}
-Savollarga qisqa, aniq va foydali javob bering."""
+
+{'═══ REAL-TIME INTERNET MA\'LUMOTLARI ═══' + chr(10) + web_context + chr(10) if web_context else ''}
+
+MUHIM QOIDALAR:
+1. Agar Internet search natijalari mavjud — ulardan to'liq foydalaning.
+2. Real-time savollarda (narxlar, kurslar, yangiliklar, bugungi voqealar) — Internet natijalarini ishonchli manba deb hisoblang.
+3. Javobni qisqa, aniq va foydali qiling.
+4. Agar hech qanday ma'lumot yo'q — "Kechirasiz, javob topa olmadim" deying."""
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
