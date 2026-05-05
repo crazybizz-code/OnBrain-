@@ -14,11 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py miniapp.py ./
+COPY bot.py main.py ./
 COPY static/ ./static/
 
 RUN mkdir -p /data
 
 EXPOSE 8080
 
-CMD ["python", "bot.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
