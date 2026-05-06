@@ -29,6 +29,7 @@ from aiogram.types import (
     Message,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
+    WebAppInfo,
 )
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request as GoogleAuthRequest
@@ -808,18 +809,38 @@ def kb_cancel(lang: str = "uz") -> ReplyKeyboardMarkup:
     )
 
 
-def kb_chat(lang: str = "uz") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="chat_continue"),
-                InlineKeyboardButton(text=t(lang, "btn_search"), callback_data="web_search"),
-            ],
-            [
-                InlineKeyboardButton(text=t(lang, "btn_exit"), callback_data="exit_chat"),
-            ],
-        ]
-    )
+def kb_chat(lang: str = "uz", miniapp_url: str = "") -> InlineKeyboardMarkup:
+    rows = []
+    if miniapp_url:
+        rows.append([
+            InlineKeyboardButton(
+                text="🚀 Mini App da davom eting",
+                web_app=WebAppInfo(url=miniapp_url),
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="chat_continue"),
+        InlineKeyboardButton(text=t(lang, "btn_search"), callback_data="web_search"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text=t(lang, "btn_exit"), callback_data="exit_chat"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def kb_miniapp_open(miniapp_url: str, lang: str = "uz") -> InlineKeyboardMarkup:
+    """Button shown right after data source is connected — invites user to mini app."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🚀 Mini App da savol bering",
+                web_app=WebAppInfo(url=miniapp_url),
+            )
+        ],
+        [
+            InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="chat_continue"),
+        ],
+    ])
 
 
 def kb_lang() -> InlineKeyboardMarkup:
@@ -2032,7 +2053,8 @@ class Config:
     redirect_uri: str
     host: str
     port: int
-    drive_service_email: str  # service account email for Drive folder sharing
+    drive_service_email: str
+    miniapp_url: str  # Netlify mini app URL
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -2045,6 +2067,7 @@ class Config:
         redirect = os.getenv("GOOGLE_REDIRECT_URI", "").strip()
         if not redirect:
             redirect = f"https://{domain}/" if (domain and domain != "localhost") else f"http://localhost:{port}/"
+        miniapp_url = os.getenv("MINIAPP_URL", "").strip()
         return cls(
             bot_token=bot_token,
             grok_key=os.getenv("GROK_API_KEY", "").strip(),
@@ -2056,6 +2079,7 @@ class Config:
             host="0.0.0.0",
             port=port,
             drive_service_email=os.getenv("DRIVE_SERVICE_EMAIL", "").strip(),
+            miniapp_url=miniapp_url,
         )
 
 
@@ -2552,7 +2576,14 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 + f"\n\n✅ Qo'shildi{name_note}\n📚 Jami manbalar: <b>{total_count}</b> ta",
                 parse_mode="HTML",
             )
-            await msg.answer("👇", reply_markup=kb_chat(lang))
+            if config.miniapp_url:
+                await msg.answer(
+                    "✅ Ma'lumot yuklandi! Savollarni <b>Mini App</b> orqali bering 👇",
+                    parse_mode="HTML",
+                    reply_markup=kb_miniapp_open(config.miniapp_url, lang),
+                )
+            else:
+                await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
         except Exception as e:
             logger.error(f"Excel upload error uid={uid}: {e}")
             await loading.edit_text(f"❌ Xatolik: {e}")
@@ -2729,7 +2760,14 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     f"📚 Jami manbalar: <b>{total_count}</b> ta",
                     parse_mode="HTML",
                 )
-                await msg.answer("👇", reply_markup=kb_chat(lang))
+                if config.miniapp_url:
+                    await msg.answer(
+                        "✅ Ma'lumot yuklandi! Savollarni <b>Mini App</b> orqali bering 👇",
+                        parse_mode="HTML",
+                        reply_markup=kb_miniapp_open(config.miniapp_url, lang),
+                    )
+                else:
+                    await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
             except Exception as e:
                 logger.error(f"Sheets add error uid={uid}: {e}")
                 await status.edit_text(f"❌ Google Sheets'ga ulanib bo'lmadi. Link to'g'riligini tekshiring.")
@@ -2809,7 +2847,14 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                             f"📚 Jami manbalar: <b>{total_count}</b> ta",
                             parse_mode="HTML",
                         )
-                        await msg.answer("👇", reply_markup=kb_chat(lang))
+                        if config.miniapp_url:
+                            await msg.answer(
+                                "✅ Ma'lumot yuklandi! Savollarni <b>Mini App</b> orqali bering 👇",
+                                parse_mode="HTML",
+                                reply_markup=kb_miniapp_open(config.miniapp_url, lang),
+                            )
+                        else:
+                            await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
                     else:
                         await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                 except Exception as e:
