@@ -1469,13 +1469,20 @@ def _python_answer(question: str, s: Session) -> str | None:
                     )
                 )
 
-    # If AND search found results → return them
-    # If AND search found nothing → fall back to OR (each candidate separately)
+    # ── AND search was attempted but found nothing
+    # → do NOT fall back to OR (user gave full name → wrong partials are misleading)
+    if and_search_done and not answer_parts:
+        searched = " ".join(c.capitalize() for c in person_like_candidates)
+        return (
+            f"❌ <b>{searched}</b> — ma'lumotlar bazasida topilmadi.\n\n"
+            "💡 Familiya yoki to'liq ism bilan qayta yozing."
+        )
+
+    # ── OR search (single-word name queries)
     if not answer_parts:
         for name in name_candidates:
             found_this_name = False
-            # Collect all matches with their quality for this name
-            name_matches_all = []  # list of (match, src_label, header, quality)
+            name_matches_all = []
             for (rows, header, src_label) in source_datasets:
                 data_rows = rows[1:]
                 matches = _search_person(data_rows, header, name)
@@ -1486,30 +1493,31 @@ def _python_answer(question: str, s: Session) -> str | None:
                     name_matches_all.append((m, src_label, header))
 
             if name_matches_all:
-                # Check if all results are quality=1 (ism-only weak match)
                 all_q1 = all(m["match_quality"] == 1 for (m, _, _) in name_matches_all)
-                if all_q1 and len(name_matches_all) >= 2:
-                    # Disambiguation: multiple people share this ism — ask user to pick
+
+                # quality=1 (ism-only weak match): always disambiguate, even 1 result
+                if all_q1:
                     candidates_list = []
                     for (m, slabel, _) in name_matches_all:
                         full_name = m["matched_cell"]
                         if full_name not in candidates_list:
                             candidates_list.append(full_name)
                     s.disambiguation_candidates = candidates_list
-                    lines = [f"🔍 <b>'{name.capitalize()}'</b> isimli bir nechta o'quvchi topildi:\n"]
-                    for i, cn in enumerate(candidates_list, 1):
-                        lines.append(f"{i}. {cn}")
-                    lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
+                    if len(candidates_list) == 1:
+                        # Single weak match — ask to confirm
+                        lines = [
+                            f"🔍 <b>'{name.capitalize()}'</b> ismli o'quvchi topildi, lekin aniqlashtiring:\n",
+                            f"1. {candidates_list[0]}",
+                            "\n<i>To'g'ri bo'lsa «1» yozing, yoki to'liq familiya+ism yozing.</i>",
+                        ]
+                    else:
+                        lines = [f"🔍 <b>'{name.capitalize()}'</b> isimli bir nechta o'quvchi topildi:\n"]
+                        for i, cn in enumerate(candidates_list, 1):
+                            lines.append(f"{i}. {cn}")
+                        lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
                     return "\n".join(lines)
 
-                # If only 1 weak quality=1 match AND we had 2+ person candidates
-                # (meaning user gave full name like "Familiya Ism") → treat as not found
-                # to avoid returning wrong person
-                if all_q1 and len(person_like_candidates) >= 2:
-                    not_found_names.append(name)
-                    continue
-
-                # Normal: add to answer_parts (exact/startswith or single ism match)
+                # quality>=2 — reliable match
                 for (m, src_label, header) in name_matches_all:
                     key = (m["row_index"], src_label)
                     if key in global_seen:
@@ -1523,7 +1531,6 @@ def _python_answer(question: str, s: Session) -> str | None:
                         )
                     )
             if not found_this_name:
-                # Only add to "not found" if this looks like a real person name
                 if name.lower() not in non_person_indicators:
                     not_found_names.append(name)
 
