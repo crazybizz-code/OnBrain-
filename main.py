@@ -210,8 +210,9 @@ def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
                             matched_name = str(row.get(nc, "")).strip()
                             break
                     if matched_name:
-                        break            if not matched_name:
-                continue
+                        break
+                if not matched_name:
+                    continue
 
             # Found a matching row — extract value
             if asked_subject_kws:
