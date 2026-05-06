@@ -380,6 +380,32 @@ async def toggle_web_search(request: Request):
         session_save(uid, sess)
     return {"success": True, "enabled": enabled}
 
+# ── Sync session from bot.py ──────────────────────────────
+@app.post("/api/sync_session")
+async def sync_session(request: Request):
+    """
+    Called by bot.py after Excel/Sheets connected.
+    Merges sources into main.py session so mini app sees them.
+    """
+    data = await request.json()
+    uid = int(data.get("telegram_id", 0))
+    if not uid:
+        raise HTTPException(400, "telegram_id required")
+    sess = session_get(uid)
+    # Merge incoming sources (add if not already present by name)
+    incoming = data.get("sources", [])
+    existing_names = {s.get("name") for s in sess.get("sources", [])}
+    for src in incoming:
+        if src.get("name") not in existing_names:
+            sess.setdefault("sources", []).append(src)
+            existing_names.add(src.get("name"))
+    # Also update lang if provided
+    if data.get("lang"):
+        sess["lang"] = data["lang"]
+    session_save(uid, sess)
+    logger.info(f"Session synced from bot: uid={uid} sources={len(sess['sources'])}")
+    return {"success": True, "sources": len(sess["sources"])}
+
 # ── Clear all sources ─────────────────────────────────────
 @app.post("/api/clear")
 async def clear_sources(request: Request):
