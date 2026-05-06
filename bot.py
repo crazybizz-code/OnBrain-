@@ -2106,7 +2106,7 @@ async def _sync_session_to_api(uid: int, sources: list, lang: str, api_url: str)
         if not rows or len(rows) < 2:
             continue
         header = rows[0]
-        preview = [dict(zip([str(h) for h in header], row)) for row in rows[1:301]]
+        preview = [dict(zip([str(h) for h in header], row)) for row in rows[1:]]  # ALL rows, no limit
         light.append({
             "name": s.get("source_name", "Manba"),
             "type": s.get("source_type", "excel"),
@@ -2119,7 +2119,7 @@ async def _sync_session_to_api(uid: int, sources: list, lang: str, api_url: str)
             await client.post(
                 f"{api_url}/api/sync_session",
                 json={"telegram_id": uid, "sources": light, "lang": lang},
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=30),
             )
         logger.info(f"Session synced to API: uid={uid} sources={len(light)}")
     except Exception as e:
