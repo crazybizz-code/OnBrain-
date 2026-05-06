@@ -176,10 +176,11 @@ async def get_user(telegram_id: int):
 
 # ── Get session (sources + settings) ─────────────────────
 @app.get("/api/session/{telegram_id}")
-async def get_session(telegram_id: int):
+async def get_session_endpoint(telegram_id: int):
     sess = session_get(telegram_id)
-    # Strip heavy preview data before sending
-    light_sources = [{k: v for k, v in s.items() if k not in ("preview", "csv_url")}
+    # Strip heavy fields — only send metadata, not raw spreadsheet data
+    HEAVY = {"preview", "csv_url", "data"}
+    light_sources = [{k: v for k, v in s.items() if k not in HEAVY}
                      for s in sess.get("sources", [])]
     return {
         "success": True,

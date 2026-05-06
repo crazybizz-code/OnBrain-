@@ -917,7 +917,8 @@ function showRatingModal(){
 function closeRatingModal(){
   var m=document.getElementById('ratingModal');m.classList.remove('open');m.style.display='none';
 }
-document.addEventListener('DOMContentLoaded',function(){
+document.addEventListener('DOMContentLoaded',async function(){
+  // ── Star rating click handler
   var sr=document.getElementById('starRow');
   if(sr)sr.addEventListener('click',function(e){
     var s=e.target.closest('.star');if(!s)return;
@@ -926,6 +927,29 @@ document.addEventListener('DOMContentLoaded',function(){
       el.textContent=parseInt(el.dataset.v)<=selectedStars?'\u2B50':'\u2606';
     });
   });
+
+  // ── Auto-init: if user is known (opened from Telegram), load session immediately
+  if(UID){
+    const startBtn=document.getElementById('startBtn');
+    if(startBtn){startBtn.disabled=true;startBtn.textContent='...';}
+    try{
+      const r=await fetch(`${BASE_URL}/api/session/${UID}`);
+      if(r.ok){
+        const d=await r.json();
+        sources=d.sources||[];
+        lang=d.lang||lang;
+        setLang(lang);
+        if(sources.length>0){
+          showPage('pgData');
+          refreshDashboard();
+          refreshHeaderBadges();
+        }
+      }
+    }catch(e){}
+    finally{
+      if(startBtn){startBtn.disabled=false;startBtn.textContent=t('startBtn');}
+    }
+  }
 });
 async function submitRating(){
   if(!selectedStars){alert('Iltimos, yulduz tanlang!');return;}
