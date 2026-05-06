@@ -1310,11 +1310,15 @@ def _python_answer(question: str, s: Session) -> str | None:
     # Words that indicate a general (non-person) question → let AI handle it
     non_person_indicators = {
         "kamera", "telefon", "pul", "narx", "xarajat", "ketgan", "sarflangan",
+        "sarflandi", "sarf", "xarajatlar", "tushumlari", "tushum", "daromad",
+        "sotildi", "sotilgan", "sotilgani", "qancha", "nechta", "miqdori",
+        "tovar", "mahsulot", "buyurtma", "buyurtmalar", "zakaz",
         "nechtasi", "barchasi", "hammasi", "davomiyligi", "muddati",
         "sana", "sanasi", "kun", "oy", "yil", "vaqt", "soat",
         "raqam", "raqami", "nomer", "nomeri",
         "price", "cost", "money", "time", "date", "number",
-        "цена", "стоимость", "деньги", "время", "дата",
+        "spent", "total", "sum", "amount", "paid",
+        "цена", "стоимость", "деньги", "время", "дата", "потрачено", "сумма",
         # Fan / predmet nomlari — ism emas
         "algebra", "geometriya", "matematika", "fizika", "kimyo", "biologiya",
         "tarix", "geografiya", "adabiyot", "ingliz", "rus", "ona", "tili",
@@ -1339,6 +1343,8 @@ def _python_answer(question: str, s: Session) -> str | None:
         "ona", "tili", "fanidan", "fani", "fandan",
         # Grammatik so'zlar
         "olgan", "olgani", "qilgan", "bergan", "topgan", "yozgan",
+        "sarflandi", "sarflangan", "sarflagan", "sotildi", "sotilgan",
+        "xarajat", "xarajatlar", "tushum", "daromad", "miqdori",
         "uning", "uniki", "ularning", "sizning", "mening",
         "necha", "qanday", "qoida", "nomi", "nomini",
         # ── KENGAYTIRILGAN STOP WORDS ──────────────────────────────────────
