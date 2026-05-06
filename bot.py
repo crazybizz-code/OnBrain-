@@ -2865,7 +2865,19 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             await msg.answer(t(lang, "no_data"), reply_markup=kb_main(lang))
             return
 
-        # 1. Try Python exact answer
+        # 1. Web search mode — bypass everything, go straight to Tavily
+        if sess.web_search:
+            if not config.tavily_key:
+                await msg.answer(t(lang, "no_search_key"), reply_markup=kb_main(lang))
+                sess.web_search = False
+                return
+            status = await msg.answer(t(lang, "searching"))
+            web_res = await do_web_search(question, config.tavily_key, config.grok_key, lang)
+            await status.edit_text(web_res, parse_mode="HTML")
+            await msg.answer("👇", reply_markup=kb_chat(lang))
+            return
+
+        # 2. Try Python exact answer (Excel/Sheets lookup)
         try:
             py_ans = _python_answer(question, sess)
         except Exception as e:
@@ -2875,14 +2887,6 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
         if py_ans is not None:
             logger.info(f"Python answered uid={uid}")
             await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
-            return
-
-        # 2. Web search mode — skip AI+jadval, only show Tavily result
-        if sess.web_search and config.tavily_key:
-            status = await msg.answer(t(lang, "searching"))
-            web_res = await do_web_search(question, config.tavily_key, config.grok_key, lang)
-            await status.edit_text(web_res, parse_mode="HTML")
-            await msg.answer("👇", reply_markup=kb_chat(lang))
             return
 
         # 3. AI answer (no web search)
