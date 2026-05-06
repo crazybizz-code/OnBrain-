@@ -101,6 +101,174 @@ def build_context(sources: List[Dict]) -> str:
         parts.append(f"### {name}\n" + "\n".join(lines))
     return "\n\n".join(parts)
 
+
+# ── Excel exact lookup (no AI hallucination) ──────────────
+def _to_num(v) -> Optional[float]:
+    try:
+        return float(str(v).replace(",", ".").strip())
+    except Exception:
+        return None
+
+def _strip_suffix_simple(w: str) -> str:
+    """Remove common Uzbek grammatical suffixes."""
+    w = w.lower().strip()
+    for suf in ["ning", "nig", "dan", "ga", "ni", "da", "lar", "ning"]:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)]
+    return w
+
+def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
+    """
+    Try to answer directly from Excel/Sheets data without AI.
+    Returns answer string or None (let AI handle it).
+    """
+    q = question.strip().lower()
+
+    # Subject keywords → column name fragments
+    SUBJECTS = {
+        "algebra": ["algebra"],
+        "geometriya": ["geometriya", "геометрия"],
+        "matematika": ["matematika", "математика", "math"],
+        "fizika": ["fizika", "физика", "physics"],
+        "kimyo": ["kimyo", "химия"],
+        "biologiya": ["biologiya", "биология"],
+        "tarix": ["tarix", "история"],
+        "geografiya": ["geografiya", "география"],
+        "adabiyot": ["adabiyot", "литература"],
+        "ingliz": ["ingliz", "английский", "english"],
+        "rus": ["rus tili", "rus", "русский"],
+        "ona tili": ["ona tili", "ona", "узбекский"],
+        "informatika": ["informatika", "информатика"],
+        "jismoniy": ["jismoniy", "sport", "физкультура"],
+    }
+
+    # Stop words — not person names
+    STOP = {
+        "nechchi", "necchi", "qancha", "ball", "balli", "ballari", "baho",
+        "umumiy", "jami", "fanidan", "fani", "fandan", "olgan", "olgani",
+        "nima", "qaysi", "qachon", "kim", "necha", "va", "bilan", "uchun",
+        "ning", "ni", "ga", "da", "dan", "menga", "top", "ayt", "ber",
+        "ko'rsat", "korsat", "natija", "natijasi", "hisobi", "score",
+        "ingliz", "rus", "ona", "tili", "algebra", "geometriya", "matematika",
+        "fizika", "kimyo", "biologiya", "tarix", "geografiya", "adabiyot",
+        "informatika", "texnologiya", "sport", "jismoniy", "sarflandi",
+        "sarflangan", "xarajat", "sotildi", "tushum", "daromad",
+    }
+
+    # Extract name candidates
+    words = [w.strip(".,!?\"'()[]") for w in question.split()]
+    name_candidates = []
+    for w in words:
+        cl = _strip_suffix_simple(w)
+        if len(cl) >= 3 and cl not in STOP and not cl.isdigit():
+            if cl not in name_candidates:
+                name_candidates.append(cl)
+
+    if not name_candidates:
+        return None
+
+    # Detect asked subject
+    asked_subject_kws = None
+    for subj, kws in SUBJECTS.items():
+        if any(kw in q for kw in kws):
+            asked_subject_kws = kws
+            break
+
+    is_total = any(w in q for w in ["umumiy", "jami", "total", "hammasi", "yig'indi"])
+
+    results = []
+    for src in sources:
+        if src.get("disabled"):
+            continue
+        rows = src.get("preview", [])
+        if not rows:
+            continue
+        src_name = src.get("name", "Manba")
+        header = list(rows[0].keys())
+
+        # Find name columns
+        name_cols = [h for h in header if any(
+            w in str(h).lower() for w in ["f.i.o", "fio", "ism", "name", "familiya", "fish"]
+        )]
+        if not name_cols:
+            name_cols = header  # search all
+
+        for row in rows:
+            # Check if any name candidate matches any name column
+            matched_name = None
+            for nc in name_cols:
+                cell = str(row.get(nc, "")).strip().lower()
+                if not cell:
+                    continue
+                for cand in name_candidates:
+                    cand_l = cand.lower()
+                    if cand_l == cell or cell.startswith(cand_l + " ") or (" " + cand_l) in cell:
+                        matched_name = str(row.get(nc, "")).strip()
+                        break
+                if matched_name:
+                    break
+
+            if not matched_name:
+                continue
+
+            # Found a matching row — extract value
+            if asked_subject_kws:
+                # Find subject column
+                val = None
+                col_name = None
+                for h in header:
+                    hl = str(h).lower()
+                    if any(kw in hl for kw in asked_subject_kws):
+                        v = _to_num(row.get(h))
+                        if v is not None:
+                            val = v
+                            col_name = str(h)
+                            break
+                if val is not None:
+                    results.append(f"👤 <b>{matched_name}</b>\n📚 {col_name}: <b>{val}</b>\n📂 <i>Manba: {src_name}</i>")
+                else:
+                    results.append(f"👤 <b>{matched_name}</b>\n❌ {asked_subject_kws[0].capitalize()} fani uchun ball ko'rsatilmagan\n📂 <i>Manba: {src_name}</i>")
+            else:
+                # Try to find dedicated "Umumiy ball" column
+                total_val = None
+                total_col = None
+                for h in header:
+                    hl = str(h).lower()
+                    if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball", "total", "jami ball"]:
+                        v = _to_num(row.get(h))
+                        if v is not None:
+                            total_val = v
+                            total_col = str(h)
+                            break
+                if total_val is not None:
+                    results.append(f"👤 <b>{matched_name}</b>\n🏆 {total_col}: <b>{total_val}</b>\n📂 <i>Manba: {src_name}</i>")
+                else:
+                    # Sum all numeric non-name cols
+                    total = 0.0
+                    details = []
+                    for h in header:
+                        hl = str(h).lower()
+                        if any(w in hl for w in ["f.i.o", "fio", "ism", "name", "familiya", "fish", "tartib", "raqam", "#"]):
+                            continue
+                        if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball", "total", "jami ball"]:
+                            continue
+                        v = _to_num(row.get(h))
+                        if v is not None:
+                            total += v
+                            details.append(f"{h}={v}")
+                    if details:
+                        results.append(f"👤 <b>{matched_name}</b>\n🏆 Jami ball: <b>{total:.1f}</b>\n📂 <i>Manba: {src_name}</i>")
+
+    if not results:
+        return None
+
+    # Multiple results
+    if len(results) == 1:
+        return results[0]
+    # Multiple people found — list them all
+    header_line = f"📋 {len(results)} ta o'quvchi topildi:\n"
+    return header_line + "\n\n".join(results)
+
 # ── Google Sheets URL → CSV URL ───────────────────────────
 def sheets_to_csv_url(url: str) -> Optional[str]:
     m = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', url)
@@ -420,6 +588,17 @@ async def chat(request: Request):
     lang = sess.get("lang", "uz")
     web = sess.get("web_search", False)
 
+    # ── 1. Try exact Excel lookup first (no AI, no hallucination)
+    if not web:
+        exact = _excel_lookup(message, sess.get("sources", []))
+        if exact:
+            # Track chat count
+            sess["chat_count"] = sess.get("chat_count", 0) + 1
+            session_save(uid, sess)
+            ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
+            return {"success": True, "answer": exact, "ask_rating": ask_rating}
+
+    # ── 2. AI answer
     lang_map = {"uz": "O'zbek tilida", "ru": "Русском языке", "en": "English"}
     lang_str = lang_map.get(lang, "O'zbek tilida")
 
