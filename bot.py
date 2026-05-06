@@ -2063,6 +2063,7 @@ class Config:
     port: int
     drive_service_email: str
     miniapp_url: str  # Netlify mini app URL
+    api_url: str  # Internal API URL for session sync (e.g. https://xxx.koyeb.app)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -2076,6 +2077,7 @@ class Config:
         if not redirect:
             redirect = f"https://{domain}/" if (domain and domain != "localhost") else f"http://localhost:{port}/"
         miniapp_url = os.getenv("MINIAPP_URL", "").strip()
+        api_url = os.getenv("API_URL", f"https://{domain}" if domain else "").strip()
         return cls(
             bot_token=bot_token,
             grok_key=os.getenv("GROK_API_KEY", "").strip(),
@@ -2088,7 +2090,40 @@ class Config:
             port=port,
             drive_service_email=os.getenv("DRIVE_SERVICE_EMAIL", "").strip(),
             miniapp_url=miniapp_url,
+            api_url=api_url,
         )
+
+
+
+# ─── Session sync helper ──────────────────────────────────────────────────────
+async def _sync_session_to_api(uid: int, sources: list, lang: str, api_url: str):
+    """Push session sources from bot.py to main.py so the mini app sees them."""
+    if not api_url:
+        return
+    light = []
+    for s in sources:
+        rows = s.get("data", [])
+        if not rows or len(rows) < 2:
+            continue
+        header = rows[0]
+        preview = [dict(zip([str(h) for h in header], row)) for row in rows[1:301]]
+        light.append({
+            "name": s.get("source_name", "Manba"),
+            "type": s.get("source_type", "excel"),
+            "rows": len(rows) - 1,
+            "preview": preview,
+            "disabled": False,
+        })
+    try:
+        async with aiohttp.ClientSession() as client:
+            await client.post(
+                f"{api_url}/api/sync_session",
+                json={"telegram_id": uid, "sources": light, "lang": lang},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+        logger.info(f"Session synced to API: uid={uid} sources={len(light)}")
+    except Exception as e:
+        logger.warning(f"Session sync failed uid={uid}: {e}")
 
 
 # ─── Handlers ────────────────────────────────────────────────────────────────
@@ -2592,6 +2627,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 )
             else:
                 await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
+            asyncio.create_task(_sync_session_to_api(uid, sess.sources, sess.lang, config.api_url))
         except Exception as e:
             logger.error(f"Excel upload error uid={uid}: {e}")
             await loading.edit_text(f"❌ Xatolik: {e}")
@@ -2776,6 +2812,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                     )
                 else:
                     await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
+                asyncio.create_task(_sync_session_to_api(uid, sess.sources, sess.lang, config.api_url))
             except Exception as e:
                 logger.error(f"Sheets add error uid={uid}: {e}")
                 await status.edit_text(f"❌ Google Sheets'ga ulanib bo'lmadi. Link to'g'riligini tekshiring.")
@@ -2863,6 +2900,7 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                             )
                         else:
                             await msg.answer("👇", reply_markup=kb_chat(lang, config.miniapp_url))
+                        asyncio.create_task(_sync_session_to_api(uid, sess.sources, sess.lang, config.api_url))
                     else:
                         await status.edit_text(t(lang, "sheets_fail"), parse_mode="HTML")
                 except Exception as e:
