@@ -580,6 +580,7 @@ class Session:
     last_found_names: list = field(default_factory=list)   # e.g. ["Muhammad Davronbek"]
     # Disambiguation: pending candidates when multiple people found for same query
     disambiguation_candidates: list = field(default_factory=list)
+    disambiguation_question: str = ""   # original question saved during disambiguation
 
 
 _sessions: dict[int, Session] = {}
@@ -1530,6 +1531,7 @@ def _python_answer(question: str, s: Session) -> str | None:
                         if full_name not in candidates_list:
                             candidates_list.append(full_name)
                     s.disambiguation_candidates = candidates_list
+                    s.disambiguation_question = question  # save original question
                     if len(candidates_list) == 1:
                         # Single weak match — ask to confirm
                         lines = [
@@ -2886,16 +2888,23 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 if 0 <= idx < len(sess.disambiguation_candidates):
                     chosen = sess.disambiguation_candidates[idx]
                     sess.last_found_names = [chosen]
+                    orig_question = sess.disambiguation_question or chosen
                     sess.disambiguation_candidates = []
-                    # Re-run with the chosen name
-                    question = chosen
-                    logger.info(f"Disambiguation: uid={uid} chose '{chosen}'")
+                    sess.disambiguation_question = ""
+                    # Re-run with chosen full name + original question context
+                    # e.g. "Maxamatmusayev Yodgorbek algebra fanidan olgan balli nechchi"
+                    if orig_question and chosen.lower() not in orig_question.lower():
+                        question = chosen + " " + orig_question
+                    else:
+                        question = orig_question
+                    logger.info(f"Disambiguation: uid={uid} chose '{chosen}' → q={question[:80]!r}")
                 else:
                     await msg.answer(f"❌ {q_stripped} raqami noto'g'ri. Ro'yxatdagi raqamni kiriting.")
                     return
             else:
                 # User typed something else — clear disambiguation
                 sess.disambiguation_candidates = []
+                sess.disambiguation_question = ""
 
         # ── Refresh Google Sheets sources (cache-aware: re-fetch only if TTL expired)
         for src in sess.sources:
