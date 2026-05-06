@@ -193,22 +193,24 @@ def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
         if not name_cols:
             name_cols = header  # search all
 
-        for row in rows:
-            # Check if any name candidate matches any name column
-            matched_name = None
-            for nc in name_cols:
-                cell = str(row.get(nc, "")).strip().lower()
-                if not cell:
-                    continue
-                for cand in name_candidates:
-                    cand_l = cand.lower()
-                    if cand_l == cell or cell.startswith(cand_l + " ") or (" " + cand_l) in cell:
-                        matched_name = str(row.get(nc, "")).strip()
-                        break
-                if matched_name:
-                    break
-
-            if not matched_name:
+            for row in rows:
+                # Check if any name candidate matches any name column
+                matched_name = None
+                for nc in name_cols:
+                    cell = str(row.get(nc, "")).strip().lower()
+                    if not cell:
+                        continue
+                    # Split cell into individual tokens (words)
+                    cell_tokens = re.split(r"[\s\-_]+", cell)
+                    cell_tokens_stripped = [_strip_suffix_simple(t) for t in cell_tokens]
+                    for cand in name_candidates:
+                        cand_l = cand.lower()
+                        # Must match a FULL token — not a prefix of another word
+                        if cand_l in cell_tokens or cand_l in cell_tokens_stripped:
+                            matched_name = str(row.get(nc, "")).strip()
+                            break
+                    if matched_name:
+                        break            if not matched_name:
                 continue
 
             # Found a matching row — extract value
