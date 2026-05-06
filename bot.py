@@ -1128,17 +1128,21 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
 
 
 def _sum_numeric(row: list, header: list) -> tuple[float, list[str]]:
-    skip = 1
+    """Sum numeric columns, skipping name cols and dedicated 'Umumiy ball' cols."""
+    total, details = 0.0, []
     for j, h in enumerate(header):
         hl = str(h).strip().lower()
-        if any(w in hl for w in ["ball", "baho", "score", "foiz", "natija", "bb", "sum", "jami", "итог", "балл", "total"]):
-            skip = j
-            break
-    total, details = 0.0, []
-    for j in range(skip, len(row)):
+        # Skip name/id columns
+        if any(w in hl for w in ["f.i.o", "fio", "ism", "name", "ф.и.о", "фио", "имя", "familiya", "fish", "raqam", "tartib", "id", "#"]):
+            continue
+        # Skip dedicated "Umumiy ball" / total columns — they are sum of others, already shown via direct_val
+        if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball", "total", "итого", "jami ball", "общий балл", "jami"]:
+            continue
+        if j >= len(row):
+            continue
         v = _to_num(row[j])
         if v is not None:
-            col = str(header[j]).strip() if j < len(header) else f"Col{j}"
+            col = str(h).strip()
             total += v
             details.append(f"{col}={v}")
     return total, details
@@ -1449,6 +1453,9 @@ def _python_answer(question: str, s: Session) -> str | None:
             # Get matches for first candidate, then filter by remaining parts
             first_matches = _search_person(data_rows, header, person_like_candidates[0])
             for m in first_matches:
+                # Require at least quality=2 (startswith or exact) for multi-part AND search
+                if m["match_quality"] < 2:
+                    continue
                 if not _matches_all_parts(m["row"], header, person_like_candidates[1:]):
                     continue
                 key = (m["row_index"], src_label)
@@ -1479,7 +1486,7 @@ def _python_answer(question: str, s: Session) -> str | None:
                     name_matches_all.append((m, src_label, header))
 
             if name_matches_all:
-                # Check if all results are quality=1 (ism-only weak match) and multiple
+                # Check if all results are quality=1 (ism-only weak match)
                 all_q1 = all(m["match_quality"] == 1 for (m, _, _) in name_matches_all)
                 if all_q1 and len(name_matches_all) >= 2:
                     # Disambiguation: multiple people share this ism — ask user to pick
@@ -1494,6 +1501,13 @@ def _python_answer(question: str, s: Session) -> str | None:
                         lines.append(f"{i}. {cn}")
                     lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
                     return "\n".join(lines)
+
+                # If only 1 weak quality=1 match AND we had 2+ person candidates
+                # (meaning user gave full name like "Familiya Ism") → treat as not found
+                # to avoid returning wrong person
+                if all_q1 and len(person_like_candidates) >= 2:
+                    not_found_names.append(name)
+                    continue
 
                 # Normal: add to answer_parts (exact/startswith or single ism match)
                 for (m, src_label, header) in name_matches_all:
