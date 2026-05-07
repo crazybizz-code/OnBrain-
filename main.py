@@ -191,7 +191,8 @@ def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
             w in str(h).lower() for w in ["f.i.o", "fio", "ism", "name", "familiya", "fish"]
         )]
         if not name_cols:
-            name_cols = header  # search all
+            # No person name column — this source is not a person registry, skip it
+            continue
 
             for row in rows:
                 # Check if any name candidate matches any name column
