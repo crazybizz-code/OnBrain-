@@ -632,50 +632,54 @@ async def chat(request: Request):
     lang_map = {"uz": "O'zbek tilida", "ru": "Русском языке", "en": "English"}
     lang_str = lang_map.get(lang, "O'zbek tilida")
 
-    # Web search
+    # Web search — ONLY when explicitly enabled
     web_context = ""
     if web and TAVILY_API_KEY:
         web_context = await tavily_search(message)
 
-    # Build web search header (avoid backslash in f-string)
-    web_header = "═══ REAL-TIME INTERNET MALUMOTLARI ═══\n" + web_context + "\n" if web_context else ""
-    
-    if context:
-        system = f"""Siz OnBrain AI — ma'lumot tahlil yordamchisiz.
+    if web:
+        # ── INTERNET MODE: only Tavily results, no internal data mixed in
+        if web_context:
+            system = f"""Siz OnBrain AI — internet qidiruv yordamchisiz.
 Javobni {lang_str} yozing.
 
-Foydalanuvchi ma'lumot manbalari:
+═══ INTERNET QIDIRUV NATIJALARI ═══
+{web_context}
+════════════════════════════════════
+
+QOIDALAR:
+1. FAQAT yuqoridagi internet natijalaridan foydalaning.
+2. Natijalar ichida javob yo'q bo'lsa — "Internet qidiruvda topilmadi" deying.
+3. Hech qanday o'zingizdan ma'lumot qo'shmang.
+4. Manba URL larini ko'rsating."""
+        else:
+            system = f"""Siz OnBrain AI.
+Javobni {lang_str} yozing.
+Internet qidiruv natijalari topilmadi. Foydalanuvchiga shuni ayting."""
+    elif context:
+        # ── INTERNAL DATA MODE: only uploaded files, strictly grounded
+        system = f"""Siz OnBrain AI — ma'lumot tahlil assistantisiz.
+Javobni {lang_str} yozing.
+
+════════════ MAVJUD MA'LUMOTLAR ════════════
 {context}
+════════════════════════════════════════════
 
-{web_header}
-
-QATTIQ QOIDALAR (BUZISH MUMKIN EMAS):
-1. ❌ HECH QACHON yuqoridagi ma'lumotlarda YO'Q bo'lgan narsani to'qimang!
-2. ❌ "Ehtimol", "taxminan", "odatda" deb o'zingizdan qo'shmang!
-3. ✅ Odam ismi bo'yicha qidirganda — BARCHA qisman mosliklarni toping.
-   Masalan: "Muhammad" → "Muhammad Ali", "Muhammad Karimov", "Muhammadjon" va h.k.
-   "Jasur" → barcha Jasur ismlilarni toping. Ota ismi bo'yicha ham qidiring.
-4. ✅ Bir nechta odam topilsa — barchasini ro'yxat qilib ko'rsating.
-5. ✅ REAL-TIME savollarda (dollar kursi, yangiliklar) — Internet search natijalarini ishlating.
-6. ❌ Ma'lumotda yo'q, Internet ham yo'q → "Ma'lumot topilmadi" deying. Boshqa hech narsa qo'shmang.
-
-MISOL (XATO):
-Savol: "Muhammad kim?" + Excel: Muhammad Aliyev (hisobchi)
-Javob: "Muhammad — islom payg'ambari..." ← ❌ BU MUTLAQO XATO!
-
-MISOL (TO'G'RI):
-Javob: "Muhammad Aliyev — hisobchi (Excel ma'lumotlaridan)" ← ✅"""
+MUTLAQ QOIDALAR — BUZISH MUMKIN EMAS:
+1. FAQAT yuqoridagi ma'lumotlar asosida javob bering.
+2. Ma'lumotda YO'Q narsani HECH QACHON aytmang.
+3. "Ehtimol", "taxminan", "odatda", "menimcha" — TAQIQLANGAN.
+4. Odam ismi bo'yicha qidirganda — faqat MA'LUMOTDA MAVJUD odamlarni ko'rsating.
+5. Ma'lumotda topilmasa — AYNAN quyidagini yozing:
+   "❌ Ma'lumotlarda '{lang_str}' bo'yicha javob topilmadi."
+6. Hech qachon umumiy bilimingizdan foydalanmang.
+7. Hech qachon internet ma'lumotlarini qo'shmang."""
     else:
-        system = f"""Siz OnBrain AI — aqlli yordamchi.
+        # ── NO DATA MODE: no files, no web — refuse clearly
+        system = f"""Siz OnBrain AI.
 Javobni {lang_str} yozing.
-
-{web_header}
-
-MUHIM QOIDALAR:
-1. Agar Internet search natijalari mavjud — ulardan to'liq foydalaning.
-2. Real-time savollarda (narxlar, kurslar, yangiliklar, bugungi voqealar) — Internet natijalarini ishonchli manba deb hisoblang.
-3. Javobni qisqa, aniq va foydali qiling.
-4. Agar hech qanday ma'lumot yo'q — "Kechirasiz, javob topa olmadim" deying."""
+Foydalanuvchi hech qanday ma'lumot yuklamagan va internet qidiruvi o'chirilgan.
+Javob: "Ma'lumot bazasi bo'sh. Iltimos, Excel fayl yoki Google Sheets ulang, yoki Internet qidiruvni yoqing." """
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -688,7 +692,7 @@ MUHIM QOIDALAR:
                         {"role": "system", "content": system},
                         {"role": "user", "content": message}
                     ],
-                    "temperature": 0.7,
+                    "temperature": 0.1,
                     "max_tokens": 1500
                 }
             )
