@@ -84,9 +84,37 @@ def session_get(uid: int) -> Dict:
 def session_save(uid: int, data: Dict):
     _sessions[uid] = data
 
-# ── Build AI context from sources ─────────────────────────
-def build_context(sources: List[Dict]) -> str:
+# ── MVP RAG: keyword-based chunk retrieval ────────────────
+# No embeddings, no vector DB. Works perfectly for structured Excel/Sheets data.
+
+def _tokenize(text: str) -> set:
+    """Lowercase words, 3+ chars, no stop words."""
+    STOP = {
+        "va", "bu", "u", "biz", "men", "sen", "ular", "ham", "esa", "uchun",
+        "bilan", "dan", "ga", "da", "ni", "ning", "dagi", "nima", "kim",
+        "qancha", "qachon", "nechchi", "nechanchi", "menga", "unga",
+        "the", "is", "are", "was", "were", "of", "in", "on", "at", "to",
+    }
+    words = re.findall(r"[a-zA-Zа-яА-ЯёЁ'ʻo'O']+", text.lower())
+    return {w for w in words if len(w) >= 3 and w not in STOP}
+
+def _row_to_text(row: Dict, header: List[str]) -> str:
+    return " | ".join(str(row.get(h, "")) for h in header)
+
+def _score_row(row_text: str, query_tokens: set) -> int:
+    """Count how many query tokens appear in the row text."""
+    row_lower = row_text.lower()
+    return sum(1 for t in query_tokens if t in row_lower)
+
+def build_context(sources: List[Dict], question: str = "") -> str:
+    """
+    MVP RAG: retrieve only relevant rows for the question.
+    If no question given, return header + first 50 rows (fallback).
+    Max ~80 rows total sent to AI to stay within token limits.
+    """
+    query_tokens = _tokenize(question) if question else set()
     parts = []
+
     for s in sources:
         if s.get("disabled"):
             continue
@@ -95,10 +123,42 @@ def build_context(sources: List[Dict]) -> str:
         if not rows:
             continue
         header = list(rows[0].keys())
-        lines = [" | ".join(str(c) for c in header)]
-        for row in rows[:300]:
-            lines.append(" | ".join(str(row.get(c, "")) for c in header))
-        parts.append(f"### {name}\n" + "\n".join(lines))
+        header_line = " | ".join(str(c) for c in header)
+
+        if not query_tokens:
+            # No question — send first 50 rows
+            selected = rows[:50]
+            note = f"(birinchi {len(selected)} qator)"
+        else:
+            # Score every row against query tokens
+            scored = []
+            for row in rows:
+                row_text = _row_to_text(row, header)
+                score = _score_row(row_text, query_tokens)
+                if score > 0:
+                    scored.append((score, row, row_text))
+            # Sort by relevance, take top 80
+            scored.sort(key=lambda x: x[0], reverse=True)
+            top = scored[:80]
+            selected = [r for _, r, _ in top]
+            total_matched = len(scored)
+            note = f"(savolga mos {total_matched} ta qatordan top {len(selected)} ta ko'rsatilmoqda)"
+
+        if not selected:
+            # No relevant rows found — tell AI explicitly
+            parts.append(
+                f"### {name}\n"
+                f"{header_line}\n"
+                f"[Bu manbada savolga mos ma'lumot topilmadi]"
+            )
+            continue
+
+        lines = [header_line]
+        for row in selected:
+            lines.append(_row_to_text(row, header))
+
+        parts.append(f"### {name} {note}\n" + "\n".join(lines))
+
     return "\n\n".join(parts)
 
 
@@ -614,9 +674,10 @@ async def chat(request: Request):
         raise HTTPException(500, "AI API key sozlanmagan (server .env faylini tekshiring)")
 
     sess = session_get(uid)
-    context = build_context(sess.get("sources", []))
     lang = sess.get("lang", "uz")
     web = sess.get("web_search", False)
+    # RAG: build context with question-aware retrieval
+    context = build_context(sess.get("sources", []), message)
 
     # ── 1. Try exact Excel lookup first (no AI, no hallucination)
     if not web:
