@@ -553,6 +553,39 @@ async def clear_sources(request: Request):
         session_save(uid, sess)
     return {"success": True}
 
+# ── Disambiguation pick ───────────────────────────────────
+@app.post("/api/disambiguate")
+async def disambiguate(request: Request):
+    """
+    Mini app calls this when user picks a name from disambiguation list.
+    Returns the full answer for that specific person.
+    """
+    data = await request.json()
+    uid = int(data.get("telegram_id", 0))
+    chosen_name = data.get("chosen", "").strip()
+    if not uid or not chosen_name:
+        raise HTTPException(400, "telegram_id and chosen required")
+
+    sess = session_get(uid)
+    orig_question = sess.get("__disambig_question", chosen_name)
+    # Build new question: chosen full name + original question context
+    question = f"{chosen_name} {orig_question}" if chosen_name.lower() not in orig_question.lower() else orig_question
+
+    # Clear disambig state
+    sess.pop("__disambig_question", None)
+    sess.pop("__disambig_names", None)
+    session_save(uid, sess)
+
+    # Re-run exact lookup with specific name
+    exact = _excel_lookup(question, sess.get("sources", []))
+    if exact:
+        sess["chat_count"] = sess.get("chat_count", 0) + 1
+        session_save(uid, sess)
+        ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
+        return {"success": True, "answer": exact, "ask_rating": ask_rating}
+
+    return {"success": True, "answer": "❌ Ma'lumot topilmadi.", "ask_rating": False}
+
 # ── Excel Upload ──────────────────────────────────────────
 @app.post("/api/upload")
 async def upload_excel(
@@ -761,6 +794,30 @@ async def chat(request: Request):
     if not web:
         exact = _excel_lookup(message, sess.get("sources", []))
         if exact:
+            # Check if disambiguation needed (multiple people found)
+            # _excel_lookup returns list-style answer when >1 match
+            lines = exact.split("\n\n")
+            # If more than 3 results, return structured disambiguation for mini app
+            person_blocks = [l for l in lines if "👤" in l]
+            if len(person_blocks) > 3:
+                names = []
+                for block in person_blocks:
+                    for line in block.split("\n"):
+                        if "👤" in line:
+                            name = line.replace("👤", "").replace("<b>", "").replace("</b>", "").strip()
+                            names.append(name)
+                            break
+                sess["__disambig_question"] = message
+                sess["__disambig_names"] = names
+                session_save(uid, sess)
+                return {
+                    "success": True,
+                    "disambiguation": True,
+                    "question": message,
+                    "candidates": names,
+                    "answer": f"📋 {len(names)} ta o'quvchi topildi. Qaysi birini ko'rmoqchisiz?",
+                    "ask_rating": False,
+                }
             sess["chat_count"] = sess.get("chat_count", 0) + 1
             session_save(uid, sess)
             ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
