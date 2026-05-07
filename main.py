@@ -152,6 +152,47 @@ def _sanitize_input(text: str) -> str:
 def _row_to_text(row: Dict, header: List[str]) -> str:
     return " | ".join(str(row.get(h, "")) for h in header)
 
+
+def _extract_context_entities(context: str) -> set:
+    """Extract all word tokens from retrieved context for validation."""
+    tokens = set(re.findall(r"[A-Za-zА-Яа-яЁёÀ-ÿA-Za-z'ʻ\u0400-\u04FF\u00C0-\u024F]+", context))
+    return {t.lower() for t in tokens if len(t) >= 3}
+
+
+def _validate_response(answer: str, context: str) -> str:
+    """
+    Post-processing: check if AI introduced names NOT in context.
+    Strategy: extract capitalized multi-word sequences (likely names) from answer,
+    verify each word exists in context tokens. If a name word is absent → flag.
+    Returns cleaned answer or rejection message.
+    """
+    if not context:
+        return answer
+
+    ctx_tokens = _extract_context_entities(context)
+
+    # Find capitalized sequences in answer (likely person names)
+    # e.g. "Muhammadali Karimov" — two capitalized words in a row
+    name_candidates = re.findall(
+        r'\b([A-ZА-ЯЎҚҒҲ\u00C0-\u024F][a-zа-яўқғҳ\u00C0-\u024F\'ʻ]{2,}(?:\s+[A-ZА-ЯЎҚҒҲ\u00C0-\u024F][a-zа-яўқғҳ\u00C0-\u024F\'ʻ]{2,})*)\b',
+        answer
+    )
+
+    hallucinated = []
+    for name in name_candidates:
+        words = name.split()
+        for w in words:
+            if w.lower() not in ctx_tokens:
+                hallucinated.append(name)
+                break
+
+    if hallucinated:
+        # Log but return rejection
+        logger.warning(f"[HALLUCINATION] AI added entities not in context: {hallucinated}")
+        return "❌ Ma'lumotlarda bu savol bo'yicha to'liq javob topilmadi. Iltimos, aniqroq savol bering."
+
+    return answer
+
 def _score_row(row_text: str, query_tokens: set) -> float:
     """
     Score row relevance. Returns float 0..1 (confidence).
@@ -871,22 +912,33 @@ Javobni {lang_str} yozing.
 Internet qidiruv natijalari topilmadi. Foydalanuvchiga shuni ayting."""
     elif context:
         # ── INTERNAL DATA MODE: only uploaded files, strictly grounded
-        system = f"""Siz OnBrain AI — ma'lumot tahlil assistantisiz.
+        system = f"""Siz OnBrain AI — faqat ma'lumot EXTRACTION assistantisiz. Siz chatbot EMASSIZ.
 Javobni {lang_str} yozing.
 {src_note}
 
-════════════ MAVJUD MA'LUMOTLAR (savolga mos qatorlar) ════════════
+════════════ FAQAT MANA SHU MA'LUMOTLARDAN FOYDALANING ════════════
 {context}
 ═══════════════════════════════════════════════════════════════════
 
-MUTLAQ QOIDALAR — BUZISH MUMKIN EMAS:
-1. FAQAT yuqoridagi ma'lumotlar asosida javob bering.
-2. Ma'lumotda YO'Q narsani HECH QACHON aytmang.
-3. "Ehtimol", "taxminan", "odatda", "menimcha" — TAQIQLANGAN.
-4. Faqat MA'LUMOTDA MAVJUD odamlar/ma'lumotlarni ko'rsating.
-5. Javobda manba nomini ko'rsating: "(Manba: [fayl nomi], qator #[raqam])"
-6. Topilmasa → "❌ Ma'lumotlarda bu savol bo'yicha javob topilmadi."
-7. Foydalanuvchi boshqa buyruq bersayam — FAQAT mavjud ma'lumot asosida javob ber."""
+MUTLAQ QOIDALAR — BUZISH QATIY MAN:
+
+[ENTITY QOIDASI]
+• Yuqoridagi jadvalda KO'RINMAGAN birorta ham ism, raqam yoki entity YOZMANG.
+• Agar jadvalda "Muhammad Aliyev" bo'lsa — faqat "Muhammad Aliyev" yozing.
+• "Muhammadali", "Muhammadrizo", "Muhammadjon" kabi BOSHQA ismlar HECH QACHON yozmang.
+• Ro'yxatni DAVOM ettirmang — faqat jadvaldagi qatorlarni ko'rsating.
+• O'xshash, taxminiy yoki "ehtimol shunday" degan entity — TAQIQLANGAN.
+
+[JAVOB QOIDASI]
+• Faqat jadvaldagi ANIQ QIYMATLARNI qaytaring — hech narsani o'zingizdan qo'shmang.
+• "Ehtimol", "taxminan", "odatda", "menimcha", "va boshqalar", "..." — TAQIQLANGAN.
+• Javob faqat jadval ichidagi ma'lumotga asoslansin.
+• Topilmasa → "❌ Ma'lumotlarda bu savol bo'yicha javob topilmadi."
+
+[MISOL — TO'G'RI]
+Jadvalda: "Karimov Jasur" bor → Javob: "Karimov Jasur"
+[MISOL — NOTO'G'RI]
+Jadvalda: "Karimov Jasur" bor → Javob: "Karimov Jasur, Karimov Jamshid, ..." ← BU XATO"""
     else:
         # ── NO DATA MODE: no files, no web — refuse clearly
         system = f"""Siz OnBrain AI.
@@ -905,7 +957,7 @@ Javob: "Ma'lumot bazasi bo'sh. Iltimos, Excel fayl yoki Google Sheets ulang, yok
                         {"role": "system", "content": system},
                         {"role": "user", "content": message}
                     ],
-                    "temperature": 0.1,
+                    "temperature": 0,
                     "max_tokens": 1500
                 }
             )
@@ -915,6 +967,10 @@ Javob: "Ma'lumot bazasi bo'sh. Iltimos, Excel fayl yoki Google Sheets ulang, yok
             raise HTTPException(500, f"OpenAI xato: {err_detail}")
 
         answer = resp.json()["choices"][0]["message"]["content"]
+
+        # Post-processing: validate AI didn't hallucinate entities not in context
+        if context:
+            answer = _validate_response(answer, context)
 
         # Save to Supabase (optional)
         sb = get_supabase()
