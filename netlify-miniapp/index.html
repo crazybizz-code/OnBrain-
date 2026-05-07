@@ -254,6 +254,9 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .bubble{max-width:84%;padding:10px 14px;border-radius:16px;line-height:1.55;font-size:14px;word-break:break-word}
 .msg.user .bubble{background:linear-gradient(135deg,var(--p3),var(--p));color:#fff;border-radius:16px 4px 16px 16px}
 .msg.bot .bubble{background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:4px 16px 16px 16px}
+.disambig-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.disambig-btn{background:var(--card);border:1px solid var(--p);color:var(--p);padding:8px 12px;border-radius:10px;cursor:pointer;text-align:left;font-size:13px;transition:all .2s}
+.disambig-btn:hover{background:var(--p);color:#fff}
 .bubble b{font-weight:700}
 
 .typing{display:flex;gap:4px;padding:3px 0;align-items:center}
@@ -746,12 +749,45 @@ async function sendMessage(){
     const r=await fetch(BASE_URL+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID||0,message:q})});
     const d=await r.json();el.remove();
     if(d.success){
-      addMessage(d.answer,'bot',true);
-      // Show rating modal after 5th message (once, optional)
-      if(d.ask_rating) setTimeout(()=>showRatingModal(),1500);
+      if(d.disambiguation && d.candidates && d.candidates.length > 0){
+        // Show disambiguation buttons
+        showDisambiguation(d.candidates, q);
+      } else {
+        addMessage(d.answer,'bot',true);
+        if(d.ask_rating) setTimeout(()=>showRatingModal(),1500);
+      }
     }else addMessage(d.detail||'Xato','bot');
   }catch(e){el.remove();addMessage('Texnik xato','bot');}
   finally{isLoading=false;document.getElementById('sendBtn').disabled=false;input.focus();}
+}
+
+function showDisambiguation(candidates, question){
+  const msgs=document.getElementById('messages');
+  const d=document.createElement('div');d.className='msg bot';
+  let html=`<div class="bubble"><p>📋 <b>${candidates.length} ta o'quvchi topildi.</b> Qaysi birini ko'rmoqchisiz?</p><div class="disambig-list">`;
+  candidates.forEach((name,i)=>{
+    html+=`<button class="disambig-btn" onclick="pickDisambig('${escHtml(name)}','${escHtml(question)}')">${i+1}. ${escHtml(name)}</button>`;
+  });
+  html+=`</div></div>`;
+  d.innerHTML=html;
+  msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;
+}
+
+async function pickDisambig(chosenName, origQuestion){
+  if(isLoading)return;
+  isLoading=true;
+  // Remove disambiguation message
+  document.querySelectorAll('.disambig-list').forEach(el=>el.closest('.msg')?.remove());
+  addMessage(chosenName,'user');
+  const el=addTyping();
+  try{
+    const r=await fetch(BASE_URL+'/api/disambiguate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({telegram_id:UID||0,chosen:chosenName})});
+    const d=await r.json();el.remove();
+    if(d.success) addMessage(d.answer,'bot',true);
+    else addMessage(d.detail||'Xato','bot');
+  }catch(e){el.remove();addMessage('Texnik xato','bot');}
+  finally{isLoading=false;document.getElementById('sendBtn').disabled=false;}
 }
 
 function addMessage(text,role,isHtml=false){
