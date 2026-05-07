@@ -191,29 +191,36 @@ def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
             w in str(h).lower() for w in ["f.i.o", "fio", "ism", "name", "familiya", "fish"]
         )]
         if not name_cols:
-            # No person name column — this source is not a person registry, skip it
+            # No person name column — not a person registry, skip for lookup
             continue
 
-            for row in rows:
-                # Check if any name candidate matches any name column
-                matched_name = None
-                for nc in name_cols:
-                    cell = str(row.get(nc, "")).strip().lower()
-                    if not cell:
-                        continue
-                    # Split cell into individual tokens (words)
-                    cell_tokens = re.split(r"[\s\-_]+", cell)
-                    cell_tokens_stripped = [_strip_suffix_simple(t) for t in cell_tokens]
-                    for cand in name_candidates:
-                        cand_l = cand.lower()
-                        # Must match a FULL token — not a prefix of another word
-                        if cand_l in cell_tokens or cand_l in cell_tokens_stripped:
+        for row in rows:
+            # Check if any name candidate matches any name column
+            matched_name = None
+            for nc in name_cols:
+                cell = str(row.get(nc, "")).strip().lower()
+                if not cell:
+                    continue
+                # Split cell into individual tokens (words)
+                cell_tokens = re.split(r"[\s\-_]+", cell)
+                cell_tokens_stripped = [_strip_suffix_simple(t) for t in cell_tokens]
+                for cand in name_candidates:
+                    cand_l = cand.lower()
+                    # Full token match — not substring of another word
+                    if cand_l in cell_tokens or cand_l in cell_tokens_stripped:
+                        matched_name = str(row.get(nc, "")).strip()
+                        break
+                    # Prefix match: "Muhammad" matches "MuhammadRizo" — collect as candidate
+                    for tok in cell_tokens:
+                        if tok.startswith(cand_l) and len(tok) > len(cand_l):
                             matched_name = str(row.get(nc, "")).strip()
                             break
                     if matched_name:
                         break
-                if not matched_name:
-                    continue
+                if matched_name:
+                    break
+            if not matched_name:
+                continue
 
             # Found a matching row — extract value
             if asked_subject_kws:
