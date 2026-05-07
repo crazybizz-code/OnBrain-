@@ -206,16 +206,9 @@ def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
                 cell_tokens_stripped = [_strip_suffix_simple(t) for t in cell_tokens]
                 for cand in name_candidates:
                     cand_l = cand.lower()
-                    # Full token match — not substring of another word
+                    # Full token match only — "muhammad" must be its own word
                     if cand_l in cell_tokens or cand_l in cell_tokens_stripped:
                         matched_name = str(row.get(nc, "")).strip()
-                        break
-                    # Prefix match: "Muhammad" matches "MuhammadRizo" — collect as candidate
-                    for tok in cell_tokens:
-                        if tok.startswith(cand_l) and len(tok) > len(cand_l):
-                            matched_name = str(row.get(nc, "")).strip()
-                            break
-                    if matched_name:
                         break
                 if matched_name:
                     break
