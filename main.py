@@ -305,6 +305,10 @@ _STOP = {
     "texnologiya","sport","jismoniy","sarflandi","sarflangan","xarajat",
     "sotildi","tushum","daromad","hamma","hammasi","barchasi","qayerda",
     "qanday","nima","nechta","nechtasi","yig'indi","total","yig",
+    # Texnika / buyum so'zlari — ism emas
+    "model","marka","turi","tipi","versiya","nomi","serial",
+    "kompyuter","noutbuk","printer","monitor","ekran","kamera",
+    "mashina","moshina","ijara","ijaraga","arenda","soliq","nalog",
 }
 
 # Subject → column keyword mapping

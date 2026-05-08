@@ -1320,6 +1320,13 @@ def _python_answer(question: str, s: Session) -> str | None:
         "price", "cost", "money", "time", "date", "number",
         "spent", "total", "sum", "amount", "paid",
         "цена", "стоимость", "деньги", "время", "дата", "потрачено", "сумма",
+        # Texnika / buyum nomlari — ism emas
+        "model", "marka", "nomi", "turi", "tipi", "versiya", "seriya",
+        "kompyuter", "noutbuk", "printer", "skaner", "monitor", "klaviatura",
+        "telefon", "planshet", "kamera", "videokamera", "projetor", "ekran",
+        "stol", "stul", "shkaf", "javon", "divan", "krovat", "krovati",
+        "mashina", "avto", "moshina", "velosiped", "mototsikl",
+        "ijaraga", "ijara", "arenda", "soliq", "nalog",
         # Fan / predmet nomlari — ism emas
         "algebra", "geometriya", "matematika", "fizika", "kimyo", "biologiya",
         "tarix", "geografiya", "adabiyot", "ingliz", "rus", "ona", "tili",
@@ -1348,6 +1355,10 @@ def _python_answer(question: str, s: Session) -> str | None:
         "xarajat", "xarajatlar", "tushum", "daromad", "miqdori",
         "uning", "uniki", "ularning", "sizning", "mening",
         "necha", "qanday", "qoida", "nomi", "nomini",
+        # Texnika / buyum so'zlari — ism emas
+        "model", "marka", "turi", "tipi", "versiya", "seriya", "nomi",
+        "kompyuter", "noutbuk", "printer", "monitor", "ekran", "kamera",
+        "mashina", "moshina", "ijara", "ijaraga", "arenda", "soliq",
         # ── KENGAYTIRILGAN STOP WORDS ──────────────────────────────────────
         # So'rov so'zlari
         "menga", "senga", "unga", "bizga", "sizga", "ularga",
