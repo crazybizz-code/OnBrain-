@@ -1396,10 +1396,8 @@ def _python_answer(question: str, s: Session) -> str | None:
                 name_candidates.append(c)
 
     # ── Pronoun / context resolution ─────────────────────────────────────────
-    # 1. Explicit pronouns: "u", "shu", "o'sha" etc. → inject last found name
-    # 2. No person name at all in question → inject last found name automatically
-    #    e.g. "algebra fanidan necha ball olgan" after asking about Halimjonov
-    #    → should still refer to Halimjonov, not ALL people
+    # ONLY inject memory on explicit pronouns ("u", "shu", "o'sha").
+    # NEVER inject when user has already named a person in the query.
     PRONOUNS = {
         "u", "uni", "uning", "shu", "shuni", "shuning", "o'sha", "o'shani",
         "bu", "buni", "ushbu", "shu oquvchi", "o'sha oquvchi", "u oquvchi",
@@ -1412,10 +1410,16 @@ def _python_answer(question: str, s: Session) -> str | None:
     # "person-like" = candidate not in non_person_indicators and not a pure number
     person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
 
+    # If user named a person explicitly → clear old memory (new query, new person)
+    if person_like_candidates:
+        s.last_found_names = []
+        logger.debug(f"[MEMORY] cleared — new person query: {person_like_candidates}")
+
+    # Inject memory ONLY on explicit pronoun AND no person name in query
     should_inject_memory = (
-        s.last_found_names and (
-            has_pronoun or len(person_like_candidates) == 0
-        )
+        s.last_found_names
+        and has_pronoun
+        and len(person_like_candidates) == 0
     )
     if should_inject_memory:
         for remembered in s.last_found_names:
@@ -1425,9 +1429,8 @@ def _python_answer(question: str, s: Session) -> str | None:
                 if len(pl) >= 3 and pl not in stop and pl not in non_person_indicators:
                     if pl not in [x.lower() for x in name_candidates]:
                         name_candidates.append(part)
-        # Rebuild person_like_candidates after injection
         person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
-        logger.info(f"Memory injected → {s.last_found_names} into candidates")
+        logger.info(f"Memory injected (pronoun) → {s.last_found_names} into candidates")
     # ─────────────────────────────────────────────────────────────────────────
 
     if not name_candidates:
@@ -1564,7 +1567,7 @@ def _python_answer(question: str, s: Session) -> str | None:
             missing = ", ".join(f"<b>{n.capitalize()}</b>" for n in not_found_names)
             result += f"\n\n❌ Topilmadi: {missing}"
 
-        # ── Save found names to conversation memory ──────────────────────────
+        # ── Save found names to conversation memory (only for pronoun follow-ups) ──
         found_names = []
         for part in answer_parts:
             import re as _re
@@ -1572,7 +1575,8 @@ def _python_answer(question: str, s: Session) -> str | None:
             if m:
                 found_names.append(m.group(1).strip())
         if found_names:
-            s.last_found_names = found_names[:3]
+            s.last_found_names = found_names[:1]  # only keep 1 name, not 3
+        logger.info(f"[MEMORY] last_found_names updated → {s.last_found_names}")
 
         s.disambiguation_candidates = []
         return result
