@@ -275,7 +275,8 @@ def build_context(sources: List[Dict], question: str = "") -> tuple:
     return "\n\n".join(parts), max_confidence, matched_sources
 
 
-# ── Excel exact lookup (no AI hallucination) ──────────────
+# ── Strict Person Search (no AI, no hallucination) ───────
+
 def _to_num(v) -> Optional[float]:
     try:
         return float(str(v).replace(",", ".").strip())
@@ -285,12 +286,211 @@ def _to_num(v) -> Optional[float]:
 def _strip_suffix_simple(w: str) -> str:
     """Remove common Uzbek grammatical suffixes."""
     w = w.lower().strip()
-    for suf in ["ning", "nig", "dan", "ga", "ni", "da", "lar", "ning"]:
+    for suf in ["ning", "nig", "dan", "ga", "ni", "da", "lar"]:
         if w.endswith(suf) and len(w) - len(suf) >= 3:
             return w[:-len(suf)]
     return w
 
-def _excel_lookup(question: str, sources: List[Dict]) -> Optional[str]:
+# Name column identifiers
+_NAME_COL_KEYS = ["f.i.o", "fio", "fish", "ism", "name", "familiya", "to'liq ism", "toliq ism"]
+
+# Stop words — never treat as person name tokens
+_STOP = {
+    "nechchi","necchi","qancha","ball","balli","ballari","baho","umumiy","jami",
+    "fanidan","fani","fandan","olgan","olgani","nima","qaysi","qachon","kim",
+    "necha","va","bilan","uchun","ning","ni","ga","da","dan","menga","top",
+    "ayt","ber","ko'rsat","korsat","natija","natijasi","hisobi","score",
+    "ingliz","rus","ona","tili","algebra","geometriya","matematika","fizika",
+    "kimyo","biologiya","tarix","geografiya","adabiyot","informatika",
+    "texnologiya","sport","jismoniy","sarflandi","sarflangan","xarajat",
+    "sotildi","tushum","daromad","hamma","hammasi","barchasi","qayerda",
+    "qanday","nima","nechta","nechtasi","yig'indi","total","yig",
+}
+
+# Subject → column keyword mapping
+_SUBJECTS = {
+    "algebra":     ["algebra"],
+    "geometriya":  ["geometriya","геометрия"],
+    "matematika":  ["matematika","математика","math"],
+    "fizika":      ["fizika","физика","physics"],
+    "kimyo":       ["kimyo","химия"],
+    "biologiya":   ["biologiya","биология"],
+    "tarix":       ["tarix","история"],
+    "geografiya":  ["geografiya","география"],
+    "adabiyot":    ["adabiyot","литература"],
+    "ingliz":      ["ingliz","английский","english"],
+    "rus":         ["rus tili","rus","русский"],
+    "ona tili":    ["ona tili","ona","узбекский"],
+    "informatika": ["informatika","информатика"],
+    "jismoniy":    ["jismoniy","sport","физкультура"],
+}
+
+def _get_name_cols(header: List[str]) -> List[str]:
+    """Return columns that look like person-name columns."""
+    return [h for h in header if any(k in str(h).lower() for k in _NAME_COL_KEYS)]
+
+def _extract_name_tokens(question: str) -> List[str]:
+    """
+    Extract potential person-name tokens from question.
+    Only keeps words that are NOT stop-words and NOT digits.
+    """
+    words = re.split(r"[\s\-_.,!?\"'()[\]]+", question.strip())
+    tokens = []
+    for w in words:
+        cl = _strip_suffix_simple(w)
+        if len(cl) >= 3 and cl not in _STOP and not cl.isdigit():
+            if cl not in tokens:
+                tokens.append(cl)
+    return tokens
+
+def _row_matches_name_tokens(row: Dict, name_cols: List[str], tokens: List[str]) -> Optional[str]:
+    """
+    Returns the matched full name string if ANY token exactly matches
+    a word inside a name-column cell. Otherwise None.
+    ONLY searches name columns — NOT arbitrary text fields.
+    """
+    for nc in name_cols:
+        cell = str(row.get(nc, "")).strip()
+        if not cell:
+            continue
+        cell_words = re.split(r"[\s\-_]+", cell.lower())
+        cell_words_stripped = [_strip_suffix_simple(w) for w in cell_words]
+        for tok in tokens:
+            tok_l = tok.lower()
+            if tok_l in cell_words or tok_l in cell_words_stripped:
+                return cell  # return original casing
+    return None
+
+def _answer_for_row(row: Dict, header: List[str], name: str, src_name: str, question: str) -> str:
+    """
+    Given a specific matched row, build a formatted answer string.
+    Detects: specific subject score / umumiy ball / all scores.
+    """
+    q = question.lower()
+
+    # Detect specific subject
+    asked_kws = None
+    for subj, kws in _SUBJECTS.items():
+        if any(kw in q for kw in kws):
+            asked_kws = kws
+            break
+
+    is_total = any(w in q for w in ["umumiy","jami","total","hammasi","yig'indi","yig"])
+
+    # Skip name/id columns when summing
+    _SKIP_COL_KEYS = {"f.i.o","fio","fish","ism","name","familiya","tartib","raqam","#","id","sn"}
+
+    if asked_kws:
+        for h in header:
+            hl = str(h).lower()
+            if any(kw in hl for kw in asked_kws):
+                v = _to_num(row.get(h))
+                if v is not None:
+                    return f"👤 <b>{name}</b>\n📚 {h}: <b>{v}</b>\n📂 <i>{src_name}</i>"
+        return f"👤 <b>{name}</b>\n❌ {asked_kws[0].capitalize()} ustuni topilmadi\n📂 <i>{src_name}</i>"
+
+    # Try dedicated total column first
+    for h in header:
+        hl = str(h).lower()
+        if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","jami ball","jami"]:
+            v = _to_num(row.get(h))
+            if v is not None:
+                return f"👤 <b>{name}</b>\n🏆 {h}: <b>{v}</b>\n📂 <i>{src_name}</i>"
+
+    # Sum all numeric non-name/id columns
+    total = 0.0
+    details = []
+    for h in header:
+        hl = str(h).lower()
+        if any(k in hl for k in _SKIP_COL_KEYS):
+            continue
+        if ("umumiy" in hl and "ball" in hl) or hl in ["umumiy ball","total","jami ball","jami"]:
+            continue
+        v = _to_num(row.get(h))
+        if v is not None:
+            total += v
+            details.append(f"{h}: {v}")
+
+    if details:
+        detail_str = " | ".join(details)
+        return f"👤 <b>{name}</b>\n🏆 Jami ball: <b>{total:.1f}</b>\n📊 {detail_str}\n📂 <i>{src_name}</i>"
+
+    # No numeric values — show entire row as-is
+    row_str = " | ".join(f"{h}: {row.get(h,'')}" for h in header
+                         if not any(k in str(h).lower() for k in _SKIP_COL_KEYS))
+    return f"👤 <b>{name}</b>\n📋 {row_str}\n📂 <i>{src_name}</i>"
+
+
+def _find_persons(question: str, sources: List[Dict]) -> List[Dict]:
+    """
+    Strict column-aware person search.
+    Returns list of dicts: {name, answer, row, header, src_name, name_col}
+    Empty list = no match.
+    Only searches F.I.O/name columns — NOT arbitrary text.
+    Logs matched tokens and rows for debug.
+    """
+    tokens = _extract_name_tokens(question)
+    if not tokens:
+        logger.debug(f"[SEARCH] No name tokens extracted from: {question!r}")
+        return []
+
+    logger.debug(f"[SEARCH] Name tokens: {tokens}")
+
+    found = []
+    seen_names = set()  # dedup by name string
+
+    for src in sources:
+        if src.get("disabled"):
+            continue
+        rows = src.get("preview", [])
+        if not rows:
+            continue
+        src_name = src.get("name", "Manba")
+        header = list(rows[0].keys())
+
+        name_cols = _get_name_cols(header)
+        if not name_cols:
+            logger.debug(f"[SEARCH] Skipping {src_name!r} — no name columns found")
+            continue
+
+        logger.debug(f"[SEARCH] Searching in {src_name!r}, name_cols={name_cols}")
+
+        for row in rows:
+            matched = _row_matches_name_tokens(row, name_cols, tokens)
+            if matched:
+                key = matched.lower().strip()
+                if key in seen_names:
+                    continue
+                seen_names.add(key)
+                answer = _answer_for_row(row, header, matched, src_name, question)
+                found.append({
+                    "name": matched,
+                    "answer": answer,
+                    "row": row,
+                    "header": header,
+                    "src_name": src_name,
+                    "name_col": name_cols[0],
+                })
+
+    logger.debug(f"[SEARCH] Matched {len(found)} unique person(s)")
+    return found
+
+
+def _answer_scoped(question: str, selected: Dict) -> str:
+    """
+    Answer question using ONLY the pre-selected student row.
+    No new search — fully scoped to one person.
+    """
+    return _answer_for_row(
+        selected["row"],
+        selected["header"],
+        selected["name"],
+        selected["src_name"],
+        question
+    )
+
+
+# ── Google Sheets URL → CSV URL ───────────────────────────
     """
     Try to answer directly from Excel/Sheets data without AI.
     Returns answer string or None (let AI handle it).
@@ -594,12 +794,27 @@ async def clear_sources(request: Request):
         session_save(uid, sess)
     return {"success": True}
 
+# ── Clear selected student (session reset) ────────────────
+@app.post("/api/clear_student")
+async def clear_student(request: Request):
+    """Reset selected student state — user can start a new search."""
+    data = await request.json()
+    uid = int(data.get("telegram_id", 0))
+    if uid:
+        sess = session_get(uid)
+        sess.pop("__selected_student", None)
+        sess.pop("__disambig_question", None)
+        sess.pop("__disambig_persons", None)
+        sess.pop("__disambig_names", None)
+        session_save(uid, sess)
+    return {"success": True}
+
 # ── Disambiguation pick ───────────────────────────────────
 @app.post("/api/disambiguate")
 async def disambiguate(request: Request):
     """
-    Mini app calls this when user picks a name from disambiguation list.
-    Returns the full answer for that specific person.
+    Mini app / bot calls this when user picks a name from disambiguation list.
+    Saves selected student to session for follow-up questions.
     """
     data = await request.json()
     uid = int(data.get("telegram_id", 0))
@@ -608,23 +823,43 @@ async def disambiguate(request: Request):
         raise HTTPException(400, "telegram_id and chosen required")
 
     sess = session_get(uid)
-    orig_question = sess.get("__disambig_question", chosen_name)
-    # Build new question: chosen full name + original question context
-    question = f"{chosen_name} {orig_question}" if chosen_name.lower() not in orig_question.lower() else orig_question
+    orig_question = sess.get("__disambig_question", "")
 
-    # Clear disambig state
+    # Try to find the person from saved persons list first (no re-search needed)
+    saved_persons: List[Dict] = sess.get("__disambig_persons", [])
+    chosen_person = None
+    chosen_lower = chosen_name.lower().strip()
+    for p in saved_persons:
+        if p["name"].lower().strip() == chosen_lower:
+            chosen_person = p
+            break
+
+    # If not in saved list (e.g. bot path), re-run search with full name
+    if not chosen_person:
+        question = chosen_name + (" " + orig_question if orig_question else "")
+        persons = _find_persons(question, sess.get("sources", []))
+        for p in persons:
+            if p["name"].lower().strip() == chosen_lower:
+                chosen_person = p
+                break
+
+    # Clear disambig state and save selected student
+    sess.pop("__disambig_persons", None)
     sess.pop("__disambig_question", None)
     sess.pop("__disambig_names", None)
-    session_save(uid, sess)
 
-    # Re-run exact lookup with specific name
-    exact = _excel_lookup(question, sess.get("sources", []))
-    if exact:
+    if chosen_person:
+        # Save to session for follow-up questions
+        sess["__selected_student"] = chosen_person
         sess["chat_count"] = sess.get("chat_count", 0) + 1
         session_save(uid, sess)
         ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
-        return {"success": True, "answer": exact, "ask_rating": ask_rating}
+        # Answer based on original question
+        answer = _answer_scoped(orig_question or chosen_name, chosen_person)
+        logger.info(f"[DISAMBIG_PICK] uid={uid} selected={chosen_person['name']!r}")
+        return {"success": True, "answer": answer, "ask_rating": ask_rating}
 
+    session_save(uid, sess)
     return {"success": True, "answer": "❌ Ma'lumot topilmadi.", "ask_rating": False}
 
 # ── Excel Upload ──────────────────────────────────────────
@@ -831,38 +1066,72 @@ async def chat(request: Request):
     # ── RAG: build context with question-aware retrieval + confidence
     context, retrieval_confidence, matched_sources = build_context(sess.get("sources", []), message)
 
-    # ── 1. Try exact Excel lookup first (no AI, no hallucination)
+    # ── 1. Strict person search (no AI, no hallucination)
     if not web:
-        exact = _excel_lookup(message, sess.get("sources", []))
-        if exact:
-            # Check if disambiguation needed (multiple people found)
-            # _excel_lookup returns list-style answer when >1 match
-            lines = exact.split("\n\n")
-            # If more than 3 results, return structured disambiguation for mini app
-            person_blocks = [l for l in lines if "👤" in l]
-            if len(person_blocks) > 3:
-                names = []
-                for block in person_blocks:
-                    for line in block.split("\n"):
-                        if "👤" in line:
-                            name = line.replace("👤", "").replace("<b>", "").replace("</b>", "").strip()
-                            names.append(name)
-                            break
-                sess["__disambig_question"] = message
-                sess["__disambig_names"] = names
+        # CASE A: selected student in session → scoped answer (no re-search)
+        selected = sess.get("__selected_student")
+        if selected:
+            # Check if this question is still about the selected student
+            # (reset if a different name appears or user says "boshqa"/"yangi")
+            q_lower = message.lower()
+            reset_keywords = ["boshqa", "yangi", "reset", "qayta", "boshidan", "exit", "chiq"]
+            if any(kw in q_lower for kw in reset_keywords):
+                sess.pop("__selected_student", None)
+                sess.pop("__disambig_question", None)
                 session_save(uid, sess)
-                return {
-                    "success": True,
-                    "disambiguation": True,
-                    "question": message,
-                    "candidates": names,
-                    "answer": f"📋 {len(names)} ta o'quvchi topildi. Qaysi birini ko'rmoqchisiz?",
-                    "ask_rating": False,
-                }
+            else:
+                answer = _answer_scoped(message, selected)
+                sess["chat_count"] = sess.get("chat_count", 0) + 1
+                session_save(uid, sess)
+                ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
+                logger.info(f"[SCOPED] uid={uid} student={selected['name']!r}")
+                return {"success": True, "answer": answer, "ask_rating": ask_rating}
+
+        # CASE B: global person search
+        persons = _find_persons(message, sess.get("sources", []))
+
+        if len(persons) == 1:
+            # Exactly one match → direct answer + save to session
+            p = persons[0]
+            sess["__selected_student"] = p
+            sess["__disambig_question"] = message
             sess["chat_count"] = sess.get("chat_count", 0) + 1
             session_save(uid, sess)
             ask_rating = (sess["chat_count"] == 5 and not sess.get("rated"))
-            return {"success": True, "answer": exact, "ask_rating": ask_rating}
+            logger.info(f"[EXACT] uid={uid} student={p['name']!r}")
+            return {"success": True, "answer": p["answer"], "ask_rating": ask_rating}
+
+        if len(persons) > 1:
+            # Multiple matches → disambiguation UI
+            names = [p["name"] for p in persons]
+            sess["__disambig_question"] = message
+            sess["__disambig_persons"] = persons  # save full person objects
+            sess.pop("__selected_student", None)
+            session_save(uid, sess)
+            logger.info(f"[DISAMBIG] uid={uid} candidates={names}")
+            return {
+                "success": True,
+                "disambiguation": True,
+                "question": message,
+                "candidates": names,
+                "answer": f"📋 {len(names)} ta o'quvchi topildi. Qaysi birini ko'rmoqchisiz?",
+                "ask_rating": False,
+            }
+
+        # CASE C: no person match — check if it's a person-type question
+        # If sources have name columns but no match → refuse (don't hallucinate)
+        has_person_sources = any(
+            _get_name_cols(list(s["preview"][0].keys()))
+            for s in sess.get("sources", [])
+            if not s.get("disabled") and s.get("preview")
+        )
+        if has_person_sources and _extract_name_tokens(message):
+            logger.info(f"[NO_MATCH] uid={uid} query={message!r}")
+            return {
+                "success": True,
+                "answer": "❌ Bu ismli o'quvchi ma'lumotlar bazasida topilmadi.",
+                "ask_rating": False,
+            }
 
     # ── 2. Confidence gate — if data exists but nothing relevant found, refuse
     sources_exist = bool(sess.get("sources"))
