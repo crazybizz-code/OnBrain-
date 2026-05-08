@@ -1081,7 +1081,7 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
         cols_to_check = range(len(row)) if search_all else name_col_indices
         matched_j = None
         matched_cell = None
-        match_quality = 0  # 3=exact_full, 2=startswith, 1=word_in_correct_pos
+        match_quality = 0  # 3=exact_full, 2=exact_word_token, 0=no_match
         for j in cols_to_check:
             if j >= len(row):
                 continue
@@ -1091,46 +1091,39 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
             for c in candidates:
                 if len(c) < 3:
                     continue
-                # Priority 3: Exact full cell match
+                # Priority 3: Exact full cell match (single-word name in cell)
                 if c == cs:
                     matched_j = j
                     matched_cell = str(row[j]).strip()
                     match_quality = 3
                     break
+                # Priority 2: Exact word token match ONLY
+                # "muhammad" must be a standalone word in cell — NOT substring of "muhammadali"
                 words_in_cell = cs.split()
-                # Priority 2: Cell starts with candidate
-                # Works for all name types (familiya always at start anyway)
-                if cs.startswith(c) and len(cs) > len(c) and cs[len(c)] == " ":
-                    if match_quality < 2:
-                        matched_j = j
-                        matched_cell = str(row[j]).strip()
-                        match_quality = 2
-
-                # Priority 1: word-in-cell at the correct position by name type
-                # familiya → pos 0 only
-                # ism      → pos 1 only  (e.g. "Halimjonov Muhammad Davronbek")
-                # ota      → pos 2+       (e.g. "Halimjonov Muhammad Davronbek")
-                if c in words_in_cell and match_quality < 1:
+                if c in words_in_cell:
                     pos = words_in_cell.index(c)
                     is_name_col = j in name_col_indices
                     matched = False
                     if is_name_col:
+                        # Familiya → pos 0, Ism → pos 1, Otasining ismi → pos 2+
                         if name_type == "familiya" and pos == 0:
                             matched = True
                         elif name_type == "ism" and pos == 1:
                             matched = True
                         elif name_type == "ota" and pos >= 2:
                             matched = True
+                        elif name_type == "unknown":
+                            matched = True  # Allow any position if type unknown
                     else:
-                        # Non-name column: always allow word match
                         matched = True
-                    if matched:
+                    if matched and match_quality < 2:
                         matched_j = j
                         matched_cell = str(row[j]).strip()
-                        match_quality = 1
+                        match_quality = 2
+                        logger.debug(f"[SEARCH] token={c!r} matched cell={cs!r} pos={pos} quality=2")
             if match_quality == 3:
                 break
-        if matched_j is not None:
+        if matched_j is not None and match_quality > 0:
             col = str(header[matched_j]).strip() if matched_j < len(header) else f"Col{matched_j}"
             results.append({
                 "row_index": i,
@@ -1139,13 +1132,9 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
                 "matched_col": col,
                 "match_quality": match_quality,
             })
+            logger.debug(f"[SEARCH] Row {i} matched: cell={matched_cell!r} quality={match_quality}")
 
-    # If any exact/startswith matches exist → return only those
-    # If only pos-based matches → return all (valid: multiple people can share a first name)
-    best_quality = max((r["match_quality"] for r in results), default=0)
-    if best_quality >= 2:
-        results = [r for r in results if r["match_quality"] >= best_quality]
-
+    logger.debug(f"[SEARCH] _search_person({name_q!r}): {len(results)} rows found")
     return results
 
 
@@ -1478,8 +1467,8 @@ def _python_answer(question: str, s: Session) -> str | None:
         cell_words = cell_text.split()
         for p in parts:
             p_lower = p.lower()
-            # Part must match as a whole word token (not substring of another word)
-            if not any(cw == p_lower or cw.startswith(p_lower) for cw in cell_words):
+            # Exact word token match ONLY — no startswith/substring
+            if p_lower not in cell_words:
                 return False
         return True
 
@@ -1532,38 +1521,33 @@ def _python_answer(question: str, s: Session) -> str | None:
                     name_matches_all.append((m, src_label, header))
 
             if name_matches_all:
-                all_q1 = all(m["match_quality"] == 1 for (m, _, _) in name_matches_all)
+                # All results are exact token matches (quality 2 or 3)
+                # If multiple people found → disambiguation list
+                unique_names = []
+                for (m, slabel, _) in name_matches_all:
+                    fn = m["matched_cell"]
+                    if fn not in unique_names:
+                        unique_names.append(fn)
 
-                # quality=1 (ism-only weak match): always disambiguate, even 1 result
-                if all_q1:
-                    candidates_list = []
-                    for (m, slabel, _) in name_matches_all:
-                        full_name = m["matched_cell"]
-                        if full_name not in candidates_list:
-                            candidates_list.append(full_name)
-                    s.disambiguation_candidates = candidates_list
-                    s.disambiguation_question = question  # save original question
-                    if len(candidates_list) == 1:
-                        # Single weak match — ask to confirm
-                        lines = [
-                            f"🔍 <b>'{name.capitalize()}'</b> ismli o'quvchi topildi, lekin aniqlashtiring:\n",
-                            f"1. {candidates_list[0]}",
-                            "\n<i>To'g'ri bo'lsa «1» yozing, yoki to'liq familiya+ism yozing.</i>",
-                        ]
-                    else:
-                        lines = [f"🔍 <b>'{name.capitalize()}'</b> isimli bir nechta o'quvchi topildi:\n"]
-                        for i, cn in enumerate(candidates_list, 1):
-                            lines.append(f"{i}. {cn}")
-                        lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
+                if len(unique_names) > 1:
+                    # Multiple exact matches → show numbered list (backend-generated, no AI)
+                    s.disambiguation_candidates = unique_names
+                    s.disambiguation_question = question
+                    logger.info(f"[DISAMBIG] {len(unique_names)} exact matches for {name!r}: {unique_names}")
+                    lines = [f"🔍 <b>'{name.capitalize()}'</b> ismli bir nechta o'quvchi topildi:\n"]
+                    for idx, cn in enumerate(unique_names, 1):
+                        lines.append(f"{idx}. {cn}")
+                    lines.append("\n<i>Raqamini kiriting (masalan: 1)</i>")
                     return "\n".join(lines)
 
-                # quality>=2 — reliable match
+                # Single exact match → answer directly
                 for (m, src_label, header) in name_matches_all:
                     key = (m["row_index"], src_label)
                     if key in global_seen:
                         continue
                     global_seen.add(key)
                     found_this_name = True
+                    logger.info(f"[EXACT] uid match: {m['matched_cell']!r} from {src_label!r}")
                     answer_parts.append(
                         _format_person_answer(
                             m["matched_cell"], m["row"], header, src_label,
