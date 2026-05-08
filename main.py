@@ -1072,29 +1072,32 @@ async def chat(request: Request):
         selected = sess.get("__selected_student")
         if selected:
             q_lower = message.lower()
-            # Reset on explicit reset keywords
             reset_keywords = ["boshqa", "yangi", "reset", "qayta", "boshidan", "exit", "chiq"]
             explicit_reset = any(kw in q_lower for kw in reset_keywords)
 
-            # Auto-reset: if none of the selected student's name words appear in the question
-            # e.g. "kamera va ijaraga" has nothing to do with "Halimjonov Muhammad"
+            # Auto-reset ONLY when a DIFFERENT person's name tokens appear in the question.
+            # Pure follow-up questions ("algebradan ball", "kimyodan necha") have no name tokens
+            # → _extract_name_tokens returns [] → stay scoped.
+            # "kamera va ijara" also has no name tokens after STOP filter → BUT these are
+            # non-person keywords, so we also check: if no name tokens at all → stay scoped.
+            new_name_tokens = _extract_name_tokens(message)
             student_name_words = set(
                 w.lower() for w in re.split(r"[\s\-_]+", selected["name"])
                 if len(w) >= 3
             )
-            question_words = set(
-                _strip_suffix_simple(w) for w in re.split(r"[\s\-_.,!?\"'()[\]]+", message)
-                if len(w) >= 3
+            # Only release if new name tokens exist AND none match the current student
+            new_person_referenced = bool(new_name_tokens) and not any(
+                tok.lower() in student_name_words
+                for tok in new_name_tokens
             )
-            name_still_referenced = bool(student_name_words & question_words)
 
-            if explicit_reset or not name_still_referenced:
-                # Release scoped lock — treat as new question
+            if explicit_reset or new_person_referenced:
                 sess.pop("__selected_student", None)
                 sess.pop("__disambig_question", None)
                 session_save(uid, sess)
                 # Fall through to CASE B / AI
             else:
+                # Follow-up question about same student → scoped answer
                 answer = _answer_scoped(message, selected)
                 sess["chat_count"] = sess.get("chat_count", 0) + 1
                 session_save(uid, sess)
