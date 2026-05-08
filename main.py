@@ -1071,14 +1071,29 @@ async def chat(request: Request):
         # CASE A: selected student in session → scoped answer (no re-search)
         selected = sess.get("__selected_student")
         if selected:
-            # Check if this question is still about the selected student
-            # (reset if a different name appears or user says "boshqa"/"yangi")
             q_lower = message.lower()
+            # Reset on explicit reset keywords
             reset_keywords = ["boshqa", "yangi", "reset", "qayta", "boshidan", "exit", "chiq"]
-            if any(kw in q_lower for kw in reset_keywords):
+            explicit_reset = any(kw in q_lower for kw in reset_keywords)
+
+            # Auto-reset: if none of the selected student's name words appear in the question
+            # e.g. "kamera va ijaraga" has nothing to do with "Halimjonov Muhammad"
+            student_name_words = set(
+                w.lower() for w in re.split(r"[\s\-_]+", selected["name"])
+                if len(w) >= 3
+            )
+            question_words = set(
+                _strip_suffix_simple(w) for w in re.split(r"[\s\-_.,!?\"'()[\]]+", message)
+                if len(w) >= 3
+            )
+            name_still_referenced = bool(student_name_words & question_words)
+
+            if explicit_reset or not name_still_referenced:
+                # Release scoped lock — treat as new question
                 sess.pop("__selected_student", None)
                 sess.pop("__disambig_question", None)
                 session_save(uid, sess)
+                # Fall through to CASE B / AI
             else:
                 answer = _answer_scoped(message, selected)
                 sess["chat_count"] = sess.get("chat_count", 0) + 1
@@ -1118,14 +1133,23 @@ async def chat(request: Request):
                 "ask_rating": False,
             }
 
-        # CASE C: no person match — check if it's a person-type question
-        # If sources have name columns but no match → refuse (don't hallucinate)
+        # CASE C: no person match
+        # Only refuse if: person sources exist AND all sources are person-type
+        # If non-person sources also exist (e.g. expense sheet) → let AI handle it
         has_person_sources = any(
             _get_name_cols(list(s["preview"][0].keys()))
             for s in sess.get("sources", [])
             if not s.get("disabled") and s.get("preview")
         )
-        if has_person_sources and _extract_name_tokens(message):
+        has_non_person_sources = any(
+            not _get_name_cols(list(s["preview"][0].keys()))
+            for s in sess.get("sources", [])
+            if not s.get("disabled") and s.get("preview")
+        )
+        name_tokens = _extract_name_tokens(message)
+        # Only block if: has person sources, name tokens exist, but NO non-person sources
+        # e.g. "kamera va ijara" → has_non_person_sources=True → go to AI
+        if has_person_sources and name_tokens and not has_non_person_sources:
             logger.info(f"[NO_MATCH] uid={uid} query={message!r}")
             return {
                 "success": True,
@@ -1193,21 +1217,22 @@ MUTLAQ QOIDALAR — BUZISH QATIY MAN:
 
 [ENTITY QOIDASI]
 • Yuqoridagi jadvalda KO'RINMAGAN birorta ham ism, raqam yoki entity YOZMANG.
-• Agar jadvalda "Muhammad Aliyev" bo'lsa — faqat "Muhammad Aliyev" yozing.
-• "Muhammadali", "Muhammadrizo", "Muhammadjon" kabi BOSHQA ismlar HECH QACHON yozmang.
 • Ro'yxatni DAVOM ettirmang — faqat jadvaldagi qatorlarni ko'rsating.
 • O'xshash, taxminiy yoki "ehtimol shunday" degan entity — TAQIQLANGAN.
+
+[FORMAT QOIDASI]
+• Har bir element ALOHIDA qatorda ko'rsating.
+• Pul miqdorlarini: 1 000 000 yoki 1,000,000 ko'rinishida yozing.
+• Emoji ishlat: 💰 pul uchun, 📦 buyum uchun, 📊 statistika uchun.
+• Misol format:
+  💰 Ijara: 1,000,000 so'm
+  📦 Kamera: 300,000 so'm
+• Topilmasa → "❌ Ma'lumotlarda bu savol bo'yicha javob topilmadi."
 
 [JAVOB QOIDASI]
 • Faqat jadvaldagi ANIQ QIYMATLARNI qaytaring — hech narsani o'zingizdan qo'shmang.
 • "Ehtimol", "taxminan", "odatda", "menimcha", "va boshqalar", "..." — TAQIQLANGAN.
-• Javob faqat jadval ichidagi ma'lumotga asoslansin.
-• Topilmasa → "❌ Ma'lumotlarda bu savol bo'yicha javob topilmadi."
-
-[MISOL — TO'G'RI]
-Jadvalda: "Karimov Jasur" bor → Javob: "Karimov Jasur"
-[MISOL — NOTO'G'RI]
-Jadvalda: "Karimov Jasur" bor → Javob: "Karimov Jasur, Karimov Jamshid, ..." ← BU XATO"""
+• Jadval ichidagi ma'lumotga asoslansin."""
     else:
         # ── NO DATA MODE: no files, no web — refuse clearly
         system = f"""Siz OnBrain AI.
