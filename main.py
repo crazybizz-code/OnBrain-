@@ -347,11 +347,29 @@ def _extract_name_tokens(question: str) -> List[str]:
                 tokens.append(cl)
     return tokens
 
+def _looks_like_person_query(question: str, tokens: List[str]) -> bool:
+    """Return True when free text is probably asking about a student/person row."""
+    if not tokens:
+        return False
+    q = question.lower()
+    person_hints = {
+        "ball", "balli", "ballari", "baho", "bahosi", "score", "natija",
+        "umumiy", "jami", "fanidan", "fani", "fandan", "sinf", "class",
+        "o'quvchi", "oquvchi", "talaba", "student",
+    }
+    if any(h in q for h in person_hints):
+        return True
+    if any(any(kw in q for kw in kws) for kws in _SUBJECTS.values()):
+        return True
+    # Uzbek/Russian-style surname suffixes are a strong person signal.
+    surname_suffixes = ("ov", "ev", "yev", "ova", "eva", "yeva", "in", "ina", "skiy", "sky", "zoda")
+    return any(t.lower().endswith(surname_suffixes) for t in tokens)
+
 def _row_matches_name_tokens(row: Dict, name_cols: List[str], tokens: List[str]) -> Optional[str]:
     """
-    Returns the matched full name string if ANY token exactly matches
-    a word inside a name-column cell. Otherwise None.
-    ONLY searches name columns — NOT arbitrary text fields.
+    Returns the matched full name string if query tokens match a name-column cell.
+    For full-name queries (2+ tokens), all tokens must be in the same name cell.
+    ONLY searches name columns - NOT arbitrary text fields.
     """
     for nc in name_cols:
         cell = str(row.get(nc, "")).strip()
@@ -359,10 +377,13 @@ def _row_matches_name_tokens(row: Dict, name_cols: List[str], tokens: List[str])
             continue
         cell_words = re.split(r"[\s\-_]+", cell.lower())
         cell_words_stripped = [_strip_suffix_simple(w) for w in cell_words]
+        matched = 0
         for tok in tokens:
             tok_l = tok.lower()
             if tok_l in cell_words or tok_l in cell_words_stripped:
-                return cell  # return original casing
+                matched += 1
+        if (len(tokens) >= 2 and matched == len(tokens)) or (len(tokens) == 1 and matched == 1):
+            return cell  # return original casing
     return None
 
 def _answer_for_row(row: Dict, header: List[str], name: str, src_name: str, question: str) -> str:
@@ -651,14 +672,49 @@ def _answer_scoped(question: str, selected: Dict) -> str:
     return header_line + "\n\n".join(results)
 
 # ── Google Sheets URL → CSV URL ───────────────────────────
-def sheets_to_csv_url(url: str) -> Optional[str]:
+def _extract_sheet_id(url: str) -> Optional[str]:
     m = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', url)
     if not m:
         return None
-    sid = m.group(1)
+    return m.group(1)
+
+def _csv_url_for_gid(sheet_id: str, gid: str) -> str:
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+
+def sheets_to_csv_url(url: str) -> Optional[str]:
+    sid = _extract_sheet_id(url)
+    if not sid:
+        return None
     gid_m = re.search(r'[?&#]gid=(\d+)', url)
     gid = gid_m.group(1) if gid_m else "0"
-    return f"https://docs.google.com/spreadsheets/d/{sid}/export?format=csv&gid={gid}"
+    return _csv_url_for_gid(sid, gid)
+
+async def _sheet_csv_urls(client: httpx.AsyncClient, url: str) -> List[str]:
+    """Best-effort discovery of public Google Sheets tabs by gid."""
+    sid = _extract_sheet_id(url)
+    if not sid:
+        return []
+
+    gids: List[str] = []
+    gid_m = re.search(r'[?&#]gid=(\d+)', url)
+    if gid_m:
+        gids.append(gid_m.group(1))
+
+    try:
+        html_resp = await client.get(f"https://docs.google.com/spreadsheets/d/{sid}/edit")
+        if html_resp.status_code == 200:
+            html = html_resp.text
+            discovered = re.findall(r'"gid"\s*:\s*(\d+)', html)
+            discovered += re.findall(r'[#&?]gid=(\d+)', html)
+            for gid in discovered:
+                if gid not in gids:
+                    gids.append(gid)
+    except Exception as e:
+        logger.warning(f"Sheets tab discovery failed: {e}")
+
+    if not gids:
+        gids.append("0")
+    return [_csv_url_for_gid(sid, gid) for gid in gids[:20]]
 
 # ═════════════════ ENDPOINTS ════════════════════════════
 
@@ -943,35 +999,49 @@ async def connect_sheets(request: Request):
     if not url:
         raise HTTPException(400, "URL kiriting")
 
-    csv_url = sheets_to_csv_url(url)
-    if not csv_url:
+    if not sheets_to_csv_url(url):
         raise HTTPException(400, "Noto'g'ri Google Sheets URL. Havola /spreadsheets/d/... ko'rinishida bo'lishi kerak")
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            resp = await client.get(csv_url)
-
-        if resp.status_code == 403:
-            raise HTTPException(400,
-                "Kirish rad etildi. Faylni 'Hamma ko'rishi mumkin' qilib ulashing: "
-                "Share → Anyone with the link → Viewer → Copy link")
-        if resp.status_code != 200:
-            raise HTTPException(400, f"Google Sheets ochilmadi (HTTP {resp.status_code})")
-
-        lines = list(csv.reader(io.StringIO(resp.text)))
-        if len(lines) < 2:
-            raise HTTPException(400, "Jadval bo'sh")
-
-        header = [c.strip() or f"Col{i+1}" for i, c in enumerate(lines[0])]
         rows = []
-        for line in lines[1:]:
-            if any(c.strip() for c in line):
-                rows.append({header[i]: (line[i] if i < len(line) else "") for i in range(len(header))})
+        total_tabs = 0
+        header = []
+        first_csv_url = ""
+        last_status = 0
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            for idx, csv_url in enumerate(await _sheet_csv_urls(client, url), 1):
+                if not first_csv_url:
+                    first_csv_url = csv_url
+                resp = await client.get(csv_url)
+                last_status = resp.status_code
+                if resp.status_code == 403:
+                    raise HTTPException(400,
+                        "Kirish rad etildi. Faylni 'Hamma ko'rishi mumkin' qilib ulashing: "
+                        "Share → Anyone with the link → Viewer → Copy link")
+                if resp.status_code != 200:
+                    continue
+
+                lines = list(csv.reader(io.StringIO(resp.text)))
+                if len(lines) < 2:
+                    continue
+
+                header = [c.strip() or f"Col{i+1}" for i, c in enumerate(lines[0])]
+                tab_rows = []
+                for line in lines[1:]:
+                    if any(c.strip() for c in line):
+                        tab_rows.append({header[i]: (line[i] if i < len(line) else "") for i in range(len(header))})
+                if tab_rows:
+                    total_tabs += 1
+                    for row in tab_rows:
+                        row.setdefault("__tab", f"Tab {idx}")
+                    rows.extend(tab_rows)
 
         if not rows:
+            if last_status:
+                raise HTTPException(400, f"Google Sheets ochilmadi yoki bo'sh (HTTP {last_status})")
             raise HTTPException(400, "Jadvaldagi ma'lumotlar topilmadi")
 
-        source_name = f"Google Sheets ({len(rows)} qator)"
+        source_name = f"Google Sheets ({len(rows)} qator, {total_tabs} tab)"
 
         sess = session_get(uid)
         sess["sources"] = [s for s in sess["sources"] if s.get("url") != url]
@@ -981,7 +1051,7 @@ async def connect_sheets(request: Request):
             "rows": len(rows),
             "tabs": header[:5],
             "url": url,
-            "csv_url": csv_url,
+            "csv_url": first_csv_url,
             "preview": rows,
             "disabled": False
         })
@@ -1141,22 +1211,15 @@ async def chat(request: Request):
             }
 
         # CASE C: no person match
-        # Only refuse if: person sources exist AND all sources are person-type
-        # If non-person sources also exist (e.g. expense sheet) → let AI handle it
+        # If a question contains person-like tokens and we have person sources,
+        # never let AI guess from nearby/non-person rows.
         has_person_sources = any(
             _get_name_cols(list(s["preview"][0].keys()))
             for s in sess.get("sources", [])
             if not s.get("disabled") and s.get("preview")
         )
-        has_non_person_sources = any(
-            not _get_name_cols(list(s["preview"][0].keys()))
-            for s in sess.get("sources", [])
-            if not s.get("disabled") and s.get("preview")
-        )
         name_tokens = _extract_name_tokens(message)
-        # Only block if: has person sources, name tokens exist, but NO non-person sources
-        # e.g. "kamera va ijara" → has_non_person_sources=True → go to AI
-        if has_person_sources and name_tokens and not has_non_person_sources:
+        if has_person_sources and _looks_like_person_query(message, name_tokens):
             logger.info(f"[NO_MATCH] uid={uid} query={message!r}")
             return {
                 "success": True,

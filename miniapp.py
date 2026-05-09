@@ -359,13 +359,9 @@ async def chat(req: ChatRequest):
             logger.warning(f"python_answer error uid={uid}: {e}")
 
         if py_ans is not None:
-            # If python search returned "not found" and we have sources + AI key, ask AI instead
-            _not_found_phrases = ["topilmadi", "not found", "не найден", "bazasida topilmadi"]
-            _is_not_found = any(p in (py_ans or "").lower() for p in _not_found_phrases)
-            if _is_not_found and sess.sources and config and config.grok_key:
-                pass  # fall through to AI
-            else:
-                return {"success": True, "answer": py_ans, "source": "python"}
+            # Python lookup is authoritative for person searches. If it says
+            # "topilmadi", do not ask AI to guess a person from nearby rows.
+            return {"success": True, "answer": py_ans, "source": "python"}
 
         # 2. No data → ask user to upload
         if not sess.sources:
