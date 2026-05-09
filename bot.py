@@ -101,9 +101,9 @@ def supa_is_registered(uid: int) -> bool:
         logging.getLogger("onbrain").info(f"Supabase check uid={uid} not found in DB")
         return False
     except Exception as e:
-        # Fail-open: on any error assume registered to avoid re-asking every restart
-        logging.getLogger("onbrain").error(f"Supabase check ERROR uid={uid}: {type(e).__name__}: {e} — assuming registered")
-        return True
+        # Fail-closed: on any error show registration (safer than skipping it)
+        logging.getLogger("onbrain").error(f"Supabase check ERROR uid={uid}: {type(e).__name__}: {e} — showing registration")
+        return False
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
