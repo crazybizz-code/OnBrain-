@@ -1055,7 +1055,7 @@ def _classify_name_type(word: str) -> str:
     for m in ota_markers:
         if w.endswith(m):
             return "ota"
-    return "ism"
+    return "unknown"
 
 
 def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
@@ -1495,14 +1495,31 @@ def _python_answer(question: str, s: Session) -> str | None:
                     )
                 )
 
-    # ── AND search was attempted but found nothing
-    # → do NOT fall back to OR (user gave full name → wrong partials are misleading)
+    # ── AND search was attempted but found nothing → OR fallback bilan qayta qidir
     if and_search_done and not answer_parts:
-        searched = " ".join(c.capitalize() for c in person_like_candidates)
-        return (
-            f"❌ <b>{searched}</b> — ma'lumotlar bazasida topilmadi.\n\n"
-            "💡 Familiya yoki to'liq ism bilan qayta yozing."
-        )
+        # OR fallback: har bir candidate alohida qidiriladi
+        for name in person_like_candidates:
+            for (rows, header, src_label) in source_datasets:
+                data_rows = rows[1:]
+                matches = _search_person(data_rows, header, name)
+                for m in matches:
+                    key = (m["row_index"], src_label)
+                    if key in global_seen:
+                        continue
+                    global_seen.add(key)
+                    answer_parts.append(
+                        _format_person_answer(
+                            m["matched_cell"], m["row"], header, src_label,
+                            is_avg, is_max, is_min, question=question,
+                        )
+                    )
+        # Agar OR fallback ham hech narsa topmasa — faqat shunda "topilmadi" chiqar
+        if not answer_parts:
+            searched = " ".join(c.capitalize() for c in person_like_candidates)
+            return (
+                f"❌ <b>{searched}</b> — ma'lumotlar bazasida topilmadi.\n\n"
+                "💡 Familiya yoki to'liq ism bilan qayta yozing."
+            )
 
     # ── OR search (single-word name queries)
     if not answer_parts:
