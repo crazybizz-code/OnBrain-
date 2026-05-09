@@ -1607,6 +1607,97 @@ def _python_answer(question: str, s: Session) -> str | None:
     return None
 
 
+def _get_person_candidates_from_question(question: str) -> list:
+    """Savol matnidan odam ismi bo'lishi mumkin bo'lgan so'zlarni ajratib oladi (ma'lumot qidirmaydi)."""
+    _stop = {
+        "va", "bilan", "uchun", "ning", "ni", "ga", "da", "dan", "nechchi", "necchi",
+        "umumiy", "ball", "balli", "ballari", "baho", "jami", "hammasi",
+        "qancha", "nechta", "nima", "qaysi", "natijasi", "hisobi", "yigindisi",
+        "algebra", "geometriya", "fizika", "kimyo", "biologiya", "tarix",
+        "ingliz", "rus", "matematika", "informatika", "adabiyot", "geografiya",
+        "ona", "tili", "fanidan", "fani", "fandan", "faniga", "fanlar",
+        "olgan", "olgani", "qilgan", "bergan", "topgan", "yozgan",
+        "sarflandi", "sarflangan", "sarflagan", "sotildi", "sotilgan",
+        "xarajat", "xarajatlar", "tushum", "daromad", "miqdori",
+        "uning", "uniki", "ularning", "sizning", "mening",
+        "necha", "qanday", "nomi", "nomini",
+        "and", "or", "for", "the", "of", "is", "are", "what", "how",
+        "и", "или", "для", "с", "в", "на", "по", "что", "как",
+    }
+    _non_person = {
+        "kamera", "telefon", "pul", "narx", "xarajat", "sarflangan", "ketgan",
+        "tovar", "mahsulot", "buyurtma", "sana", "raqam", "vaqt", "kun", "oy", "yil",
+        "price", "cost", "money", "time", "date", "number", "total", "sum", "amount",
+        "model", "marka", "kompyuter", "noutbuk", "printer", "mashina", "avto",
+        "algebra", "geometriya", "matematika", "fizika", "kimyo", "biologiya",
+        "tarix", "geografiya", "adabiyot", "ingliz", "rus", "ona", "tili",
+        "informatika", "texnologiya", "sport", "musiqa", "fan", "fani", "fanidan",
+        "ijara", "arenda", "soliq", "nalog",
+    }
+    words = [w.strip(".,!?\"'()[]") for w in question.split()]
+    candidates: list = []
+    for w in words:
+        c = _strip_suffix(w)
+        cl = c.lower()
+        if len(c) >= 3 and not c.isdigit() and cl not in _stop and cl not in _non_person:
+            if cl not in [x.lower() for x in candidates]:
+                candidates.append(c)
+    return candidates
+
+
+def _build_slim_context(sess: "Session", question: str) -> str:
+    """Grok uchun kontekst: faqat header + savol kalit so'zlari bor qatorlar (max 50 qator/sheet).
+    Agar hech narsa topilmasa — to'liq kontekst qaytariladi."""
+    kws = [w.lower().strip(".,!?\"'()[]") for w in question.split() if len(w) >= 3]
+
+    def _row_relevant(row: list) -> bool:
+        row_text = " ".join(str(c).lower() for c in row)
+        return any(kw in row_text for kw in kws)
+
+    parts: list = []
+
+    if sess.sources:
+        for src in sess.sources:
+            label = src.get("source_name", "Manba")
+            stype = src.get("source_type", "")
+            data = src.get("data")
+            parts.append(f"\n=== {label} [{stype}] ===")
+            if isinstance(data, list) and data:
+                header = data[0]
+                relevant = [r for r in data[1:] if _row_relevant(r)]
+                slim = [header] + relevant[:50]
+                parts.append(_rows_to_text(slim))
+            elif isinstance(data, dict):
+                for title, rows in data.items():
+                    if isinstance(rows, list) and rows:
+                        header = rows[0]
+                        relevant = [r for r in rows[1:] if _row_relevant(r)]
+                        slim = [header] + relevant[:50]
+                        parts.append(f"--- {title} ---\n{_rows_to_text(slim)}")
+
+    if not parts:
+        # legacy fallback
+        if sess.sheets_data:
+            for title, rows in sess.sheets_data.items():
+                if isinstance(rows, list) and rows:
+                    header = rows[0]
+                    relevant = [r for r in rows[1:] if _row_relevant(r)]
+                    slim = [header] + relevant[:50]
+                    parts.append(f"--- {title} ---\n{_rows_to_text(slim)}")
+        elif sess.excel_data:
+            data = sess.excel_data
+            header = data[0] if data else []
+            relevant = [r for r in data[1:] if _row_relevant(r)]
+            slim = [header] + relevant[:50]
+            parts.append(_rows_to_text(slim))
+
+    if not parts:
+        return build_context(sess)  # fallback to full
+
+    ctx = "\n".join(parts)
+    return ctx[:MAX_CHARS]
+
+
 def build_context(s: Session) -> str:
     parts = []
     # Multi-source
@@ -3000,20 +3091,38 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             logger.warning(f"python_answer error: {e}")
             py_ans = None
 
+        # CASE A: Python topdi → javob ber, Grok chaqirma
         if py_ans is not None:
             logger.info(f"Python answered uid={uid}")
             await msg.answer(py_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
             return
 
-        # 3. AI answer (no web search)
+        # CASE B: Python None qaytardi — ism qidiruvi bo'lganmi tekshir
+        # Agar savol ism qidiruvi bo'lsa va Python None qaytarsa →
+        # ma'lumot topilmadi, Grok chaqirmasdan "topilmadi" xabarini ber
+        if not sess.web_search:
+            _person_cands = _get_person_candidates_from_question(question)
+            if _person_cands:
+                logger.info(f"Person query, py_ans=None → topilmadi (no Grok) uid={uid} cands={_person_cands}")
+                searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in _person_cands[:3])
+                await msg.answer(
+                    f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n"
+                    "💡 Familiya yoki to'liq ism bilan qayta yozing.",
+                    parse_mode="HTML",
+                    reply_markup=kb_chat(lang),
+                )
+                return
+
+        # CASE C: Odam emas, tahlil/hisoblash savoli → Grok'ka yubor
+        # Lekin butun jadvalni emas — faqat savol bilan bog'liq qatorlarni yubor
         if not config.grok_key:
             ctx = build_context(sess)
             await msg.answer(f"⚠️ AI sozlanmagan.\n\n{ctx[:2000]}", parse_mode=None, reply_markup=kb_chat(lang))
             return
 
         status = await msg.answer(t(lang, "thinking"))
-        ctx = build_context(sess)
-        logger.info(f"Context uid={uid}: {len(ctx)} chars")
+        ctx = _build_slim_context(sess, question)  # slim: faqat mos qatorlar
+        logger.info(f"Slim context uid={uid}: {len(ctx)} chars (full was {len(build_context(sess))})")
 
         if not ctx.strip():
             await status.edit_text(t(lang, "no_data"))
