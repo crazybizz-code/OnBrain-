@@ -1105,15 +1105,9 @@ def _search_person(data_rows: list, header: list, name_q: str) -> list[dict]:
                     is_name_col = j in name_col_indices
                     matched = False
                     if is_name_col:
-                        # Familiya → pos 0, Ism → pos 1, Otasining ismi → pos 2+
-                        if name_type == "familiya" and pos == 0:
-                            matched = True
-                        elif name_type == "ism" and pos == 1:
-                            matched = True
-                        elif name_type == "ota" and pos >= 2:
-                            matched = True
-                        elif name_type == "unknown":
-                            matched = True  # Allow any position if type unknown
+                        # Pozitsiyadan qat'iy nazar — token topilsa matched = True
+                        # (Chunki Excel'da ism/familiya tartibi har xil bo'lishi mumkin)
+                        matched = True
                     else:
                         matched = True
                     if matched and match_quality < 2:
@@ -1405,7 +1399,8 @@ def _python_answer(question: str, s: Session) -> str | None:
         "this student", "that student", "он", "она", "этот", "тот",
     }
     q_stripped = q.strip()
-    has_pronoun = any(pr in q_stripped for pr in PRONOUNS)
+    _q_words = set(q_stripped.lower().split())
+    has_pronoun = any(pr in _q_words for pr in PRONOUNS)
 
     # "person-like" = candidate not in non_person_indicators and not a pure number
     person_like_candidates = [c for c in name_candidates if c.lower() not in non_person_indicators]
