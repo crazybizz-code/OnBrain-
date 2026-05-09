@@ -91,7 +91,7 @@ def supa_upsert_user(uid: int, telegram_username: str, full_name: str, phone: st
 def supa_is_registered(uid: int) -> bool:
     """Check if user has completed registration (has phone in Supabase)."""
     if not _supa:
-        return True   # Supabase not configured → skip registration gate
+        return False  # Supabase not configured → fall back to local SQLite check only
     try:
         res = _supa.table("users").select("phone").eq("telegram_id", uid).execute()
         if res.data:
@@ -1261,13 +1261,30 @@ def _python_answer(question: str, s: Session) -> str | None:
             src_name = src.get("source_name", "Manba")
             if isinstance(data, list) and len(data) >= 2:
                 # Excel — flat list of rows
-                source_datasets.append((data, data[0], src_name))
+                excel_header = data[0]
+                has_name_col = any(
+                    any(w in str(h).strip().lower()
+                        for w in ["f.i.o", "fio", "ism", "name", "ф.и.о",
+                                  "фио", "имя", "familiya", "fish", "o'quvchi"])
+                    for h in excel_header
+                )
+                if has_name_col:
+                    source_datasets.append((data, data[0], src_name))
             elif isinstance(data, dict):
                 # Google Sheets — dict of {tab_name: [rows]}
                 for tab_name, tab_rows in data.items():
                     if isinstance(tab_rows, list) and len(tab_rows) >= 2:
                         label = f"{src_name} › {tab_name}" if len(data) > 1 else src_name
-                        source_datasets.append((tab_rows, tab_rows[0], label))
+                        # Faqat ism/F.I.O ustuni bor jadvallarda odam qidirish
+                        tab_header = tab_rows[0]
+                        has_name_col = any(
+                            any(w in str(h).strip().lower()
+                                for w in ["f.i.o", "fio", "ism", "name", "ф.и.о",
+                                          "фио", "имя", "familiya", "fish", "o'quvchi"])
+                            for h in tab_header
+                        )
+                        if has_name_col:
+                            source_datasets.append((tab_rows, tab_rows[0], label))
 
     # Fallback legacy
     if not source_datasets:
@@ -1497,7 +1514,9 @@ def _python_answer(question: str, s: Session) -> str | None:
 
     # ── AND search was attempted but found nothing → OR fallback bilan qayta qidir
     if and_search_done and not answer_parts:
-        # OR fallback: har bir candidate alohida qidiriladi
+        # OR fallback: har bir candidate alohida qidiriladi, lekin noto'g'ri
+        # partial javob bermaslik uchun avval unique matchlarni yig'amiz.
+        fallback_matches: list[tuple[dict, str, list]] = []
         for name in person_like_candidates:
             for (rows, header, src_label) in source_datasets:
                 data_rows = rows[1:]
@@ -1507,15 +1526,32 @@ def _python_answer(question: str, s: Session) -> str | None:
                     if key in global_seen:
                         continue
                     global_seen.add(key)
-                    answer_parts.append(
-                        _format_person_answer(
-                            m["matched_cell"], m["row"], header, src_label,
-                            is_avg, is_max, is_min, question=question,
-                        )
-                    )
+                    fallback_matches.append((m, src_label, header))
+
+        unique_names = []
+        for (m, _, _) in fallback_matches:
+            fn = m["matched_cell"]
+            if fn not in unique_names:
+                unique_names.append(fn)
+
+        searched = " ".join(c.capitalize() for c in person_like_candidates)
+
+        if unique_names:
+            logger.info(f"[NO_PARTIAL] AND failed for {searched!r}; OR fallback candidates suppressed: {unique_names}")
+            return (
+                f"❌ <b>{searched}</b> — ma'lumotlar bazasida topilmadi.\n\n"
+                "💡 Familiya yoki to'liq ism bilan qayta yozing."
+            )
+
+        for (m, src_label, header) in fallback_matches:
+            answer_parts.append(
+                _format_person_answer(
+                    m["matched_cell"], m["row"], header, src_label,
+                    is_avg, is_max, is_min, question=question,
+                )
+            )
         # Agar OR fallback ham hech narsa topmasa — faqat shunda "topilmadi" chiqar
         if not answer_parts:
-            searched = " ".join(c.capitalize() for c in person_like_candidates)
             return (
                 f"❌ <b>{searched}</b> — ma'lumotlar bazasida topilmadi.\n\n"
                 "💡 Familiya yoki to'liq ism bilan qayta yozing."
@@ -1661,19 +1697,22 @@ def _build_slim_context(sess: "Session", question: str) -> str:
             label = src.get("source_name", "Manba")
             stype = src.get("source_type", "")
             data = src.get("data")
-            parts.append(f"\n=== {label} [{stype}] ===")
             if isinstance(data, list) and data:
                 header = data[0]
                 relevant = [r for r in data[1:] if _row_relevant(r)]
-                slim = [header] + relevant[:50]
-                parts.append(_rows_to_text(slim))
+                if relevant:
+                    slim = [header] + relevant[:50]
+                    parts.append(f"\n=== {label} [{stype}] ===")
+                    parts.append(_rows_to_text(slim))
             elif isinstance(data, dict):
                 for title, rows in data.items():
                     if isinstance(rows, list) and rows:
                         header = rows[0]
                         relevant = [r for r in rows[1:] if _row_relevant(r)]
-                        slim = [header] + relevant[:50]
-                        parts.append(f"--- {title} ---\n{_rows_to_text(slim)}")
+                        if relevant:
+                            slim = [header] + relevant[:50]
+                            parts.append(f"\n=== {label} [{stype}] ===")
+                            parts.append(f"--- {title} ---\n{_rows_to_text(slim)}")
 
     if not parts:
         # legacy fallback
@@ -1747,8 +1786,10 @@ GROK_SYSTEM = (
     "3. Har bir shaxs uchun alohida javob ber.\n"
     "4. Ball so'ralganda: jadvalda 'Umumiy ball' ustuni bo'lsa — o'sha qiymatni ber.\n"
     "5. Ma'lumot topilmasa boshqa ism bilan almashtirma.\n"
-    "6. {lang_rule}\n"
-    "7. Javob qisqa va aniq bo'lsin."
+    "6. Jadvalda aniq ko'rinmagan ism, raqam yoki faktni yozma.\n"
+    "7. Agar javob uchun yetarli ma'lumot bo'lmasa, qisqa qilib 'topilmadi' de.\n"
+    "8. {lang_rule}\n"
+    "9. Javob qisqa va aniq bo'lsin."
 )
 
 TRANSLATE_SYSTEM = (
