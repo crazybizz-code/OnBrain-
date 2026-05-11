@@ -1217,6 +1217,12 @@ def _format_person_answer(person: str, row: list, header: list, src_label: str,
 
     total, details = _sum_numeric(row, header)
 
+    # If there's a dedicated "Umumiy ball" column AND question asks for it → show directly
+    # (takes priority over is_max/is_min/is_avg to avoid false-positive keyword matches)
+    _umumiy_kw = ["umumiy", "jami", "total", "итого", "общий", "ball", "balli", "score", "natija"]
+    if direct_val is not None and any(kw in q_lower for kw in _umumiy_kw) and not is_avg:
+        return f"👤 <b>{person}</b>\n🏆 {direct_col}: <b>{direct_val:.2f}</b>{src_tag}"
+
     if is_avg and details:
         avg = total / len(details)
         return f"👤 <b>{person}</b>\n📊 O'rtacha: <b>{avg:.2f}</b>{src_tag}"
@@ -1457,9 +1463,12 @@ def _python_answer(question: str, s: Session) -> str | None:
     if not is_query and not person_like_candidates:
         return None
 
-    is_avg = any(w in q for w in ["o'rtacha", "ortacha", "average", "средний", "avg"])
-    is_max = any(w in q for w in ["eng yuqori", "maksimal", "max", "maximum", "максимальный"])
-    is_min = any(w in q for w in ["eng past", "minimal", "min", "minimum", "минимальный"])
+    _q_tokens = set(q.split())
+    is_avg = any(w in _q_tokens for w in ["o'rtacha", "ortacha", "average", "средний", "avg"])
+    is_max = (any(w in _q_tokens for w in ["maksimal", "max", "maximum", "максимальный"])
+              or "eng yuqori" in q)
+    is_min = (any(w in _q_tokens for w in ["minimal", "min", "minimum", "минимальный"])
+              or "eng past" in q)
 
     # ── Search strategy:
     # If person_like_candidates has 2+ parts (e.g. ["Mirzayev", "Hasanboy"]),
