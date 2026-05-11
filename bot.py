@@ -1428,9 +1428,10 @@ def _python_answer(question: str, s: Session) -> str | None:
         logger.debug(f"[MEMORY] cleared — new person query: {person_like_candidates}")
 
     # Inject memory ONLY on explicit pronoun AND no person name in query
+    # Also inject on follow-up subject/score queries (is_query=True) with no name
     should_inject_memory = (
         s.last_found_names
-        and has_pronoun
+        and (has_pronoun or is_query)
         and len(person_like_candidates) == 0
     )
     if should_inject_memory:
