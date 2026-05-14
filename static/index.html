@@ -105,7 +105,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .powered a{color:var(--p2);font-weight:600;text-decoration:none}
 
 /* ══ RESPONSIVE ═══════════════════════════════════════════ */
-/* Desktop / Laptop */
 @media(min-width:768px){
   #pgWelcome{padding:60px 48px;gap:0}
   .logo-wrap{width:140px;height:140px;margin-bottom:36px}
@@ -118,8 +117,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
   .btn-start{max-width:380px;font-size:18px;padding:19px 32px;border-radius:20px}
   .powered{margin-top:30px;font-size:12px}
 }
-
-/* Wide desktop */
 @media(min-width:1200px){
   #pgWelcome{flex-direction:row;justify-content:center;align-items:center;gap:80px;text-align:left;padding:0 80px}
   .welcome-left{display:flex;flex-direction:column;align-items:center}
@@ -130,8 +127,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
   .btn-start{align-self:flex-start}
   .powered{align-self:flex-start}
 }
-
-/* Small phone */
 @media(max-width:360px){
   #pgWelcome{padding:28px 20px}
   .logo-wrap{width:90px;height:90px;margin-bottom:22px}
@@ -144,47 +139,34 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 
 /* ══ DASHBOARD PAGE ═══════════════════════════════════════ */
 #pgData{background:var(--bg)}
-
-/* Top header */
 .dh{padding:14px 16px 12px;background:rgba(10,10,15,.96);backdrop-filter:blur(24px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
 .dh-back{width:34px;height:34px;border-radius:10px;background:var(--card);border:1px solid var(--border);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;flex-shrink:0;transition:border-color .2s}
 .dh-back:hover{border-color:var(--p2)}
 .dh-title{font-size:16px;font-weight:700}
 .dh-sub{font-size:11px;color:var(--muted);margin-top:1px}
-
-/* Scrollable body */
 .dash-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
 .dash-body::-webkit-scrollbar{width:3px}
 .dash-body::-webkit-scrollbar-thumb{background:var(--dim);border-radius:2px}
-
-/* Section card */
 .dcard{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden;transition:border-color .2s}
 .dcard:hover{border-color:rgba(124,58,237,.2)}
-
 .dcard-head{padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer}
 .dcard-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
 .dcard-icon.green{background:rgba(16,185,129,.12)}
 .dcard-icon.purple{background:rgba(124,58,237,.12)}
 .dcard-icon.blue{background:rgba(59,130,246,.12)}
 .dcard-icon.orange{background:rgba(245,158,11,.12)}
-
 .dcard-label{font-size:14px;font-weight:600;flex:1}
 .dcard-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:.3px}
 .dcard-badge.on{background:rgba(16,185,129,.15);color:var(--ok);border:1px solid rgba(16,185,129,.25)}
 .dcard-badge.off{background:var(--card2);color:var(--muted);border:1px solid var(--border)}
 .dcard-badge.count{background:rgba(124,58,237,.15);color:var(--p2);border:1px solid rgba(124,58,237,.2)}
-
 .dcard-body{padding:0 16px 16px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--border)}
-
-/* Upload zone */
 .upload-zone{border:1.5px dashed var(--border);border-radius:12px;padding:22px 16px;text-align:center;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:8px}
 .upload-zone:hover,.upload-zone.drag{border-color:var(--p);background:rgba(124,58,237,.05)}
 .uz-emoji{font-size:28px;line-height:1}
 .uz-text{font-size:14px;font-weight:500;color:var(--muted)}
 .uz-hint{font-size:11px;color:var(--dim)}
 #fileInput{display:none}
-
-/* Input row */
 .irow{display:flex;gap:8px}
 .txt-input{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:11px 14px;color:var(--text);font-size:13.5px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s}
 .txt-input:focus{border-color:rgba(124,58,237,.5)}
@@ -192,8 +174,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .btn-sm{height:42px;padding:0 14px;border:none;border-radius:12px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:all .15s;white-space:nowrap}
 .btn-sm.primary{background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;box-shadow:0 2px 12px rgba(124,58,237,.35)}
 .btn-sm.primary:hover{box-shadow:0 4px 18px rgba(124,58,237,.5)}
-
-/* Toggle switch */
 .toggle-row{display:flex;align-items:center;gap:10px;padding:4px 0}
 .toggle-label{flex:1;font-size:13.5px;color:var(--muted)}
 .toggle-wrap{position:relative;width:44px;height:24px;flex-shrink:0}
@@ -202,8 +182,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .toggle-track::after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .toggle-wrap input:checked+.toggle-track{background:var(--p)}
 .toggle-wrap input:checked+.toggle-track::after{transform:translateX(20px)}
-
-/* Source list */
 .src-item{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
 .src-item:last-child{border-bottom:none;padding-bottom:0}
 .src-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -217,18 +195,13 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .src-btn.toggle-src{font-size:11px;width:auto;padding:0 8px;font-weight:600;font-family:'Inter',sans-serif}
 .src-btn.toggle-src.on{border-color:rgba(16,185,129,.4);color:var(--ok)}
 .src-btn.toggle-src.off{color:var(--muted)}
-
-/* Help FAQ */
 .faq-item{padding:10px 0;border-bottom:1px solid var(--border)}
 .faq-item:last-child{border-bottom:none;padding-bottom:0}
 .faq-q{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
 .faq-a{font-size:12.5px;color:var(--muted);line-height:1.6}
-
-/* Bottom action */
 .btn-go{padding:14px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:14px;color:#fff;font-size:15px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;width:100%;box-shadow:0 4px 22px rgba(124,58,237,.4);transition:transform .15s}
 .btn-go:active{transform:scale(.98)}
 .btn-go:disabled{opacity:.4;cursor:not-allowed}
-
 .empty-sources{text-align:center;padding:18px;color:var(--muted);font-size:13px;font-style:italic}
 
 /* ══ CHAT PAGE ════════════════════════════════════════════ */
@@ -243,11 +216,9 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .cnone{font-size:11px;color:var(--dim)}
 .btn-add{background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--muted);padding:6px 10px;font-size:12px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:all .15s}
 .btn-add:hover{border-color:var(--p2);color:var(--p2)}
-
 .messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:11px}
 .messages::-webkit-scrollbar{width:3px}
 .messages::-webkit-scrollbar-thumb{background:var(--dim);border-radius:2px}
-
 .msg{display:flex;animation:min .2s ease}
 @keyframes min{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 .msg.user{justify-content:flex-end}
@@ -258,17 +229,14 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .disambig-btn{background:var(--card);border:1px solid var(--p);color:var(--p);padding:8px 12px;border-radius:10px;cursor:pointer;text-align:left;font-size:13px;transition:all .2s}
 .disambig-btn:hover{background:var(--p);color:#fff}
 .bubble b{font-weight:700}
-
 .typing{display:flex;gap:4px;padding:3px 0;align-items:center}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--p2);animation:db 1.3s infinite}
 .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
 @keyframes db{0%,80%,100%{transform:scale(.55);opacity:.35}40%{transform:scale(1);opacity:1}}
-
 .empty-chat{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;gap:10px}
 .empty-chat-icon{width:64px;height:64px;border-radius:20px;background:var(--card2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:4px}
 .empty-chat-title{font-size:16px;font-weight:600}
 .empty-chat-sub{font-size:13px;color:var(--muted);line-height:1.5}
-
 .input-area{padding:10px 12px;border-top:1px solid var(--border);background:rgba(10,10,15,.95);backdrop-filter:blur(20px);flex-shrink:0}
 .input-row{display:flex;gap:8px;align-items:flex-end}
 .input-wrap{flex:1;background:var(--card2);border:1px solid var(--border);border-radius:20px;padding:2px 14px;display:flex;align-items:center;transition:border-color .2s}
@@ -278,8 +246,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 .send-btn{width:40px;height:40px;min-width:40px;background:linear-gradient(135deg,var(--p),var(--p2));border:none;border-radius:50%;color:#fff;font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 12px rgba(124,58,237,.4);transition:transform .15s}
 .send-btn:active{transform:scale(.9)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed}
-
-/* Toast & progress */
 #toast{position:fixed;bottom:72px;left:50%;transform:translateX(-50%) translateY(14px);background:var(--card2);backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:12px;padding:10px 18px;font-size:13px;font-weight:500;opacity:0;pointer-events:none;transition:all .25s;z-index:999;white-space:nowrap;max-width:90vw}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.err{border-color:rgba(239,68,68,.4);color:#FCA5A5}
@@ -296,14 +262,13 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
 <div id="toast"></div>
 <div id="app">
 
-<!-- ══ WELCOME ══ -->
+<!-- WELCOME -->
 <div id="pgWelcome" class="page active">
   <div class="welcome-left">
     <div class="logo-wrap">
       <div class="logo-ring"><div class="logo-dot"></div></div>
       <div class="logo-ring2"></div>
       <div class="logo-inner">
-        <!-- Brain SVG logo (gradient line-art brain with checkmark) -->
         <svg class="brain-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="brainGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
@@ -312,42 +277,15 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
               <stop offset="100%" stop-color="#7C3AED"/>
             </linearGradient>
           </defs>
-          <!-- Brain outline -->
-          <path d="M32 10
-            C32 10 24 8 20 12
-            C16 16 15 22 16 26
-            C14 27 12 30 13 34
-            C14 38 18 40 20 40
-            C20 44 22 47 26 48
-            C28 49 30 49 32 49
-            C34 49 36 49 38 48
-            C42 47 44 44 44 40
-            C46 40 50 38 51 34
-            C52 30 50 27 48 26
-            C49 22 48 16 44 12
-            C40 8 32 10 32 10Z"
-            stroke="url(#brainGrad)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <!-- Brain center fold -->
-          <path d="M32 10 C32 18 32 32 32 49"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>
-          <!-- Left gyri -->
-          <path d="M16 26 C19 24 22 26 22 29 C22 32 19 33 17 32"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <path d="M15 33 C18 31 22 33 22 37 C22 40 19 41 17 40"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <!-- Right gyri -->
-          <path d="M48 26 C45 24 42 26 42 29 C42 32 45 33 47 32"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <path d="M49 33 C46 31 42 33 42 37 C42 40 45 41 47 40"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <!-- Top gyri -->
-          <path d="M22 14 C24 11 28 11 29 14 C30 17 28 19 26 19"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <path d="M42 14 C40 11 36 11 35 14 C34 17 36 19 38 19"
-            stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
-          <!-- Checkmark at bottom -->
-          <path d="M24 54 L29 59 L40 48"
-            stroke="url(#brainGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M32 10 C32 10 24 8 20 12 C16 16 15 22 16 26 C14 27 12 30 13 34 C14 38 18 40 20 40 C20 44 22 47 26 48 C28 49 30 49 32 49 C34 49 36 49 38 48 C42 47 44 44 44 40 C46 40 50 38 51 34 C52 30 50 27 48 26 C49 22 48 16 44 12 C40 8 32 10 32 10Z" stroke="url(#brainGrad)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M32 10 C32 18 32 32 32 49" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" opacity=".6"/>
+          <path d="M16 26 C19 24 22 26 22 29 C22 32 19 33 17 32" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M15 33 C18 31 22 33 22 37 C22 40 19 41 17 40" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M48 26 C45 24 42 26 42 29 C42 32 45 33 47 32" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M49 33 C46 31 42 33 42 37 C42 40 45 41 47 40" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M22 14 C24 11 28 11 29 14 C30 17 28 19 26 19" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M42 14 C40 11 36 11 35 14 C34 17 36 19 38 19" stroke="url(#brainGrad)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <path d="M24 54 L29 59 L40 48" stroke="url(#brainGrad)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
     </div>
@@ -365,7 +303,7 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
   </div>
 </div>
 
-<!-- ══ DASHBOARD ══ -->
+<!-- DASHBOARD -->
 <div id="pgData" class="page">
   <div class="dh">
     <button class="dh-back" onclick="showPage('pgWelcome')">&#x2039;</button>
@@ -374,10 +312,7 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
       <div class="dh-sub" id="dataSub">Manbalarni boshqaring</div>
     </div>
   </div>
-
   <div class="dash-body" id="dashBody">
-
-    <!-- 1. Connected sources -->
     <div class="dcard" id="cardSources">
       <div class="dcard-head" onclick="toggleCard('cardSourcesBody')">
         <div class="dcard-icon green">&#x1F4CA;</div>
@@ -388,8 +323,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
         <div id="sourceList"><div class="empty-sources" id="emptySrc">Hali manba qo&#x02BC;shilmagan</div></div>
       </div>
     </div>
-
-    <!-- 2. Excel upload -->
     <div class="dcard">
       <div class="dcard-head" onclick="toggleCard('cardExcelBody')">
         <div class="dcard-icon green">&#x1F4C4;</div>
@@ -405,8 +338,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
         <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" onchange="onFileSelected(event)"/>
       </div>
     </div>
-
-    <!-- 3. Google Sheets -->
     <div class="dcard">
       <div class="dcard-head" onclick="toggleCard('cardSheetsBody')">
         <div class="dcard-icon purple">&#x1F517;</div>
@@ -423,8 +354,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
         </div>
       </div>
     </div>
-
-    <!-- 4. Internet search -->
     <div class="dcard">
       <div class="dcard-head">
         <div class="dcard-icon blue">&#x1F310;</div>
@@ -441,8 +370,6 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
         </div>
       </div>
     </div>
-
-    <!-- 5. Help -->
     <div class="dcard">
       <div class="dcard-head" onclick="toggleCard('cardHelpBody')">
         <div class="dcard-icon orange">&#x2753;</div>
@@ -453,14 +380,11 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
         <div id="faqList"></div>
       </div>
     </div>
-
-    <!-- Go to chat -->
     <button class="btn-go" id="goChatBtn" onclick="showPage('pgChat')">Savolga o&#x02BC;tish &#x2192;</button>
-
   </div>
 </div>
 
-<!-- ══ CHAT ══ -->
+<!-- CHAT -->
 <div id="pgChat" class="page">
   <div class="ch">
     <button class="ch-back" onclick="showPage('pgData')">&#x2039;</button>
@@ -487,7 +411,7 @@ html,body{width:100%;height:100%;font-family:'Inter',sans-serif;background:var(-
   </div>
 </div>
 
-</div><!-- #app -->
+</div>
 
 <script>
 const tg=window.Telegram?.WebApp;
@@ -495,9 +419,7 @@ if(tg){tg.ready();tg.expand();}
 const TGU=tg?.initDataUnsafe?.user||{};
 const UID=TGU.id||0;
 const UNAME=TGU.first_name||"Foydalanuvchi";
-
 let lang="uz",sources=[],isLoading=false,webSearch=false;
-
 const I18N={
   uz:{
     welcomeSub:"Excel va Google Sheets ma\u02BClumotlarini AI bilan tahlil qiling",
@@ -565,11 +487,8 @@ const I18N={
     ]
   }
 };
-
 function t(k){return(I18N[lang]||I18N.uz)[k]||k}
-
 const BASE_URL=(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'':'https://conscious-vicki-foundree-91a51cec.koyeb.app';
-
 function showPage(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -577,27 +496,22 @@ function showPage(id){
   else{if(tg)tg.BackButton.hide();}
   if(id==='pgData'){refreshDashboard();}
 }
-
 if(tg)tg.onEvent('backButtonClicked',()=>{
   const a=document.querySelector('.page.active')?.id;
   if(a==='pgChat')showPage('pgData');
   else if(a==='pgData')showPage('pgWelcome');
   else tg.BackButton.hide();
 });
-
 function toggleCard(id){
-  const el=document.getElementById(id);
-  if(!el)return;
+  const el=document.getElementById(id);if(!el)return;
   el.style.display=el.style.display==='none'?'flex':'none';
 }
-
 function setLang(l){
   lang=l;
   document.querySelectorAll('.lang-tab').forEach(b=>b.classList.toggle('active',b.dataset.lang===l));
   applyI18n();
   if(UID)fetch(BASE_URL+'/api/lang',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID,lang:l})});
 }
-
 function applyI18n(){
   const ids=['welcomeSub','startBtn','dataTitle','dataSub','lblConnected','lblExcel','lblSheets',
     'uploadZoneText','goChatBtn','emptyChatText','emptyChatSub','lblWebSearch','webSearchDesc','lblHelp','emptySrc'];
@@ -606,63 +520,40 @@ function applyI18n(){
   const btn=document.getElementById('goChatBtn');if(btn)btn.textContent=t('goChatBtn');
   buildFaq();
 }
-
 function buildFaq(){
   const faqs=t('faqs');if(!Array.isArray(faqs))return;
-  document.getElementById('faqList').innerHTML=faqs.map(f=>`
-    <div class="faq-item">
-      <div class="faq-q">${f.q}</div>
-      <div class="faq-a">${f.a}</div>
-    </div>`).join('');
+  document.getElementById('faqList').innerHTML=faqs.map(f=>`<div class="faq-item"><div class="faq-q">${f.q}</div><div class="faq-a">${f.a}</div></div>`).join('');
 }
-
 function refreshDashboard(){
-  // update sources count badge
   const cnt=document.getElementById('sourcesCount');
   if(cnt){cnt.textContent=sources.length;cnt.className='dcard-badge '+(sources.length>0?'count':'off');}
-  // render source list
-  const list=document.getElementById('sourceList');
-  if(!list)return;
-  if(!sources.length){
-    list.innerHTML=`<div class="empty-sources">${t('emptySrc')}</div>`;
-    return;
-  }
+  const list=document.getElementById('sourceList');if(!list)return;
+  if(!sources.length){list.innerHTML=`<div class="empty-sources">${t('emptySrc')}</div>`;return;}
   list.innerHTML=sources.map((s,i)=>`
     <div class="src-item">
       <div class="src-dot ${s.disabled?'inactive':'active'}"></div>
       <div style="flex:1;min-width:0">
         <div class="src-name">${escHtml(s.name)}</div>
-        <div class="src-meta">${s.rows!=null?s.rows+' qator':''}${s.tabs?' · '+s.tabs.join(', '):''}</div>
+        <div class="src-meta">${s.rows!=null?s.rows+' qator':''}${s.tabs?' \xb7 '+s.tabs.join(', '):''}</div>
       </div>
       <div class="src-actions">
         <button class="src-btn toggle-src ${s.disabled?'off':'on'}" onclick="toggleSource(${i})">${s.disabled?'Off':'On'}</button>
-        <button class="src-btn" onclick="removeSource(${i})" title="O'chirish">&#x2715;</button>
+        <button class="src-btn" onclick="removeSource(${i})" title="O\'chirish">&#x2715;</button>
       </div>
     </div>`).join('');
-  // DON'T auto-open sources card - let user click to expand
-  // document.getElementById('cardSourcesBody').style.display='flex';
 }
-
-function toggleSource(idx){
-  sources[idx].disabled=!sources[idx].disabled;
-  refreshDashboard();refreshHeaderBadges();
-}
-
+function toggleSource(idx){sources[idx].disabled=!sources[idx].disabled;refreshDashboard();refreshHeaderBadges();}
 async function removeSource(idx){
   sources.splice(idx,1);
   if(UID)await fetch(BASE_URL+'/api/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID})});
-  sources=[];
-  refreshDashboard();refreshHeaderBadges();
-  toast("O'chirildi",'ok');
+  sources=[];refreshDashboard();refreshHeaderBadges();toast("O'chirildi",'ok');
 }
-
 function refreshHeaderBadges(){
   const c=document.getElementById('headerBadges');
   const active=sources.filter(s=>!s.disabled);
   if(!active.length){c.innerHTML='<span class="cnone">Ma\u02BClumot yo\u02BCq</span>';return;}
   c.innerHTML=active.map(s=>`<span class="cbadge">${escHtml(s.name)}</span>`).join('');
 }
-
 function onWebToggle(){
   webSearch=document.getElementById('webToggle').checked;
   const b=document.getElementById('webSearchBadge');
@@ -671,7 +562,6 @@ function onWebToggle(){
   if(UID)fetch(BASE_URL+'/api/web_search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID,enabled:webSearch})}).catch(()=>{});
   toast('Internet qidiruv: '+(webSearch?'Yoqildi':'O\u02BCchirildi'),webSearch?'ok':'');
 }
-
 async function onStart(){
   const btn=document.getElementById('startBtn');btn.disabled=true;
   try{
@@ -681,7 +571,6 @@ async function onStart(){
   }catch(e){showPage('pgData');}
   finally{btn.disabled=false;}
 }
-
 async function loadSession(){
   if(!UID)return;
   try{
@@ -689,12 +578,10 @@ async function loadSession(){
     if(r.ok){const d=await r.json();sources=d.sources||[];lang=d.lang||lang;setLang(lang);}
   }catch(e){}
 }
-
 function onDragOver(e){e.preventDefault();document.getElementById('uploadZone').classList.add('drag')}
 function onDragLeave(){document.getElementById('uploadZone').classList.remove('drag')}
 function onDrop(e){e.preventDefault();document.getElementById('uploadZone').classList.remove('drag');const f=e.dataTransfer?.files?.[0];if(f)uploadFile(f);}
 function onFileSelected(e){const f=e.target.files?.[0];if(f)uploadFile(f);e.target.value='';}
-
 async function uploadFile(file){
   if(!file.name.match(/\.(xlsx|xls|xlsm)$/i)){toast('Faqat .xlsx, .xls!','err');return;}
   setProgress(20);
@@ -706,16 +593,16 @@ async function uploadFile(file){
     const r=await fetch(BASE_URL+'/api/upload',{method:'POST',body:fd});
     const d=await r.json();setProgress(90);
     if(d.success){
-      sources=sources.filter(s=>s.type!=='excel');
-      sources.push({name:d.source_name,type:'excel',rows:d.rows,cols:d.cols,disabled:false});
+      const existIdx=sources.findIndex(s=>s.type==='excel'&&s.name===d.source_name);
+      if(existIdx>=0)sources[existIdx]={name:d.source_name,type:'excel',rows:d.rows,cols:d.cols,disabled:false};
+      else sources.push({name:d.source_name,type:'excel',rows:d.rows,cols:d.cols,disabled:false});
       refreshDashboard();refreshHeaderBadges();
       document.getElementById('cardExcelBody').style.display='none';
-      toast(d.source_name+' — '+d.rows+' qator','ok');
+      toast(d.source_name+' \u2014 '+d.rows+' qator','ok');
     }else toast(d.detail||'Xato','err');
   }catch(e){toast('Yuklashda xato','err');}
   finally{setProgress(0);zone.style.opacity='1';document.getElementById('uploadZoneText').textContent=t('uploadZoneText');}
 }
-
 async function connectSheets(){
   const url=document.getElementById('sheetsUrl').value.trim();
   if(!url){toast('URL kiriting','err');return;}
@@ -730,12 +617,11 @@ async function connectSheets(){
       document.getElementById('sheetsUrl').value='';
       document.getElementById('cardSheetsBody').style.display='none';
       refreshDashboard();refreshHeaderBadges();
-      toast(d.source_name+' — '+d.rows+' qator','ok');
+      toast(d.source_name+' \u2014 '+d.rows+' qator','ok');
     }else toast(d.detail||'Xato','err');
   }catch(e){toast('Xato: '+e.message,'err');}
   finally{setProgress(0);btn.disabled=false;btn.textContent='Ulash';}
 }
-
 async function sendMessage(){
   const input=document.getElementById('msgInput');
   const q=input.value.trim();
@@ -749,30 +635,31 @@ async function sendMessage(){
     const r=await fetch(BASE_URL+'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telegram_id:UID||0,message:q})});
     const d=await r.json();el.remove();
     if(d.success){
-      if(d.disambiguation && d.candidates && d.candidates.length > 0){
-        showDisambiguation(d.candidates, q);
-      } else {
-        addMessage(d.answer,'bot',true);
-        if(d.ask_rating) setTimeout(()=>showRatingModal(),1500);
-      }
+      if(d.disambiguation&&d.candidates&&d.candidates.length>0){showDisambiguation(d.candidates,q);}
+      else{addMessage(d.answer,'bot',true);if(d.ask_rating)setTimeout(()=>showRatingModal(),1500);}
     }else addMessage(d.detail||'Xato','bot');
   }catch(e){el.remove();addMessage('Texnik xato','bot');}
   finally{isLoading=false;document.getElementById('sendBtn').disabled=false;input.focus();}
 }
-
-function showDisambiguation(candidates, question){
+function showDisambiguation(candidates,question){
   const msgs=document.getElementById('messages');
   const d=document.createElement('div');d.className='msg bot';
-  let html=`<div class="bubble"><p>📋 <b>${candidates.length} ta o'quvchi topildi.</b> Qaysi birini ko'rmoqchisiz?</p><div class="disambig-list">`;
+  const bubble=document.createElement('div');bubble.className='bubble';
+  const p=document.createElement('p');
+  p.innerHTML=`\uD83D\uDCCB <b>${candidates.length} ta o'quvchi topildi.</b> Qaysi birini ko'rmoqchisiz?`;
+  bubble.appendChild(p);
+  const list=document.createElement('div');list.className='disambig-list';
   candidates.forEach((name,i)=>{
-    html+=`<button class="disambig-btn" onclick="pickDisambig('${escHtml(name)}','${escHtml(question)}')">${i+1}. ${escHtml(name)}</button>`;
+    const btn=document.createElement('button');
+    btn.className='disambig-btn';btn.textContent=`${i+1}. ${name}`;
+    btn.dataset.name=name;btn.dataset.question=question;
+    btn.addEventListener('click',function(){pickDisambig(this.dataset.name,this.dataset.question);});
+    list.appendChild(btn);
   });
-  html+=`</div></div>`;
-  d.innerHTML=html;
+  bubble.appendChild(list);d.appendChild(bubble);
   msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;
 }
-
-async function pickDisambig(chosenName, origQuestion){
+async function pickDisambig(chosenName,origQuestion){
   if(isLoading)return;
   isLoading=true;
   document.querySelectorAll('.disambig-list').forEach(el=>el.closest('.msg')?.remove());
@@ -782,12 +669,10 @@ async function pickDisambig(chosenName, origQuestion){
     const r=await fetch(BASE_URL+'/api/disambiguate',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({telegram_id:UID||0,chosen:chosenName})});
     const d=await r.json();el.remove();
-    if(d.success) addMessage(d.answer,'bot',true);
-    else addMessage(d.detail||'Xato','bot');
+    if(d.success)addMessage(d.answer,'bot',true);else addMessage(d.detail||'Xato','bot');
   }catch(e){el.remove();addMessage('Texnik xato','bot');}
   finally{isLoading=false;document.getElementById('sendBtn').disabled=false;}
 }
-
 function addMessage(text,role,isHtml=false){
   const msgs=document.getElementById('messages');
   const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'bot');
@@ -795,32 +680,33 @@ function addMessage(text,role,isHtml=false){
   if(isHtml)b.innerHTML=tgHtml(text);else b.textContent=text;
   d.appendChild(b);msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;
 }
-
 function addTyping(){
   const msgs=document.getElementById('messages');
   const d=document.createElement('div');d.className='msg bot';
   d.innerHTML='<div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
   msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d;
 }
-
-function tgHtml(t){
-  return t.replace(/&/g,'&amp;')
-    .replace(/</g,'\x01L').replace(/>/g,'\x01G')
-    .replace(/\x01Lb\x01G/g,'<b>').replace(/\x01L\/b\x01G/g,'</b>')
-    .replace(/\x01Li\x01G/g,'<i>').replace(/\x01L\/i\x01G/g,'</i>')
-    .replace(/\x01Lcode\x01G/g,'<code>').replace(/\x01L\/code\x01G/g,'</code>')
-    .replace(/\x01L[^>]*\x01G/g,'').replace(/\n/g,'<br>');
+function tgHtml(text){
+  const ALLOWED={b:'b','/b':'/b',i:'i','/i':'/i',code:'code','/code':'/code',u:'u','/u':'/u',s:'s','/s':'/s'};
+  const parts=text.split(/(<[^>]+>)/g);
+  return parts.map(part=>{
+    if(part.startsWith('<')&&part.endsWith('>')){
+      const inner=part.slice(1,-1).trim().toLowerCase();
+      if(inner.startsWith('a ')||inner==='a')return '<u>';
+      if(inner==='/a')return '</u>';
+      if(ALLOWED[inner])return `<${ALLOWED[inner]}>`;
+      return '';
+    }
+    return part.replace(/&(?!(amp|lt|gt|quot|#\d+|#x[\da-f]+);)/gi,'&amp;').replace(/\n/g,'<br>');
+  }).join('');
 }
-
 function onInputKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}}
 function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
 function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
 let tt;
 function toast(msg,type=''){const el=document.getElementById('toast');el.textContent=msg;el.className='show '+(type||'');clearTimeout(tt);tt=setTimeout(()=>el.className='',3000);}
 function setProgress(p){const el=document.getElementById('progress');el.style.width=p+'%';if(p===0)setTimeout(()=>el.style.width='0%',400);}
-
 window.addEventListener('load',async()=>{
-  // ── Neural Canvas Animation ─────────────────────────────
   (function initNeural(){
     const canvas=document.getElementById('neuralCanvas');
     const ctx=canvas.getContext('2d');
@@ -828,89 +714,52 @@ window.addEventListener('load',async()=>{
     const NODE_COUNT=()=>Math.min(Math.floor(W*H/9000)+28,80);
     const MAX_DIST=()=>Math.min(W,H)*0.28;
     const COLORS=['rgba(124,58,237,','rgba(167,139,250,','rgba(192,86,255,','rgba(219,148,255,'];
-
-    function resize(){
-      W=canvas.width=window.innerWidth;
-      H=canvas.height=window.innerHeight;
-      initNodes();
-    }
-
+    function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;initNodes();}
     function initNodes(){
       const n=NODE_COUNT();
-      nodes=Array.from({length:n},(_,i)=>({
-        x:Math.random()*W, y:Math.random()*H,
-        vx:(Math.random()-.5)*.35,
-        vy:(Math.random()-.5)*.35,
-        r:Math.random()*2+1,
-        pulse:Math.random()*Math.PI*2,
+      nodes=Array.from({length:n},()=>({
+        x:Math.random()*W,y:Math.random()*H,
+        vx:(Math.random()-.5)*.35,vy:(Math.random()-.5)*.35,
+        r:Math.random()*2+1,pulse:Math.random()*Math.PI*2,
         pulseSpeed:Math.random()*.02+.008,
         color:COLORS[Math.floor(Math.random()*COLORS.length)]
       }));
     }
-
     function draw(){
       ctx.clearRect(0,0,W,H);
-      const md=MAX_DIST();
-      const md2=md*md;
-
-      // Connections
+      const md=MAX_DIST(),md2=md*md;
       for(let i=0;i<nodes.length;i++){
         const a=nodes[i];
         for(let j=i+1;j<nodes.length;j++){
-          const b=nodes[j];
-          const dx=a.x-b.x, dy=a.y-b.y;
-          const d2=dx*dx+dy*dy;
+          const b=nodes[j];const dx=a.x-b.x,dy=a.y-b.y;const d2=dx*dx+dy*dy;
           if(d2<md2){
             const alpha=(1-d2/md2)*0.22;
             const grd=ctx.createLinearGradient(a.x,a.y,b.x,b.y);
-            grd.addColorStop(0,a.color+alpha+')');
-            grd.addColorStop(1,b.color+alpha+')');
-            ctx.beginPath();
-            ctx.strokeStyle=grd;
-            ctx.lineWidth=.8;
-            ctx.moveTo(a.x,a.y);
-            ctx.lineTo(b.x,b.y);
-            ctx.stroke();
+            grd.addColorStop(0,a.color+alpha+')');grd.addColorStop(1,b.color+alpha+')');
+            ctx.beginPath();ctx.strokeStyle=grd;ctx.lineWidth=.8;ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
           }
         }
       }
-
-      // Nodes
       nodes.forEach(n=>{
-        n.pulse+=n.pulseSpeed;
-        const glow=.5+.5*Math.sin(n.pulse);
-        const r=n.r+glow*.8;
-        // Outer glow
+        n.pulse+=n.pulseSpeed;const glow=.5+.5*Math.sin(n.pulse);const r=n.r+glow*.8;
         const grd=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*4);
-        grd.addColorStop(0,n.color+(0.25*glow)+')');
-        grd.addColorStop(1,n.color+'0)');
-        ctx.beginPath();ctx.arc(n.x,n.y,r*4,0,Math.PI*2);
-        ctx.fillStyle=grd;ctx.fill();
-        // Core dot
-        ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);
-        ctx.fillStyle=n.color+(0.7+.3*glow)+')';ctx.fill();
-        // Update pos
-        n.x+=n.vx; n.y+=n.vy;
-        if(n.x<-20)n.x=W+20; if(n.x>W+20)n.x=-20;
-        if(n.y<-20)n.y=H+20; if(n.y>H+20)n.y=-20;
+        grd.addColorStop(0,n.color+(0.25*glow)+')');grd.addColorStop(1,n.color+'0)');
+        ctx.beginPath();ctx.arc(n.x,n.y,r*4,0,Math.PI*2);ctx.fillStyle=grd;ctx.fill();
+        ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);ctx.fillStyle=n.color+(0.7+.3*glow)+')';ctx.fill();
+        n.x+=n.vx;n.y+=n.vy;
+        if(n.x<-20)n.x=W+20;if(n.x>W+20)n.x=-20;
+        if(n.y<-20)n.y=H+20;if(n.y>H+20)n.y=-20;
       });
-
       raf=requestAnimationFrame(draw);
     }
-
     window.addEventListener('resize',()=>{cancelAnimationFrame(raf);resize();draw();});
     resize();draw();
-
-    // Pause when not welcome page (perf)
     const observer=new MutationObserver(()=>{
       const active=document.querySelector('.page.active')?.id;
-      if(active==='pgWelcome'){if(!raf)draw();}
-      else{cancelAnimationFrame(raf);raf=null;}
+      if(active==='pgWelcome'){if(!raf)draw();}else{cancelAnimationFrame(raf);raf=null;}
     });
     observer.observe(document.getElementById('app'),{subtree:true,attributes:true,attributeFilter:['class']});
   })();
-  // ── End Neural Canvas ───────────────────────────────────
-
   applyI18n();
   if(UID){
     try{
@@ -944,16 +793,14 @@ window.addEventListener('load',async()=>{
 <script>
 var selectedStars=0;
 function showRatingModal(){
-  var m=document.getElementById('ratingModal');m.classList.add('open');
-  selectedStars=0;
+  var m=document.getElementById('ratingModal');m.classList.add('open');selectedStars=0;
   document.querySelectorAll('.star').forEach(function(s){s.textContent='\u2606';});
   ['ratingName','ratingPhone','ratingComment'].forEach(function(id){document.getElementById(id).value='';});
 }
 function closeRatingModal(){
   var m=document.getElementById('ratingModal');m.classList.remove('open');m.style.display='none';
 }
-document.addEventListener('DOMContentLoaded',async function(){
-  // ── Star rating click handler
+document.addEventListener('DOMContentLoaded',function(){
   var sr=document.getElementById('starRow');
   if(sr)sr.addEventListener('click',function(e){
     var s=e.target.closest('.star');if(!s)return;
@@ -962,34 +809,10 @@ document.addEventListener('DOMContentLoaded',async function(){
       el.textContent=parseInt(el.dataset.v)<=selectedStars?'\u2B50':'\u2606';
     });
   });
-
-  // ── Auto-init: if user is known (opened from Telegram), load session immediately
-  if(UID){
-    const startBtn=document.getElementById('startBtn');
-    if(startBtn){startBtn.disabled=true;startBtn.textContent='...';}
-    try{
-      const r=await fetch(`${BASE_URL}/api/session/${UID}`);
-      if(r.ok){
-        const d=await r.json();
-        sources=d.sources||[];
-        lang=d.lang||lang;
-        setLang(lang);
-        if(sources.length>0){
-          showPage('pgData');
-          refreshDashboard();
-          refreshHeaderBadges();
-        }
-      }
-    }catch(e){}
-    finally{
-      if(startBtn){startBtn.disabled=false;startBtn.textContent=t('startBtn');}
-    }
-  }
 });
 async function submitRating(){
   if(!selectedStars){alert('Iltimos, yulduz tanlang!');return;}
-  var btn=document.getElementById('ratingSubmitBtn');
-  btn.disabled=true;btn.textContent='Yuborilmoqda...';
+  var btn=document.getElementById('ratingSubmitBtn');btn.disabled=true;btn.textContent='Yuborilmoqda...';
   try{
     var uid=(typeof UID!=='undefined')?UID:0;
     var uname='';try{uname=window.Telegram.WebApp.initDataUnsafe.user.username||'';}catch(e){}
