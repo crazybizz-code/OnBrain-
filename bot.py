@@ -34,13 +34,25 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request as GoogleAuthRequest
 
-# MCP Analytics server — fuzzy search + column-aware math
+# ─── MCP Analytics — in-process (subprocess yo'q, tez va xavfsiz) ────────────
+# analyze_excel / analyze_sheets funksiyalari to'g'ridan-to'g'ri import qilinadi.
+# subprocess orqali call_mcp_tool ham import qilinadi (fallback uchun).
 try:
-    from mcp_server import call_mcp_tool as _mcp_call
+    from mcp_server import analyze_excel as _mcp_excel
+    from mcp_server import analyze_sheets as _mcp_sheets
     _MCP_AVAILABLE = True
+    logging.getLogger("onbrain").info("MCP server: in-process mode ✅")
 except Exception as _mcp_import_err:
     _MCP_AVAILABLE = False
+    _mcp_excel = None   # type: ignore
+    _mcp_sheets = None  # type: ignore
     logging.getLogger("onbrain").warning(f"MCP server import failed: {_mcp_import_err}")
+
+# Compatibility alias (subprocess wrapper — fallback yoki tashqi chaqiruvlar uchun)
+try:
+    from mcp_server import call_mcp_tool as _mcp_call_subprocess
+except Exception:
+    _mcp_call_subprocess = None  # type: ignore
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -1703,22 +1715,33 @@ async def _mcp_analytics_answer(question: str, s: "Session") -> str | None:
     """
     MCP server orqali fuzzy qidiruv va column-aware matematik hisoblash.
 
-    Qachon chaqiriladi:
-      - _python_answer() None qaytarganda (odam topilmadi YOKI aggregate savol)
+    Arxitektura — 3-qatlam (layered fallback):
+      CASE A  →  _python_answer()          exact / AND-OR qidiruv  (bu yerda emas)
+      CASE B  →  _mcp_analytics_answer()   fuzzy + aggregate        ← shu funksiya
+      CASE C  →  Grok AI                   LLM tahlil               (bu yerda emas)
+
+    Ishlash tartibi:
+      1. In-process: _mcp_excel() / _mcp_sheets() — subprocess yo'q, tez (ms)
+      2. run_in_executor — asyncio event loop bloklanmaydi
+      3. Xato yuz bersa → None (keyingi qatlamga o'tiladi)
 
     Qo'llab-quvvatlanadigan manbalar:
-      - google_sheets: source_url mavjud bo'lsa → analyze_sheets
-      - excel: data ro'yxati mavjud bo'lsa → vaqtinchalik CSV fayl yaratib → analyze_excel
+      • google_sheets  — source_url orqali → analyze_sheets()
+      • excel          — in-memory data → vaqtinchalik CSV → analyze_excel()
 
-    Xavfsizlik:
-      - _MCP_AVAILABLE=False bo'lsa → None qaytaradi (bot ishlashda davom etadi)
-      - Har qanday xato try-except bilan ushlanadi
-      - 'error:' bilan boshlanadigan javoblar → None (Grok'ka o'tadi)
+    Filtrlash:
+      • "error:"     bilan boshlanadigan javob → None  (Grok'ka o'tadi)
+      • "[NOT FOUND]" bor javob              → None  (Grok'ka o'tadi)
     """
     if not _MCP_AVAILABLE or not s.sources:
         return None
 
-    import tempfile, csv as _csv, os as _os
+    import tempfile
+    import csv as _csv
+    import os as _os
+    import asyncio as _asyncio
+
+    loop = _asyncio.get_event_loop()
 
     for src in s.sources:
         stype = src.get("source_type", "")
@@ -1730,31 +1753,37 @@ async def _mcp_analytics_answer(question: str, s: "Session") -> str | None:
                 url = src.get("source_url", "").strip()
                 if not url:
                     continue
-                result = await _mcp_call("analyze_sheets",
-                                         sheet_url=url,
-                                         user_query=question)
+
+                def _run_sheets(u=url, q=question):
+                    return _mcp_sheets({"sheet_url": u, "user_query": q})
+
+                result = await loop.run_in_executor(None, _run_sheets)
+
                 if result and not result.startswith("error:") and "[NOT FOUND]" not in result:
                     return f"<b>{sname}:</b>\n{result}"
 
-            # ── Excel / boshqa manbalar: xotiradagi data → vaqtinchalik CSV ─
+            # ── Excel: in-memory data → vaqtinchalik CSV → analyze_excel ────
             elif stype == "excel":
                 data = src.get("data")
                 if not isinstance(data, list) or len(data) < 2:
                     continue
-                # Vaqtinchalik CSV fayl yaratish (tempdir da, xavfsiz)
-                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix="onbrain_mcp_")
-                try:
-                    with _os.fdopen(tmp_fd, "w", newline="", encoding="utf-8") as fh:
-                        writer = _csv.writer(fh)
-                        writer.writerows(data)
-                    result = await _mcp_call("analyze_excel",
-                                             file_path=tmp_path,
-                                             user_query=question)
-                finally:
+
+                # CSV ni executor ichida yozib, o'qib, o'chiramiz
+                def _run_excel(rows=data, q=question):
+                    tmp_fd, tmp_path = tempfile.mkstemp(
+                        suffix=".csv", prefix="onbrain_mcp_"
+                    )
                     try:
-                        _os.unlink(tmp_path)   # Vaqtinchalik faylni darhol o'chirish
-                    except Exception:
-                        pass
+                        with _os.fdopen(tmp_fd, "w", newline="", encoding="utf-8") as fh:
+                            _csv.writer(fh).writerows(rows)
+                        return _mcp_excel({"file_path": tmp_path, "user_query": q})
+                    finally:
+                        try:
+                            _os.unlink(tmp_path)
+                        except Exception:
+                            pass
+
+                result = await loop.run_in_executor(None, _run_excel)
 
                 if result and not result.startswith("error:") and "[NOT FOUND]" not in result:
                     return f"<b>{sname}:</b>\n{result}"
