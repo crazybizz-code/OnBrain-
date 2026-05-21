@@ -33,6 +33,14 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request as GoogleAuthRequest
+
+# MCP Analytics server — fuzzy search + column-aware math
+try:
+    from mcp_server import call_mcp_tool as _mcp_call
+    _MCP_AVAILABLE = True
+except Exception as _mcp_import_err:
+    _MCP_AVAILABLE = False
+    logging.getLogger("onbrain").warning(f"MCP server import failed: {_mcp_import_err}")
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -1691,6 +1699,73 @@ def _get_person_candidates_from_question(question: str) -> list:
     return candidates
 
 
+async def _mcp_analytics_answer(question: str, s: "Session") -> str | None:
+    """
+    MCP server orqali fuzzy qidiruv va column-aware matematik hisoblash.
+
+    Qachon chaqiriladi:
+      - _python_answer() None qaytarganda (odam topilmadi YOKI aggregate savol)
+
+    Qo'llab-quvvatlanadigan manbalar:
+      - google_sheets: source_url mavjud bo'lsa → analyze_sheets
+      - excel: data ro'yxati mavjud bo'lsa → vaqtinchalik CSV fayl yaratib → analyze_excel
+
+    Xavfsizlik:
+      - _MCP_AVAILABLE=False bo'lsa → None qaytaradi (bot ishlashda davom etadi)
+      - Har qanday xato try-except bilan ushlanadi
+      - 'error:' bilan boshlanadigan javoblar → None (Grok'ka o'tadi)
+    """
+    if not _MCP_AVAILABLE or not s.sources:
+        return None
+
+    import tempfile, csv as _csv, os as _os
+
+    for src in s.sources:
+        stype = src.get("source_type", "")
+        sname = src.get("source_name", "Manba")
+
+        try:
+            # ── Google Sheets: URL orqali to'g'ridan-to'g'ri ────────────────
+            if stype == "google_sheets":
+                url = src.get("source_url", "").strip()
+                if not url:
+                    continue
+                result = await _mcp_call("analyze_sheets",
+                                         sheet_url=url,
+                                         user_query=question)
+                if result and not result.startswith("error:") and "[NOT FOUND]" not in result:
+                    return f"<b>{sname}:</b>\n{result}"
+
+            # ── Excel / boshqa manbalar: xotiradagi data → vaqtinchalik CSV ─
+            elif stype == "excel":
+                data = src.get("data")
+                if not isinstance(data, list) or len(data) < 2:
+                    continue
+                # Vaqtinchalik CSV fayl yaratish (tempdir da, xavfsiz)
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".csv", prefix="onbrain_mcp_")
+                try:
+                    with _os.fdopen(tmp_fd, "w", newline="", encoding="utf-8") as fh:
+                        writer = _csv.writer(fh)
+                        writer.writerows(data)
+                    result = await _mcp_call("analyze_excel",
+                                             file_path=tmp_path,
+                                             user_query=question)
+                finally:
+                    try:
+                        _os.unlink(tmp_path)   # Vaqtinchalik faylni darhol o'chirish
+                    except Exception:
+                        pass
+
+                if result and not result.startswith("error:") and "[NOT FOUND]" not in result:
+                    return f"<b>{sname}:</b>\n{result}"
+
+        except Exception as exc:
+            logger.warning(f"[MCP] {stype}/{sname} — xato: {exc}")
+            continue
+
+    return None
+
+
 def _build_slim_context(sess: "Session", question: str) -> str:
     """Grok uchun kontekst: faqat header + savol kalit so'zlari bor qatorlar (max 50 qator/sheet).
     Agar hech narsa topilmasa — to'liq kontekst qaytariladi."""
@@ -3149,12 +3224,22 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
             return
 
         # CASE B: Python None qaytardi — ism qidiruvi bo'lganmi tekshir
-        # Agar savol ism qidiruvi bo'lsa va Python None qaytarsa →
-        # ma'lumot topilmadi, Grok chaqirmasdan "topilmadi" xabarini ber
+        # Avval MCP fuzzy qidiruv bilan ikkinchi imkon beriladi
         if not sess.web_search:
             _person_cands = _get_person_candidates_from_question(question)
             if _person_cands:
-                logger.info(f"Person query, py_ans=None → topilmadi (no Grok) uid={uid} cands={_person_cands}")
+                # MCP ikkinchi imkon: fuzzy matching bilan qayta qidirish
+                try:
+                    mcp_ans = await _mcp_analytics_answer(question, sess)
+                except Exception as _mcp_e:
+                    logger.warning(f"[MCP-B] fuzzy fallback xato: {_mcp_e}")
+                    mcp_ans = None
+                if mcp_ans:
+                    logger.info(f"[MCP-B] Fuzzy hit uid={uid} cands={_person_cands}")
+                    await msg.answer(mcp_ans, parse_mode="HTML", reply_markup=kb_chat(lang))
+                    return
+                # MCP ham topa olmadi → "topilmadi" xabar
+                logger.info(f"Person query, py_ans=None, mcp=None → topilmadi uid={uid} cands={_person_cands}")
                 searched = ", ".join(f"<b>{c.capitalize()}</b>" for c in _person_cands[:3])
                 await msg.answer(
                     f"❌ {searched} — ma'lumotlar bazasida topilmadi.\n\n"
@@ -3164,7 +3249,19 @@ def register(dp: Dispatcher, config: Config, bot: Bot):
                 )
                 return
 
-        # CASE C: Odam emas, tahlil/hisoblash savoli → Grok'ka yubor
+        # CASE C: Odam emas — tahlil/hisoblash savoli
+        # Avval MCP column-aware math bilan javob berishga urinish (Grok dan tez va arzon)
+        try:
+            mcp_analytics = await _mcp_analytics_answer(question, sess)
+        except Exception as _mcp_e:
+            logger.warning(f"[MCP-C] analytics xato: {_mcp_e}")
+            mcp_analytics = None
+        if mcp_analytics:
+            logger.info(f"[MCP-C] Analytics hit uid={uid}")
+            await msg.answer(mcp_analytics, parse_mode="HTML", reply_markup=kb_chat(lang))
+            return
+
+        # CASE C fallback: Grok'ka yubor
         # Lekin butun jadvalni emas — faqat savol bilan bog'liq qatorlarni yubor
         if not config.grok_key:
             ctx = build_context(sess)
